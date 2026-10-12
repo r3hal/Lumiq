@@ -1,0 +1,94 @@
+# Upload the CONTENTS of the Focal folder to the root of your Git repository.
+# First run ios-check. Configure Apple signing before running ios-testflight.
+workflows:
+  ios-sideload:
+    name: Focal - unsigned IPA for free personal sideloading
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+    scripts:
+      - name: Build native iPhone app without a distribution certificate
+        script: |
+          set -euo pipefail
+          xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/Focal.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+      - name: Package unsigned app for AltStore Classic to sign
+        script: |
+          set -euo pipefail
+          test -d build/Focal.xcarchive/Products/Applications/Focal.app
+          mkdir -p build/sideload/Payload
+          ditto build/Focal.xcarchive/Products/Applications/Focal.app build/sideload/Payload/Focal.app
+          cd build/sideload
+          ditto -c -k --keepParent Payload ../Focal-unsigned.ipa
+    artifacts:
+      - build/Focal-unsigned.ipa
+
+  ios-check:
+    name: Focal - build and test (no Apple signing required)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+    scripts:
+      - name: Build and run composition tests on a simulator
+        script: |
+          set -euo pipefail
+          SIMULATOR_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath build/FocalTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO test
+    artifacts:
+      - build/FocalTests.xcresult
+
+  ios-testflight:
+    name: Focal - signed upload for TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    integrations:
+      # Use this exact name for the API key in Codemagic Team integrations.
+      app_store_connect: Focal App Store Connect
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        # Replace both occurrences with the bundle ID you register with Apple.
+        bundle_identifier: com.example.focal
+      vars:
+        BUNDLE_ID: com.example.focal
+    scripts:
+      - name: Set your app identifier
+        script: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          bundle = os.environ['BUNDLE_ID']
+          if bundle == 'com.example.focal':
+              raise SystemExit('Replace com.example.focal in both places in codemagic.yaml with your registered bundle ID.')
+          project = Path('Focal.xcodeproj/project.pbxproj')
+          project.write_text(project.read_text().replace('com.example.focal', bundle))
+          PY
+      - name: Apply uploaded signing certificate and provisioning profile
+        script: xcode-project use-profiles
+      - name: Increment build number
+        script: |
+          set -euo pipefail
+          xcrun agvtool new-version -all "$((BUILD_NUMBER + 1))"
+      - name: Build signed IPA
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa --project Focal.xcodeproj --scheme Focal
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Upload only. Add yourself as an internal tester in App Store Connect.
+        # This does not submit the app for a public App Store release.
+        submit_to_testflight: false
+        submit_to_app_store: false

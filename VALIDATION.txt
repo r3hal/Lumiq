@@ -1,0 +1,5 @@
+PASS: Swift grammar parsed 13 source files.
+PASS: Xcode project parsed; all Swift source references present.
+PASS: Info/privacy plists and shared scheme XML parsed.
+PASS: Asset catalog referenced image files exist.
+NOT RUN: Xcode compilation, XCTest, simulator and physical camera tests (Apple toolchain unavailable).
