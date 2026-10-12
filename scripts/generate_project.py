@@ -52,7 +52,7 @@ common = dict(SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="17.0", SWIFT_VERSI
 app = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.example.focal",
            INFOPLIST_FILE="Focal/Resources/Info.plist", GENERATE_INFOPLIST_FILE="NO",
            ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", TARGETED_DEVICE_FAMILY="1",
-           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="5", MARKETING_VERSION="1.4", VERSIONING_SYSTEM="apple-generic",
+           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="6", MARKETING_VERSION="1.5", VERSIONING_SYSTEM="apple-generic",
            SUPPORTED_PLATFORMS="iphoneos iphonesimulator", SUPPORTS_MACCATALYST="NO",
            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"],
            ENABLE_PREVIEWS="YES")
@@ -116,12 +116,16 @@ info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplay
             CFBundleExecutable="$(EXECUTABLE_NAME)", CFBundleIdentifier="$(PRODUCT_BUNDLE_IDENTIFIER)",
             CFBundleInfoDictionaryVersion="6.0", CFBundleName="$(PRODUCT_NAME)", CFBundlePackageType="APPL",
             CFBundleShortVersionString="$(MARKETING_VERSION)", CFBundleVersion="$(CURRENT_PROJECT_VERSION)",
+            NSLocalNetworkUsageDescription="Focal connects only to the Sony camera address you choose for real wireless live view and advertised camera controls.",
+            NSAppTransportSecurity=dict(NSAllowsLocalNetworking=True,
+                NSExceptionDomains={address:dict(NSExceptionAllowsInsecureHTTPLoads=True)
+                    for address in ["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16"]}),
             LSRequiresIPhoneOS=True, UILaunchScreen={}, UIAppFonts=["Fonts/EBGaramond-Italic.ttf"],
             UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"],
             UIApplicationSceneManifest=dict(UIApplicationSupportsMultipleScenes=False),
             NSCameraUsageDescription="Focal uses your camera to help you compose and capture photos. Frames are analyzed only on your iPhone.",
             NSLocationWhenInUseUsageDescription="Focal uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.",
-            NSMotionUsageDescription="Focal uses your phone’s motion to show a level guide while you compose.",
+            NSMotionUsageDescription="Focal uses phone motion to wait for a steady hold before automatic framing and to provide an optional level guide.",
             NSPhotoLibraryAddUsageDescription="Save the photos you choose from Focal to your iPhone photo library.")
 (ROOT / "Focal/Resources/Info.plist").write_bytes(plistlib.dumps(info))
 privacy = dict(NSPrivacyTracking=False, NSPrivacyTrackingDomains=[], NSPrivacyCollectedDataTypes=[],

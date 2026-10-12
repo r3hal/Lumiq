@@ -17,7 +17,7 @@ struct CompositionOverlay: View {
     let reading: CompositionReading
     let showGrid: Bool
     let guideEnabled: Bool
-    var showLevel = true
+    var showLevel = false
     var subjectLabel = "Subject"
     var framingPhase: FramingPhase = .off
     var body: some View {
@@ -30,26 +30,22 @@ struct CompositionOverlay: View {
                 Rectangle().fill(abs(reading.rollDegrees) < 4 ? Palette.mint : Palette.yellow)
                     .frame(width: 2, height: 16).position(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
-            if guideEnabled, let point = reading.subject {
-                if framingPhase.isPreparing, let rect = reading.subjectBounds {
-                    RoundedRectangle(cornerRadius: 7).stroke(Palette.yellow, lineWidth: 1.5)
-                        .frame(width: rect.width * geometry.size.width, height: rect.height * geometry.size.height)
-                        .position(x: rect.midX * geometry.size.width, y: rect.midY * geometry.size.height)
+            if guideEnabled, reading.subjectConfidence >= 0.4, let actual = reading.subjectBounds {
+                let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
+                if !rect.isNull && rect.width > 0 && rect.height > 0 {
+                    RoundedRectangle(cornerRadius:6).stroke(Palette.yellow,lineWidth:1.3)
+                        .frame(width:rect.width*geometry.size.width,height:rect.height*geometry.size.height)
+                        .position(x:rect.midX*geometry.size.width,y:rect.midY*geometry.size.height)
+                        .transition(.opacity)
+                    Text(subjectLabel.lowercased()).font(.system(size:11,weight:.medium)).lineLimit(2)
+                        .foregroundStyle(Palette.yellow).padding(.horizontal,7).padding(.vertical,4)
+                        .background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:5))
+                        .position(x:min(geometry.size.width-65,max(65,rect.midX*geometry.size.width)),
+                                  y:min(geometry.size.height-18,max(18,rect.maxY*geometry.size.height+14)))
                 }
-                if reading.state == .adjusting && !framingPhase.isPreparing {
-                    Image(systemName: "plus").font(.system(size: 16, weight: .light)).foregroundStyle(Palette.yellow)
-                        .position(x: reading.target.x * geometry.size.width, y: reading.target.y * geometry.size.height)
-                }
-                HStack(spacing: 5) {
-                    Circle().fill(framingPhase.isPreparing ? Palette.yellow : Palette.mint).frame(width: 4, height: 4)
-                    Text(subjectLabel.lowercased()).font(.system(size: 12, weight: .semibold)).lineLimit(2)
-                }
-                .foregroundStyle(framingPhase.isPreparing ? Palette.yellow : Palette.mint).padding(.horizontal, 8).padding(.vertical, 5)
-                .frame(maxWidth: 145, alignment: .leading)
-                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
-                .position(x: min(geometry.size.width - 78, max(78, point.x * geometry.size.width)),
-                          y: min(geometry.size.height - 26, max(26, (reading.subjectBounds?.maxY ?? point.y) * geometry.size.height + 18)))
             }
-        }.allowsHitTesting(false).accessibilityHidden(true)
+        }.animation(.linear(duration:0.16),value:reading.subjectBounds)
+            .animation(.easeOut(duration:0.18),value:reading.subjectBounds != nil)
+            .allowsHitTesting(false).accessibilityHidden(true)
     }
 }

@@ -7,6 +7,7 @@ final class SubjectTracker {
     private var sequence = VNSequenceRequestHandler()
     private var tracking: VNTrackObjectRequest?
     private var candidates: [VNDetectedObjectObservation] = []
+    private var selectedPoint: CGPoint?
     private var lastDetection: TimeInterval = -.infinity
     private var lastClassification: TimeInterval = -.infinity
     private(set) var manual = false
@@ -15,7 +16,7 @@ final class SubjectTracker {
     func reset() {
         sequence = VNSequenceRequestHandler()
         tracking = nil
-        candidates = []
+        candidates = []; selectedPoint = nil
         lastDetection = -.infinity
         lastClassification = -.infinity
         manual = false
@@ -28,9 +29,10 @@ final class SubjectTracker {
         let selected = nearby.min {
             $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
         }
-        let rect = CGRect(x: max(0, min(0.82, point.x - 0.09)),
-                          y: max(0, min(0.82, point.y - 0.09)), width: 0.18, height: 0.18)
-        start(selected ?? VNDetectedObjectObservation(boundingBox: rect))
+        selectedPoint = point
+        sequence = VNSequenceRequestHandler(); tracking = nil
+        if let selected { start(selected) }
+        lastDetection = -.infinity
         manual = true
         label = "Your subject"
     }
@@ -50,18 +52,22 @@ final class SubjectTracker {
             } catch { /* Lost tracking: reacquire rather than presenting a guessed position. */ }
             self.tracking = nil
             sequence = VNSequenceRequestHandler()
-            manual = false
-            label = "Auto subject"
+            manual = selectedPoint != nil
+            label = manual ? "Your subject" : "Auto subject"
         }
         guard timestamp - lastDetection >= 0.65 else { return nil }
         lastDetection = timestamp
         let faces = VNDetectFaceRectanglesRequest()
+        let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
         let saliency = VNGenerateAttentionBasedSaliencyImageRequest()
         let animals = VNRecognizeAnimalsRequest()
         do {
-            try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, animals, saliency])
+            try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, people, animals, saliency])
             let faceCandidates: [VNDetectedObjectObservation] = (faces.results ?? []).filter {
                 $0.confidence >= 0.5 && valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
+            }
+            let personCandidates: [VNDetectedObjectObservation] = (people.results ?? []).filter {
+                $0.confidence >= 0.6 && valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
             }
             let objects: [VNDetectedObjectObservation] = (saliency.results?.first?.salientObjects ?? []).filter {
                 valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
@@ -69,12 +75,17 @@ final class SubjectTracker {
             let animalCandidates = (animals.results ?? []).filter {
                 $0.confidence >= 0.5 && ($0.labels.first?.confidence ?? 0) >= 0.5 && valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
             }
-            candidates = faceCandidates + animalCandidates + objects
+            candidates = personCandidates + faceCandidates + animalCandidates + objects
             // Semantic pet boxes avoid zooming into the surrounding bed or background.
-            let choices: [VNDetectedObjectObservation] = !faceCandidates.isEmpty ? faceCandidates
-                : !animalCandidates.isEmpty ? animalCandidates : objects
-            guard let selected = choices.max(by: { score($0.boundingBox) < score($1.boundingBox) }) else { return nil }
-            if !faceCandidates.isEmpty { label = "Person" }
+            let choices: [VNDetectedObjectObservation] = !personCandidates.isEmpty ? personCandidates
+                : !faceCandidates.isEmpty ? faceCandidates : !animalCandidates.isEmpty ? animalCandidates : objects
+            let selected: VNDetectedObjectObservation?
+            if let point = selectedPoint {
+                selected = candidates.filter { $0.boundingBox.insetBy(dx:-0.04,dy:-0.04).contains(point) }
+                    .min { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height }
+            } else { selected = choices.max(by: { score($0.boundingBox) < score($1.boundingBox) }) }
+            guard let selected else { return nil }
+            if selected is VNFaceObservation || selected is VNHumanObservation { label = "Person" }
             else if let animal = selected as? VNRecognizedObjectObservation, let name = animal.labels.first?.identifier {
                 label = name.capitalized
             } else { label = "Auto subject" }
@@ -104,6 +115,7 @@ final class SubjectTracker {
         start(VNDetectedObjectObservation(boundingBox: clipped))
         self.label = label
         self.manual = manual
+        if manual { selectedPoint = CGPoint(x:clipped.midX,y:clipped.midY) }
         lastClassification = -.infinity
     }
 
@@ -116,7 +128,7 @@ final class SubjectTracker {
 
     private func valid(_ rect: CGRect) -> Bool {
         let area = rect.width * rect.height
-        return area > 0.002 && area < 0.72 && rect.midX >= 0 && rect.midX <= 1 && rect.midY >= 0 && rect.midY <= 1
+        return area > 0.002 && area < 0.98 && rect.midX >= 0 && rect.midX <= 1 && rect.midY >= 0 && rect.midY <= 1
     }
 
     private func score(_ rect: CGRect) -> Double {

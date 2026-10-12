@@ -7,8 +7,12 @@ final class PreviewSurface: UIView {
     var onFocus: ((CGPoint) -> Void)?
     var onSelect: ((UnitPoint2D) -> Void)?
     var onZoom: ((Double) -> Void)?
+    var onPinchBegin: ((@escaping (Double)->Void)->Void)?
     var currentZoom: Double = 1
     private var pinchStart: Double = 1
+    private var pinching = false
+    private var baseReady = false
+    private var pendingScale: CGFloat = 1
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -36,11 +40,23 @@ final class PreviewSurface: UIView {
         } completion: { _ in indicator.removeFromSuperview() }
     }
     @objc private func didPinch(_ gesture: UIPinchGestureRecognizer) {
-        if gesture.state == .began { pinchStart = currentZoom }
-        if gesture.state == .began || gesture.state == .changed {
-            onZoom?(pinchStart * Double(gesture.scale))
+        if gesture.state == .began {
+            pinching = true; baseReady = false; pendingScale = gesture.scale
+            if let onPinchBegin {
+                onPinchBegin { [weak self] actual in
+                    guard let self,self.pinching else { return }
+                    self.pinchStart = actual; self.baseReady = true
+                    if abs(self.pendingScale-1) > 0.001 { self.onZoom?(actual*Double(self.pendingScale)) }
+                }
+            } else { pinchStart = currentZoom; baseReady = true }
         }
+        if gesture.state == .changed {
+            pendingScale = gesture.scale
+            if baseReady { onZoom?(pinchStart*Double(gesture.scale)) }
+        }
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed { pinching = false; baseReady = false }
     }
+
 }
 
 struct CameraPreview: UIViewRepresentable {
@@ -49,6 +65,7 @@ struct CameraPreview: UIViewRepresentable {
     let onSelect: (UnitPoint2D) -> Void
     let onZoom: (Double) -> Void
     let zoom: Double
+    let onPinchBegin: (@escaping (Double)->Void)->Void
     var mirrored = false
 
     func makeUIView(context: Context) -> PreviewSurface {
@@ -58,6 +75,7 @@ struct CameraPreview: UIViewRepresentable {
         view.onFocus = onFocus
         view.onSelect = onSelect
         view.onZoom = onZoom
+        view.onPinchBegin = onPinchBegin
         view.currentZoom = zoom
         rotate(view)
         return view
@@ -68,6 +86,7 @@ struct CameraPreview: UIViewRepresentable {
         view.onFocus = onFocus
         view.onSelect = onSelect
         view.onZoom = onZoom
+        view.onPinchBegin = onPinchBegin
         rotate(view)
     }
     private func rotate(_ view: PreviewSurface) {

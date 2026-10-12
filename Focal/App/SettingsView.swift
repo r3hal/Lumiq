@@ -4,6 +4,9 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: CameraSettings
     @EnvironmentObject private var library: PhotoLibrary
     @ObservedObject var camera: CameraController
+    var source: CameraSource = .iPhone
+    var sonyResolution = "—"
+    var sonyModel = "Model not reported"
     @Environment(\.dismiss) private var dismiss
     @State private var showPrivacy = false
     @State private var showGuide = false
@@ -29,13 +32,18 @@ struct SettingsView: View {
                         }.padding(.horizontal, 15).frame(height: 44).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
                     }
                     section("CAMERA") {
-                        settingToggle("Grid", value: $settings.grid)
+                        settingToggle("Optional grid", value: $settings.grid)
                         separator
-                        settingToggle("Level", value: $settings.level)
+                        settingToggle("Optional level", value: $settings.level)
                         separator
-                        settingToggle("Automatic framing", value: $settings.autoFrame)
+                        settingToggle("Automatic zoom", value: $settings.autoFrame).disabled(source == .sony)
                         separator
-                        settingToggle("Smart shutter",value: $settings.smartShutter)
+                        VStack(alignment:.leading) {
+                            Text(String(format:"Hold steady: %.1f s",settings.holdDuration)).font(.subheadline)
+                            Slider(value:$settings.holdDuration,in:0.5...2,step:0.1).tint(Palette.yellow)
+                        }.padding(15).disabled(source == .sony)
+                        separator
+                        settingToggle("Smart shutter",value: $settings.smartShutter).disabled(source == .sony)
                         separator
                         settingToggle("Measured coach",value: $settings.coach)
                         separator
@@ -46,7 +54,7 @@ struct SettingsView: View {
                         settingToggle("Shutter Sound", value: Binding(
                             get: { camera.canMuteShutter ? settings.shutterSound : true },
                             set: { settings.shutterSound = $0 }
-                        )).disabled(!camera.canMuteShutter)
+                        )).disabled(!camera.canMuteShutter || source == .sony)
                         separator
                         settingToggle("Save the scan", value: $settings.saveScan)
                         separator
@@ -73,9 +81,11 @@ struct SettingsView: View {
                         Text("This iPhone/iOS combination controls the camera shutter sound.")
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
+                    if source == .sony { Text("Sony mode uses actual received frames and advertised controls. Lens zoom and exposure adjustment remain on the camera; iPhone capture options do not control Sony.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
+                    Text("Optional grid/level guides are off by default. Automatic guidance uses a tracked subject box, phone motion and a steady hold. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text("Smart shutter is off by default and takes one shot/series per scan when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
-                    Text("Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; scan starts a new frame.")
+                    Text(source == .sony ? "Sony last received live view: \(sonyModel) · \(sonyResolution). Stream quality is set by the camera; lens zoom stays on the camera." : "Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; scan starts a new frame.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     section("LIBRARY") {
                         settingToggle("Also Save to Photos", value: $settings.autoSaveToPhotos)
@@ -95,7 +105,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.4 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.5 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -106,7 +116,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showPrivacy) {
             NavigationStack {
                 ScrollView {
-                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no accounts, analytics or cloud AI. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nSubject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
+                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no accounts, analytics or cloud AI. Optional Sony mode communicates only with the local camera address you select for received live view and advertised controls. Analysis still runs on your iPhone. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nSubject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
                         .padding(24).lineSpacing(5)
                 }.navigationTitle("Privacy Policy").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showPrivacy = false } } }

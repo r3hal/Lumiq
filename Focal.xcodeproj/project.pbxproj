@@ -75,6 +75,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "583C1B623B2F53A6C2B54CE2";
 		};
+		"60764D36D93D574522D81545" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Camera/CameraTelemetry.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"C83EAF631BB664BD92B59518" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "60764D36D93D574522D81545";
+		};
 		"FF367A3984DC926EE202E1E7" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -114,6 +124,16 @@
 		"AF7CF0039AA6A478054A4F74" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "A4DDB49B1C57E418C87447D2";
+		};
+		"4F0B6A4BA0C036BAC4E6BF81" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Composition/AutomaticGuidance.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"A8050E43CC47E05A923BDEDF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4F0B6A4BA0C036BAC4E6BF81";
 		};
 		"6E4E878846C3CA82F93F896F" = {
 			"isa" = "PBXFileReference";
@@ -285,6 +305,56 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "BA502165D9AE20709ECA1FDE";
 		};
+		"0BFD36576976F65FAA195F73" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Sony/SonyAPIClient.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"21C7292B0B3115496CAD3FCF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0BFD36576976F65FAA195F73";
+		};
+		"7AC2AB9391626665CE476033" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Sony/SonyConnectionView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"F7C44D8554BCD0D9E9CC9ACB" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7AC2AB9391626665CE476033";
+		};
+		"2976BE912D8C8856D784CD9B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Sony/SonyProtocol.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"37651303F9B15B1F6FC4CEB6" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2976BE912D8C8856D784CD9B";
+		};
+		"4C2456AE42D163AA55DE96B1" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Sony/SonyRemoteCamera.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"C155C902E2F09D19AF171308" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4C2456AE42D163AA55DE96B1";
+		};
+		"8D544D873E9D1D8F2B1D55DA" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/AutomaticGuidanceTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"8B435A17FF8393DB5C21028E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8D544D873E9D1D8F2B1D55DA";
+		};
 		"6C59DDF893487355855966AD" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -324,6 +394,16 @@
 		"220AB2911A116948FB1E5960" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "9F5036EBFA1C8C5D9E47EE12";
+		};
+		"242DF3E0A9F1F6F3BB9ED4C8" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/SonyProtocolTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"51F9F50945A826860F384807" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "242DF3E0A9F1F6F3BB9ED4C8";
 		};
 		"F2DD12ACA0C49E571FEEC22F" = {
 			"isa" = "PBXFileReference";
@@ -394,10 +474,12 @@
 				"08E18AD6EA1A26C47D3BC7CD",
 				"80ECA8EE485556FF2ED3D571",
 				"583C1B623B2F53A6C2B54CE2",
+				"60764D36D93D574522D81545",
 				"FF367A3984DC926EE202E1E7",
 				"B3082BDAB83FE3C7E798BE98",
 				"8BF606DC98693D26A8466994",
 				"A4DDB49B1C57E418C87447D2",
+				"4F0B6A4BA0C036BAC4E6BF81",
 				"6E4E878846C3CA82F93F896F",
 				"FD37C76EF9CE840E81963971",
 				"F6B45CBABD2940697E419928",
@@ -415,6 +497,10 @@
 				"12DB100F191C0631373C9542",
 				"A68677DF34CF4EA07C9634D5",
 				"BA502165D9AE20709ECA1FDE",
+				"0BFD36576976F65FAA195F73",
+				"7AC2AB9391626665CE476033",
+				"2976BE912D8C8856D784CD9B",
+				"4C2456AE42D163AA55DE96B1",
 			);
 			"name" = "Focal";
 			"sourceTree" = "<group>";
@@ -433,10 +519,12 @@
 		"C4E2E7F217DE3642E7714F4E" = {
 			"isa" = "PBXGroup";
 			"children" = (
+				"8D544D873E9D1D8F2B1D55DA",
 				"6C59DDF893487355855966AD",
 				"EEFCE77D5F23C2EC45C8B7B1",
 				"8324D6A7CE9CC4869FAFC59D",
 				"9F5036EBFA1C8C5D9E47EE12",
+				"242DF3E0A9F1F6F3BB9ED4C8",
 			);
 			"name" = "FocalTests";
 			"sourceTree" = "<group>";
@@ -461,8 +549,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "5";
-				"MARKETING_VERSION" = "1.4";
+				"CURRENT_PROJECT_VERSION" = "6";
+				"MARKETING_VERSION" = "1.5";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -484,8 +572,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "5";
-				"MARKETING_VERSION" = "1.4";
+				"CURRENT_PROJECT_VERSION" = "6";
+				"MARKETING_VERSION" = "1.5";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -517,10 +605,12 @@
 				"D128142C592100D17B572CF6",
 				"84E527555B3F57EC22BD06F4",
 				"C8AC88BB57A63BBE5A83FCD8",
+				"C83EAF631BB664BD92B59518",
 				"26754B6C149AA3B77FB06954",
 				"2BE25F7A30CD371A7ACA8FC9",
 				"88185BBBF818E10442A1F864",
 				"AF7CF0039AA6A478054A4F74",
+				"A8050E43CC47E05A923BDEDF",
 				"E88EC3256DD45FF9D3E77C96",
 				"07566F72E315C53805A9A166",
 				"23F2E3F4C147C1257AB0482D",
@@ -538,6 +628,10 @@
 				"0F07C9BF6F00C1C768086473",
 				"07D67FDE4FB164F1EED5C1B4",
 				"685992A3C82CA4C48C1D9E58",
+				"21C7292B0B3115496CAD3FCF",
+				"F7C44D8554BCD0D9E9CC9ACB",
+				"37651303F9B15B1F6FC4CEB6",
+				"C155C902E2F09D19AF171308",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -636,10 +730,12 @@
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+				"8B435A17FF8393DB5C21028E",
 				"AD8878812FD5ECECD7F0C16D",
 				"787FF8FAE389531F79179B70",
 				"A28AFF7E2E2C652907EAA52C",
 				"220AB2911A116948FB1E5960",
+				"51F9F50945A826860F384807",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};

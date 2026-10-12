@@ -21,6 +21,7 @@ struct CompositionReading {
     var state: State = .searching
     var subject: UnitPoint2D?
     var subjectBounds: CGRect?
+    var subjectConfidence: Float = 0
     var target = UnitPoint2D(x: 2.0 / 3, y: 1.0 / 3)
     var rollDegrees: Double = 0
     var title = "Find something worth a second look"

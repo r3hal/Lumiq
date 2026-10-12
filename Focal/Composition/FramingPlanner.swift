@@ -10,25 +10,27 @@ struct FramingPlanner {
     private(set) var phase: FramingPhase = .searching
     private var stableSince: TimeInterval?
     private var previous: CGRect?
+    private var anchor: CGRect?
 
     mutating func reset(enabled: Bool) {
         phase = enabled ? .searching : .off
         stableSince = nil
-        previous = nil
+        previous = nil; anchor = nil
     }
     mutating func finish() { phase = .framed }
 
     mutating func update(bounds: CGRect?, confidence: Float, roll: Double, timestamp: TimeInterval,
-                         currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = []) -> Double? {
+                         currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = [], deviceStable: Bool = true, holdDuration: Double = 0.75, previewAspect: Double = 0.75) -> Double? {
+        guard [roll,timestamp,currentZoom,maximumZoom,holdDuration,previewAspect].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, previewAspect > 0 else { return nil }
         guard phase != .off, phase != .framed, phase != .zooming else { return nil }
         guard let bounds, valid(bounds), confidence >= 0.6 else {
-            phase = .searching; stableSince = nil; previous = nil
+            phase = .searching; stableSince = nil; previous = nil; anchor = nil
             return nil
         }
         defer { previous = bounds }
         let dx = Double(bounds.midX) - 0.5
         let dy = Double(bounds.midY) - 0.5
-        guard abs(dx) <= 0.075, abs(dy) <= 0.075, abs(roll) <= 4 else {
+        guard hypot(dx,dy/max(0.1,previewAspect)) <= 0.04, abs(roll) <= 4 else {
             phase = .aligning; stableSince = nil
             return nil
         }
@@ -37,12 +39,19 @@ struct FramingPlanner {
             stableSince = nil
         }
         phase = .settling
-        if stableSince == nil { stableSince = timestamp }
-        guard timestamp - (stableSince ?? timestamp) >= 0.75 else { return nil }
+        if !deviceStable { stableSince = nil; anchor = nil; return nil }
+        if let anchor, hypot(Double(anchor.midX-bounds.midX),Double(anchor.midY-bounds.midY)) > 0.04
+            || abs(anchor.width-bounds.width) > 0.06 || abs(anchor.height-bounds.height) > 0.06 {
+            stableSince = nil; self.anchor = nil
+        }
+        if stableSince == nil { stableSince = timestamp; anchor = bounds }
+        guard timestamp - (stableSince ?? timestamp) >= max(0.5,min(2,holdDuration)) else { return nil }
         // Account for the off-center extent, so zoom never cuts off the selected subject.
         let fit = min(0.72 / (Double(bounds.width) + 2 * abs(dx)),
                       0.62 / (Double(bounds.height) + 2 * abs(dy)))
-        let desired = max(currentZoom, min(maximumZoom, currentZoom * min(5, fit)))
+        let centerDistance = hypot(dx,dy/max(0.1,previewAspect))
+        let positionLimit = centerDistance > 0.01 ? 0.06/centerDistance : 5
+        let desired = max(currentZoom,min(maximumZoom,currentZoom*min(5,min(fit,positionLimit))))
         // Above the preview pixel budget, prefer an actual lens position.
         // A telephoto lens does not make all intermediate digital zooms optical.
         let target: Double

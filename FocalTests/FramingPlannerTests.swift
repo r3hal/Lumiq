@@ -52,7 +52,7 @@ final class FramingPlannerTests: XCTestCase {
 
     func testZoomRespectsDeviceLimitAndKeepsWholeSubject() throws {
         var planner = FramingPlanner()
-        let bounds = CGRect(x: 0.42, y: 0.36, width: 0.3, height: 0.3)
+        let bounds = CGRect(x: 0.38, y: 0.36, width: 0.3, height: 0.3)
         _ = update(&planner, at: 0, bounds: bounds, limit: 2)
         let zoom = try XCTUnwrap(update(&planner, at: 1, bounds: bounds, limit: 2))
         XCTAssertLessThanOrEqual(zoom, 2)
@@ -121,4 +121,33 @@ final class FramingPlannerTests: XCTestCase {
         XCTAssertEqual(SubjectAdvice.text(for: "Subject"), "Isolate your subject, tighten the frame.")
         XCTAssertEqual(SubjectAdvice.text(for: "Cathedral"), "Isolate the cathedral, tighten the frame.")
     }
+    func testPhysicalMotionRestartsConfiguredHoldDuration() {
+        var planner = FramingPlanner()
+        func step(_ time:Double,_ stable:Bool) -> Double? {
+            planner.update(bounds:subject,confidence:1,roll:0,timestamp:time,currentZoom:1,maximumZoom:3,deviceStable:stable,holdDuration:1.2)
+        }
+        XCTAssertNil(step(0,true)); XCTAssertNil(step(1,false))
+        XCTAssertNil(step(1.1,true)); XCTAssertNil(step(2.2,true))
+        XCTAssertNotNil(step(2.4,true))
+    }
+    func testSlowSubjectDriftRestartsDwell() {
+        var planner = FramingPlanner()
+        func step(_ time:Double,_ x:Double) -> Double? {
+            planner.update(bounds:CGRect(x:x,y:0.4,width:0.2,height:0.2),confidence:1,roll:0,timestamp:time,currentZoom:1,maximumZoom:3,holdDuration:1.5)
+        }
+        XCTAssertNil(step(0,0.37)); XCTAssertNil(step(0.5,0.39)); XCTAssertNil(step(1,0.415))
+        XCTAssertNil(step(1.5,0.43)) // Aggregate drift invalidates the original anchor.
+        XCTAssertNil(step(2,0.43)); XCTAssertNotNil(step(2.6,0.43))
+    }
+    func testOffCenterZoomRetainsCompositionAndInvalidZoomCannotStart() throws {
+        let bounds = CGRect(x:0.42,y:0.4,width:0.2,height:0.2)
+        var planner = FramingPlanner()
+        _ = update(&planner,at:0,bounds:bounds)
+        let zoom = try XCTUnwrap(update(&planner,at:1,bounds:bounds))
+        let rect = FramingPlanner.zoomedRect(bounds,scale:zoom)
+        XCTAssertLessThanOrEqual(abs(rect.midX-0.5),0.065)
+        planner.reset(enabled:true)
+        XCTAssertNil(planner.update(bounds:subject,confidence:1,roll:0,timestamp:0,currentZoom:.nan,maximumZoom:3))
+    }
+
 }

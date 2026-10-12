@@ -134,4 +134,18 @@ final class PhotoFeatureTests: XCTestCase {
         XCTAssertEqual(library.photos.count,2)
     }
 
+    func testCleanViewMigrationPreservesLaterOptInAndOtherSettings() throws {
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        defaults.set(true,forKey:"camera.grid"); defaults.set(true,forKey:"camera.level")
+        defaults.set("1:1",forKey:"camera.aspect")
+        let migrated = CameraSettings(defaults:defaults)
+        XCTAssertFalse(migrated.grid); XCTAssertFalse(migrated.level); XCTAssertEqual(migrated.aspect,.square)
+        XCTAssertTrue(migrated.autoFrame); XCTAssertEqual(migrated.holdDuration,0.9)
+        migrated.grid = true; migrated.level = true; migrated.holdDuration = 1.5
+        let reopened = CameraSettings(defaults:defaults)
+        XCTAssertTrue(reopened.grid); XCTAssertTrue(reopened.level); XCTAssertEqual(reopened.holdDuration,1.5)
+    }
+
 }

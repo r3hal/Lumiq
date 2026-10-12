@@ -2,6 +2,8 @@ import SwiftUI
 
 struct CameraView: View {
     @StateObject private var camera = CameraController()
+    @StateObject private var sony = SonyRemoteCamera()
+    @State private var source: CameraSource = .iPhone
     @EnvironmentObject private var library: PhotoLibrary
     @EnvironmentObject private var settings: CameraSettings
     @Environment(\.scenePhase) private var scenePhase
@@ -15,14 +17,17 @@ struct CameraView: View {
     @State private var referenceOpacity = 0.35
     @State private var smartGate = SmartShutterGate()
     @State private var seriesProgress = ""
+    @State private var showExposureAdjustment = false
+    @State private var captureTask: Task<Void,Never>?
+    @State private var captureGeneration = UUID()
     @State private var showSettings = false
     @State private var showLibrary = false
-    @State private var mode: CompositionMode = .thirds
+    @State private var mode: CompositionMode = .centered
     @State private var corner: Int?
     @State private var saving = false
     @State private var saved = false
     private var reading: CompositionReading { camera.reading }
-    private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming }
+    private var canShoot: Bool { (source == .sony ? sony.canCapture : (demo || camera.isRunning)) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming }
     private var subjectName: String { ["Auto subject", "Your subject"].contains(camera.subjectLabel) ? "Subject" : camera.subjectLabel }
     private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
 
@@ -41,18 +46,29 @@ struct CameraView: View {
         .onAppear {
             visible = true
             camera.setPreviewPixelWidth(Double(UIScreen.main.bounds.width * UIScreen.main.scale))
+            let analyzer = camera
+            sony.onJPEG = { [weak analyzer] in analyzer?.analyzeExternalFrame($0) }
+            camera.setAnalysisSource(source)
+            camera.setHoldDuration(settings.holdDuration)
             camera.setCoach(settings.coach)
             camera.setMode(mode)
             camera.setAutoFraming(settings.autoFrame)
             camera.setGuidance(settings.guide)
             camera.setPreviewAspect(settings.aspect.ratio)
-            if !demo { camera.start() }
+            resume()
         }
-        .onDisappear { visible = false; camera.stop() }
+        .onDisappear { visible = false; pauseActiveSource() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active && visible && !demo && !showSettings && !showLibrary && !showReference && !showExplore { camera.start() }
-            else { camera.stop() }
+            if phase == .active && visible && !showSettings && !showLibrary && !showReference && !showExplore { resume() }
+            else { pauseActiveSource() }
         }
+        .onChange(of: source) { _,value in
+            captureGeneration = UUID(); captureTask?.cancel(); saving = false; seriesProgress = ""
+            camera.stop(); sony.disconnect(); demo = false; showExposure = false
+            smartGate.reset(); camera.setAnalysisSource(value)
+            if value == .iPhone { camera.start() }
+        }
+        .onChange(of: settings.holdDuration) { _,value in camera.setHoldDuration(value) }
         .onChange(of: settings.coach) { _, value in camera.setCoach(value) }
         .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
         .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
@@ -63,7 +79,7 @@ struct CameraView: View {
         .onChange(of: reading.state) { old, new in
             if old != .ready && new == .ready && settings.guide { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
         }
-        .fullScreenCover(isPresented: $showSettings, onDismiss: resume) { SettingsView(camera: camera) }
+        .fullScreenCover(isPresented: $showSettings, onDismiss: resume) { SettingsView(camera:camera,source:source,sonyResolution:sony.resolution,sonyModel:sony.model) }
         .sheet(isPresented: $showLibrary, onDismiss: resume) { LibraryView() }
         .sheet(isPresented: $showReference, onDismiss: resume) { ReferenceOverlayView(image: $reference,opacity: $referenceOpacity) }
         .sheet(isPresented: $showExplore, onDismiss: resume) { ExploreView() }
@@ -71,8 +87,8 @@ struct CameraView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(settings.smartShutter ? 250 : 1000))
                 guard !Task.isCancelled else { return }
-                let active = visible && scenePhase == .active && !demo && !showSettings && !showLibrary && !showReference && !showExplore
-                if smartGate.shouldCapture(enabled: settings.smartShutter && settings.guide,ready: reading.state == .ready && !camera.framingPhase.isPreparing,
+                let active = visible && scenePhase == .active && !demo && source == .iPhone && !showSettings && !showLibrary && !showReference && !showExplore
+                if smartGate.shouldCapture(enabled: settings.smartShutter && settings.guide,ready: reading.state == .ready && camera.guidance.kind == .ready && !camera.framingPhase.isPreparing,
                                            active: active,busy: !canShoot,zooming: camera.framingPhase == .zooming) { shoot() }
             }
         }
@@ -88,7 +104,7 @@ struct CameraView: View {
                     Image(systemName: settings.aspect == .square ? "square" : settings.aspect.ratio > 1 ? "rectangle" : "rectangle.portrait").font(.system(size: 17))
                     VStack(alignment: .leading, spacing: 0) {
                         Text(settings.aspect.rawValue).font(.system(size: 13, weight: .semibold))
-                        if settings.raw && camera.supportsRAW {
+                        if settings.raw && camera.supportsRAW && source == .iPhone {
                             Text("RAW").font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(Palette.yellow)
                         }
                     }
@@ -100,44 +116,62 @@ struct CameraView: View {
             Button { settings.flash = CameraFlash.allCases[(settings.flash.rawValue + 1) % CameraFlash.allCases.count] } label: {
                 Image(systemName: settings.flash.symbol).font(.system(size: 19)).frame(width: 30, height: 44)
                     .foregroundStyle(settings.flash == .off ? Color.white : Palette.yellow)
-            }.disabled(!camera.supportsFlash || demo).accessibilityLabel("Flash \(settings.flash.label)")
+            }.disabled(!camera.supportsFlash || demo || source == .sony).accessibilityLabel("Flash \(settings.flash.label)")
+            Button { showAspect = false; showExposure.toggle(); showExposureAdjustment = false } label: {
+                HStack(spacing:5) {
+                    Image(systemName:"camera.aperture").font(.system(size:19))
+                    Image(systemName:showExposure ? "chevron.up" : "chevron.down").font(.system(size:8))
+                }.frame(height:44).foregroundStyle(showExposure ? Palette.yellow : .white)
+            }.accessibilityLabel("Expand camera exposure settings")
             Menu {
+                Picker("Camera Source",selection:$source) {
+                    ForEach(CameraSource.allCases) { Text($0.rawValue).tag($0) }
+                }
+                Button("Settings",systemImage:"gearshape") { pauseActiveSource(); showSettings = true }
                 Toggle("Composition guide", isOn: $settings.guide)
-                Button("Switch camera", systemImage: "camera.rotate") { camera.switchCamera() }.disabled(demo)
-                Button("Exposure", systemImage: "plusminus.circle") { showExposure.toggle() }.disabled(demo)
-                Toggle("Smart shutter", isOn: $settings.smartShutter)
+                Button("Switch camera", systemImage: "camera.rotate") { camera.switchCamera() }.disabled(demo || source == .sony)
+                Toggle("Smart shutter", isOn: $settings.smartShutter).disabled(source == .sony)
+                Toggle("Automatic zoom",isOn:$settings.autoFrame).disabled(source == .sony)
                 Toggle("Measured coach",isOn: $settings.coach)
-                Button("Reference overlay",systemImage: "photo.on.rectangle") { camera.stop(); showReference = true }
-                Button("Explore & practice",systemImage: "sparkles") { camera.stop(); showExplore = true }
+                Button("Reference overlay",systemImage: "photo.on.rectangle") { pauseActiveSource(); showReference = true }
+                Button("Explore & practice",systemImage: "sparkles") { pauseActiveSource(); showExplore = true }
                 Picker("Composition", selection: $mode) {
                     Text("Thirds").tag(CompositionMode.thirds)
                     Text("Center").tag(CompositionMode.centered)
-                }
+                }.disabled(settings.autoFrame && source == .iPhone)
                 Button("Change thirds corner") {
                     corner = ((CompositionEngine.thirdsTargets.firstIndex(of: reading.target) ?? 0) + 1) % 4
-                }.disabled(mode != .thirds)
+                }.disabled(mode != .thirds || (settings.autoFrame && source == .iPhone))
+                if source == .sony { Button("Disconnect Sony",role:.destructive) { sony.disconnect(); camera.findSubject() } }
             } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "camera.aperture").font(.system(size: 19))
-                    Image(systemName: "chevron.down").font(.system(size: 8))
-                }.frame(height: 44)
-            }.accessibilityLabel("Guide and composition options")
-            Button { showAspect = false; camera.stop(); showSettings = true } label: {
-                Image(systemName: "ellipsis").font(.system(size: 21, weight: .bold)).frame(width: 30, height: 44)
-            }.accessibilityLabel("Settings")
-        }.padding(.horizontal, 20).disabled(saving || camera.isCapturing || camera.isSwitchingCamera || camera.framingPhase == .zooming)
+                Image(systemName:"ellipsis").font(.system(size:21,weight:.bold)).frame(width:30,height:44)
+            }.accessibilityLabel("Camera Source and settings")
+
+        }.padding(.horizontal,20).disabled(source == .iPhone && (saving || camera.isCapturing || camera.isSwitchingCamera))
     }
 
     private var viewfinder: some View {
         ZStack(alignment: .topLeading) {
-            if demo {
+            if source == .sony {
+                if let frame = sony.frame {
+                    GeometryReader { geo in
+                        Image(uiImage:frame).resizable().scaledToFill().frame(width:geo.size.width,height:geo.size.height).clipped()
+                            .contentShape(Rectangle()).onTapGesture { point in
+                                let visible = UnitPoint2D(x:point.x/geo.size.width,y:point.y/geo.size.height)
+                                camera.selectSubject(at:visible)
+                                let projection = PreviewProjection(imageAspect:Double(frame.size.width/frame.size.height),previewAspect:settings.aspect.ratio)
+                                sony.focus(at:projection.imagePoint(visible))
+                            }
+                    }
+                } else { SonyConnectionView(camera:sony) { source = .iPhone }.frame(maxWidth:.infinity,maxHeight:.infinity) }
+            } else if demo {
                 GeometryReader { geometry in
                     Image("DemoScene").resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 }
                 Text("DEMO").font(.caption.weight(.bold)).padding(12).foregroundStyle(Palette.yellow)
             } else if camera.access == .available {
                 CameraPreview(session: camera.session, onFocus: { camera.focus(at: $0) },
-                              onSelect: { smartGate.reset(); camera.selectSubject(at: $0) }, onZoom: { camera.setZoom($0) }, zoom: camera.zoom, mirrored: camera.isFrontCamera)
+                              onSelect: { smartGate.reset(); camera.selectSubject(at: $0) }, onZoom: { camera.setZoom($0) }, zoom: camera.zoom, onPinchBegin:{ camera.beginManualZoom(completion:$0) }, mirrored: camera.isFrontCamera)
                     .disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
             } else { permissionView.frame(maxWidth: .infinity, maxHeight: .infinity) }
             if camera.isSwitchingCamera {
@@ -148,36 +182,52 @@ struct CameraView: View {
                     Image(uiImage: reference).resizable().scaledToFill().frame(width: geo.size.width,height: geo.size.height).clipped().opacity(referenceOpacity)
                 }.allowsHitTesting(false)
             }
-            if demo || camera.access == .available {
+            if (source == .iPhone && !demo && camera.access == .available) || (source == .sony && sony.frame != nil) {
                 CompositionOverlay(reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
-                                   showLevel: settings.level && camera.levelReliable, subjectLabel: subjectName, framingPhase: camera.framingPhase)
+                                   showLevel: settings.level && camera.levelReliable && source == .iPhone, subjectLabel: subjectName, framingPhase: camera.framingPhase)
             }
-            if settings.coach && !showExposure && !showAspect {
+            if settings.coach && !showExposure && !showAspect && (source == .iPhone ? camera.isRunning : sony.frame != nil) {
                 VStack(alignment: .leading,spacing: 3) {
                     if let scene = camera.sceneLabel { Text("Frame label: \(scene)") }
                     if let measured = camera.liveMeasurements { Text(String(format: "Technical measure %.0f/100",measured.technicalScore)) }
                     if let alignment = reading.alignmentPercent(previewAspect: settings.aspect.ratio) { Text(String(format: "Guide alignment %.0f%%",alignment)) }
                 }.font(.caption2).padding(7).background(.black.opacity(0.55),in: RoundedRectangle(cornerRadius: 7)).padding(12).allowsHitTesting(false)
             }
-            if showExposure {
-                VStack(spacing: 8) {
-                    HStack {
-                        Text(String(format: "Exposure %+.1f EV", camera.exposureBias)).font(.caption)
-                        Spacer()
-                        Button("Reset") { camera.setExposure(0) }
-                        Button { showExposure = false } label: { Image(systemName: "xmark") }
-                    }
-                    Slider(value: Binding(get: { Double(camera.exposureBias) }, set: { camera.setExposure(Float($0)) }),
-                           in: Double(camera.exposureRange.lowerBound)...Double(camera.exposureRange.upperBound))
-                        .tint(Palette.yellow)
-                }.padding(14).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 14)).padding(12)
-                    .disabled(saving || camera.isCapturing || camera.isSwitchingCamera || camera.framingPhase == .zooming)
-            }
             if showAspect {
                 Color.clear.contentShape(Rectangle()).onTapGesture { showAspect = false }
                 aspectMenu.padding(.leading, 12).padding(.top, 8)
             }
-        }.clipped()
+        }.clipped().overlay(alignment:.bottom) {
+            if showExposure { exposureStrip.padding(.horizontal,10).padding(.bottom,8).transition(.move(edge:.bottom).combined(with:.opacity)) }
+        }.animation(.easeInOut(duration:0.2),value:showExposure)
+    }
+
+    private var exposureStrip: some View {
+        let live = source == .iPhone && !demo ? camera.telemetry : source == .sony ? sony.telemetry : CameraTelemetry()
+        return VStack(spacing:8) {
+            HStack(spacing:0) {
+                Text(live.mode ?? "—").foregroundStyle(Palette.yellow).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth:.infinity)
+                    .accessibilityLabel("Exposure mode \(live.mode ?? "unavailable"), read only")
+                Divider().frame(height:14)
+                Text(live.shutter ?? "—").frame(maxWidth:.infinity).accessibilityLabel("Shutter speed \(live.shutter ?? "unavailable"), read only")
+                Divider().frame(height:14)
+                Text(live.iso.map { "ISO \($0)" } ?? "ISO —").frame(maxWidth:.infinity).accessibilityLabel("ISO \(live.iso ?? "unavailable"), read only")
+                Divider().frame(height:14)
+                Button { showExposureAdjustment.toggle() } label: {
+                    Text(live.ev == 0 ? "±0" : live.evLabel).foregroundStyle(showExposureAdjustment ? Palette.yellow : .white).frame(maxWidth:.infinity)
+                }.disabled(source == .sony || demo || saving || camera.isCapturing || camera.framingPhase == .zooming)
+                    .accessibilityLabel("Exposure compensation \(live.evLabel)").accessibilityHint(source == .iPhone ? "Adjust compensation" : "Read only; adjust on camera")
+            }.font(.system(size:12,weight:.medium)).frame(height:28)
+            if showExposureAdjustment && source == .iPhone && !demo {
+                Slider(value:Binding(get:{ Double(camera.exposureBias) },set:{ camera.setExposure(Float($0)) }),
+                       in:Double(camera.exposureRange.lowerBound)...Double(camera.exposureRange.upperBound)).tint(Palette.yellow)
+                    .disabled(saving || camera.isCapturing || camera.framingPhase == .zooming)
+                HStack {
+                    Text(live.aperture.map { "\($0) · fixed lens aperture" } ?? "Fixed lens aperture").font(.caption2).foregroundStyle(.secondary)
+                    Spacer(); Button("Reset EV") { camera.setExposure(0) }.font(.caption)
+                }
+            }
+        }.padding(.horizontal,10).padding(.vertical,4).background(.black.opacity(0.82),in:RoundedRectangle(cornerRadius:9))
     }
 
     private var aspectMenu: some View {
@@ -203,9 +253,9 @@ struct CameraView: View {
                     Image(systemName: "camera.aperture").foregroundStyle(Palette.yellow).font(.system(size: 13))
                     Text(camera.supportsProRAW ? "ProRAW" : "RAW").font(.system(size: 16, weight: .medium))
                 }
-            }.tint(Palette.yellow).controlSize(.mini).disabled(!camera.supportsRAW || demo)
+            }.tint(Palette.yellow).controlSize(.mini).disabled(!camera.supportsRAW || demo || source == .sony)
                 .padding(.horizontal, 14).padding(.bottom, 13)
-            if !camera.supportsRAW {
+            if !camera.supportsRAW || source == .sony {
                 Text("Unavailable on this camera").font(.system(size: 9)).foregroundStyle(.secondary)
                     .padding(.horizontal, 14).padding(.bottom, 10)
             }
@@ -217,7 +267,8 @@ struct CameraView: View {
             Text(instruction).font(.system(size: 12, weight: .medium)).foregroundStyle(camera.framingPhase.isPreparing || (camera.framingPhase == .off && reading.state == .adjusting) ? Palette.yellow : Palette.mint)
                 .lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: .infinity).frame(height: 29).padding(.horizontal, 12)
             HStack(spacing: 7) {
-                ForEach(demo ? [1.0] : camera.zoomStops, id: \.self) { stop in
+                if source == .sony { Text("Sony lens · zoom on camera").font(.caption).foregroundStyle(.secondary) }
+                ForEach(source == .sony ? [] : demo ? [1.0] : camera.zoomStops, id: \.self) { stop in
                     let selected = closestStop == stop
                     Button { camera.setZoom(stop) } label: {
                         Text(zoomLabel(selected ? camera.zoom : stop))
@@ -229,7 +280,7 @@ struct CameraView: View {
                 }
             }.frame(height: 43)
             HStack {
-                Button { camera.stop(); showLibrary = true } label: { libraryThumbnail }
+                Button { pauseActiveSource(); showLibrary = true } label: { libraryThumbnail }
                     .accessibilityLabel("Open photo library").disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
                 Spacer()
                 Button(action: shoot) {
@@ -242,12 +293,11 @@ struct CameraView: View {
                 Spacer()
                 Button {
                     if demo { demo = false; camera.start() }
-                    if camera.framingPhase.isPreparing { camera.cancelAutoFraming() }
-                    else { settings.guide = true; corner = nil; smartGate.reset(); camera.findSubject() }
+                    settings.guide = true; smartGate.reset(); camera.findSubject()
                 } label: {
-                    Image(systemName: camera.framingPhase.isPreparing ? "xmark" : "arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
+                    Image(systemName:"arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
                         .frame(width: 48, height: 48).background(Palette.yellow.opacity(0.13), in: Circle())
-                }.accessibilityLabel(camera.framingPhase.isPreparing ? "Cancel automatic framing" : "Scan scene and select a new subject").disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
+                }.accessibilityLabel("Scan scene and select a new subject").disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
             }.padding(.horizontal, 54).frame(height: 80)
             Spacer(minLength: 0)
         }.background(.black)
@@ -265,35 +315,10 @@ struct CameraView: View {
         if !seriesProgress.isEmpty { return seriesProgress }
         if saved { return "Saved to your library." }
         if demo { return "Demo scene. Tap scan to return to the camera." }
-        if !settings.guide {
-            if settings.coach, let advice = camera.coachAdvice.first { return advice }
-            return "Tap to focus. Pinch to zoom."
-        }
-        switch camera.framingPhase {
-        case .searching: return "Finding your subject… Tap it to select."
-        case .aligning:
-            if abs(reading.rollDegrees) > 4 { return "Level your phone." }
-            if let point = reading.subject {
-                let dx = point.x - 0.5, dy = (point.y - 0.5) / settings.aspect.ratio
-                let direction = abs(dx) > abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
-                return "Move your phone \(direction)."
-            }
-            return "Keep your subject in view."
-        case .settling: return "Centered — framing up…"
-        case .zooming: return "Framing your shot…"
-        case .framed:
-            if reading.subject == nil { return "Subject lost. Tap scan or select it again." }
-            if abs(reading.rollDegrees) > 4 { return "Level your phone." }
-            if settings.coach, let advice = camera.coachAdvice.first { return advice }
-            return SubjectAdvice.text(for: subjectName)
-        case .off: break
-        }
-        switch reading.state {
-        case .searching: return "Point at a subject. Tap scan or select it yourself."
-        case .adjusting: return reading.title + "."
-        case .settling: return "Hold steady. Keep the subject in the guide."
-        case .ready: return SubjectAdvice.text(for: subjectName)
-        }
+        if source == .sony && sony.state != .streaming { return sony.state == .connecting ? "Connecting to Sony…" : "Connect a Sony camera for guidance" }
+        if !settings.guide { return "Tap to select. Frame manually." }
+        if camera.guidance.kind == .ready,settings.coach,let advice = camera.coachAdvice.first { return camera.guidance.text+" · "+advice }
+        return camera.guidance.text
     }
 
     private var permissionView: some View {
@@ -311,7 +336,12 @@ struct CameraView: View {
         }.padding(24).multilineTextAlignment(.center)
     }
 
-    private func resume() { if visible && scenePhase == .active && !demo { camera.start() } }
+    private func pauseActiveSource() { camera.stop(); sony.pause() }
+    private func resume() {
+        guard visible,scenePhase == .active else { return }
+        if source == .iPhone { if !demo { camera.start() } }
+        else { sony.resume() }
+    }
     private func zoomLabel(_ value: Double) -> String {
         abs(value.rounded() - value) < 0.04 ? String(format: "%.0f×", value) : String(format: "%.1f×", value)
     }
@@ -321,7 +351,10 @@ struct CameraView: View {
         smartGate.consume()
         showAspect = false; showExposure = false; saving = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let count = demo ? 1 : settings.burstCount
+        let capturedSource = source
+        let capturedDemo = demo && source == .iPhone
+        let operation = UUID(); captureGeneration = operation
+        let count = capturedDemo || source == .sony ? 1 : settings.burstCount
         let burst = count > 1 ? UUID() : nil
         let aspect = settings.aspect, caption = settings.caption
         let keepRAW = settings.keepRAW, autoSave = settings.autoSaveToPhotos
@@ -329,15 +362,16 @@ struct CameraView: View {
         let label = subjectName
         let capturedMode = settings.guide ? mode.rawValue : "Free shoot"
         let challenge = settings.challenge.isEmpty ? nil : settings.challenge
-        let options = CaptureOptions(raw: settings.raw && camera.supportsRAW,flash: settings.flash,shutterSound: settings.shutterSound)
-        Task {
+        let options = CaptureOptions(raw: settings.raw && camera.supportsRAW && source == .iPhone,flash: settings.flash,shutterSound: settings.shutterSound)
+        captureTask = Task {
             var added = [SavedPhoto]()
             do {
                 for index in 0..<count {
                     guard scenePhase == .active && visible else { break }
                     seriesProgress = count > 1 ? "Capturing \(index+1) of \(count)…" : "Saving…"
                     let capture: CameraCapture
-                    if demo {
+                    if capturedSource == .sony { capture = try await sony.capture() }
+                    else if capturedDemo {
                         guard let bytes = UIImage(named: "DemoScene")?.jpegData(compressionQuality: 0.95) else { throw CameraController.CameraError.missingPhoto }
                         capture = CameraCapture(processed: bytes,raw: nil)
                     } else {
@@ -345,11 +379,13 @@ struct CameraView: View {
                             camera.capture(options: options) { continuation.resume(with: $0) }
                         }
                     }
+                    try Task.checkCancellation()
                     let rendered = try await Task.detached(priority: .userInitiated) {
                         let processed = try PhotoRenderer.crop(capture.processed,to: aspect)
                         return (processed, index == 0 ? scan.flatMap { PhotoRenderer.captionedScan($0,style: caption) } : nil)
                     }.value
-                    let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: demo,
+                    try Task.checkCancellation()
+                    let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: capturedDemo,
                         rawData: keepRAW ? capture.raw : nil,originalData: rendered.0 == capture.processed ? nil : capture.processed,
                         scanData: rendered.1,aspect: aspect.rawValue,subject: label,challenge: challenge,burstID: burst)
                     added.append(photo)
@@ -361,13 +397,15 @@ struct CameraView: View {
                         catch { camera.errorMessage = "Saved in Focal. Photos export: \(error.localizedDescription)"; break }
                     }
                 }
-                saved = !added.isEmpty
+                if operation == captureGeneration { saved = !added.isEmpty }
             } catch {
+                guard operation == captureGeneration,!Task.isCancelled else { return }
                 camera.errorMessage = (added.isEmpty ? "" : "Earlier shots are saved. ") + error.localizedDescription
             }
+            guard operation == captureGeneration else { return }
             saving = false; seriesProgress = ""
             try? await Task.sleep(for: .seconds(1.2))
-            saved = false
+            if operation == captureGeneration { saved = false }
         }
     }
 }

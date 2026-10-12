@@ -56,13 +56,14 @@ struct CameraCapture {
 @MainActor
 final class CameraSettings: ObservableObject {
     private let defaults: UserDefaults
-    @Published var grid = true { didSet { defaults.set(grid, forKey: "camera.grid") } }
-    @Published var level = true { didSet { defaults.set(level, forKey: "camera.level") } }
+    @Published var grid = false { didSet { defaults.set(grid, forKey: "camera.grid") } }
+    @Published var level = false { didSet { defaults.set(level, forKey: "camera.level") } }
     @Published var shutterSound = false { didSet { defaults.set(shutterSound, forKey: "camera.sound") } }
     @Published var saveScan = true { didSet { defaults.set(saveScan, forKey: "camera.scan") } }
     @Published var autoSaveToPhotos = false { didSet { defaults.set(autoSaveToPhotos, forKey: "camera.autoPhotos") } }
     @Published var keepRAW = true { didSet { defaults.set(keepRAW, forKey: "camera.keepRAW") } }
     @Published var raw = false { didSet { defaults.set(raw, forKey: "camera.raw") } }
+    @Published var holdDuration: Double = 0.9 { didSet { defaults.set(holdDuration,forKey: "camera.holdDuration") } }
     @Published var autoFrame = true { didSet { defaults.set(autoFrame, forKey: "camera.autoFrame") } }
     @Published var smartShutter = false { didSet { defaults.set(smartShutter, forKey: "camera.smart") } }
     @Published var burstCount = 1 { didSet { defaults.set(burstCount, forKey: "camera.burst") } }
@@ -75,12 +76,17 @@ final class CameraSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["camera.grid": true, "camera.level": true, "camera.scan": true,
+        if defaults.integer(forKey:"camera.cleanCompositionVersion") < 1 {
+            defaults.set(false,forKey:"camera.grid"); defaults.set(false,forKey:"camera.level")
+            defaults.set(1,forKey:"camera.cleanCompositionVersion")
+        }
+        defaults.register(defaults: ["camera.grid": false, "camera.level": false, "camera.holdDuration":0.9, "camera.scan": true,
                                     "camera.keepRAW": true, "camera.guide": true, "camera.autoFrame": true])
         smartShutter = defaults.bool(forKey: "camera.smart")
         burstCount = [1, 3, 5].contains(defaults.integer(forKey: "camera.burst")) ? defaults.integer(forKey: "camera.burst") : 1
         coach = defaults.bool(forKey: "camera.coach")
         challenge = defaults.string(forKey: "camera.challenge") ?? ""
+        holdDuration = max(0.5,min(2,defaults.double(forKey:"camera.holdDuration")))
         grid = defaults.bool(forKey: "camera.grid")
         level = defaults.bool(forKey: "camera.level")
         shutterSound = defaults.bool(forKey: "camera.sound")

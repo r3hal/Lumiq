@@ -1,14 +1,17 @@
-Focal 1.4, build 5
-PASS: Swift grammar parsed 32 source files (28 app, 4 test).
-PASS: Xcode project parsed; all source references present.
+Focal 1.5, build 6
+PASS: Swift grammar parsed 40 source files (34 app, 6 test).
+PASS: Xcode project parsed; all source/resource references present.
 PASS: Info/privacy plists and shared scheme XML parsed.
-PASS: Camera, motion, add-only Photos and optional location purpose strings present.
-PASS: Asset catalog and bundled caption font files exist.
+PASS: Camera, motion, add-only Photos, optional location and Local Network purpose strings present.
+PASS: Local HTTP private-range exceptions; no global arbitrary-load exception.
+PASS: Asset catalogs and bundled caption font files exist.
 PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: 48 native XCTest functions registered in the shared test target.
+PASS: 69 native XCTest functions registered in the shared test target (not executed).
 PASS: git diff --check.
-PENDING: Swift type checking, native build and all 48 XCTest executions (ios-sideload runs them before IPA packaging).
-PENDING: iPhone navigation/permissions, camera switching/mirroring, EV/focus/RAW, overlay alignment, automatic framing/shutter/series, preview quality, editor export/colors/memory, Photos export, solar/location and performance checks.
-No Swift compiler, Apple SDK, Xcode, simulator or physical iPhone is available in this Linux workspace. Structural checks are not native runtime verification.
-See docs/FEATURE-AUDIT.md, docs/IMPLEMENTATION-REPORT.md and docs/DEVICE-CHECKS.md.
+ATTEMPTED: Xcode build returned exit 127: xcodebuild: command not found.
+PENDING: Swift type checking, native build and all 69 XCTest executions (ios-sideload runs them before IPA packaging).
+PENDING: iPhone automatic framing, motion gating, box geometry/loss, pinch cancellation, exposure strip, native preview quality, capture/RAW/gallery/export and lifecycle checks.
+PENDING: Independent physical Sony A7 III/A6100 connection, actual stream, metadata, capture/transfer, failure/recovery and shared Vision checks. Sony integration is experimental, not hardware-verified.
+No Swift compiler, Apple SDK, Xcode, simulator or physical devices are available in this Linux workspace. Structural checks are not native runtime verification.
+See docs/AUTO-FRAMING-AUDIT.md, docs/AUTO-FRAMING-REPORT.md, docs/SONY-INTEGRATION.md and docs/DEVICE-CHECKS.md.
