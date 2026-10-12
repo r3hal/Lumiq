@@ -1,8 +1,8 @@
 import SwiftUI
 import Combine
 
-enum PhotoAspect: String, CaseIterable, Identifiable, Codable {
-    case standard = "3:4", portrait = "4:5", square = "1:1", tall = "9:16"
+enum PhotoAspect: String, CaseIterable, Identifiable, Codable, Hashable {
+    case standard = "3:4", portrait = "4:5", square = "1:1", tall = "9:16", landscape = "4:3", wide = "16:9"
     var id: Self { self }
     var ratio: Double {
         switch self {
@@ -10,12 +10,15 @@ enum PhotoAspect: String, CaseIterable, Identifiable, Codable {
         case .portrait: return 4.0 / 5
         case .square: return 1
         case .tall: return 9.0 / 16
+        case .landscape: return 4.0 / 3
+        case .wide: return 16.0 / 9
         }
     }
     func cropRect(in size: CGSize) -> CGRect {
         let width = min(size.width, size.height * ratio)
         let height = min(size.height, size.width / ratio)
-        return CGRect(x: (size.width - width) / 2, y: (size.height - height) / 2, width: width, height: height).integral
+        let w = min(size.width, max(1, floor(width))), h = min(size.height, max(1, floor(height)))
+        return CGRect(x: floor((size.width - w) / 2), y: floor((size.height - h) / 2), width: w, height: h)
     }
 }
 
@@ -61,6 +64,10 @@ final class CameraSettings: ObservableObject {
     @Published var keepRAW = true { didSet { defaults.set(keepRAW, forKey: "camera.keepRAW") } }
     @Published var raw = false { didSet { defaults.set(raw, forKey: "camera.raw") } }
     @Published var autoFrame = true { didSet { defaults.set(autoFrame, forKey: "camera.autoFrame") } }
+    @Published var smartShutter = false { didSet { defaults.set(smartShutter, forKey: "camera.smart") } }
+    @Published var burstCount = 1 { didSet { defaults.set(burstCount, forKey: "camera.burst") } }
+    @Published var coach = false { didSet { defaults.set(coach, forKey: "camera.coach") } }
+    @Published var challenge = "" { didSet { defaults.set(challenge, forKey: "camera.challenge") } }
     @Published var guide = true { didSet { defaults.set(guide, forKey: "camera.guide") } }
     @Published var aspect: PhotoAspect = .standard { didSet { defaults.set(aspect.rawValue, forKey: "camera.aspect") } }
     @Published var caption: CaptionStyle = .bold { didSet { defaults.set(caption.rawValue, forKey: "camera.caption") } }
@@ -70,6 +77,10 @@ final class CameraSettings: ObservableObject {
         self.defaults = defaults
         defaults.register(defaults: ["camera.grid": true, "camera.level": true, "camera.scan": true,
                                     "camera.keepRAW": true, "camera.guide": true, "camera.autoFrame": true])
+        smartShutter = defaults.bool(forKey: "camera.smart")
+        burstCount = [1, 3, 5].contains(defaults.integer(forKey: "camera.burst")) ? defaults.integer(forKey: "camera.burst") : 1
+        coach = defaults.bool(forKey: "camera.coach")
+        challenge = defaults.string(forKey: "camera.challenge") ?? ""
         grid = defaults.bool(forKey: "camera.grid")
         level = defaults.bool(forKey: "camera.level")
         shutterSound = defaults.bool(forKey: "camera.sound")

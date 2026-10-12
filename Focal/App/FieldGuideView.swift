@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FieldGuideView: View {
+    @Environment(\.dismiss) private var dismiss
     private let notes: [(String, String, String, String)] = [
         ("01", "viewfinder", "Find your subject.", "Focal finds a face or visually prominent object and follows it. The green label names the subject when on-device classification is confident. Labels can be wrong. Tap to select and focus, or use the yellow scan button to find a new subject."),
         ("02", "circle.dotted.circle", "Give it some space.", "The yellow cross marks the suggested composition point. Follow the instruction below the preview. Automatic framing first asks you to center the subject, then zooms once after you hold steady. The aperture menu switches between Thirds and Center when you frame manually."),
@@ -10,7 +11,6 @@ struct FieldGuideView: View {
     ]
 
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -47,7 +47,7 @@ struct FieldGuideView: View {
                 .padding(.horizontal, 24)
             }
             .background(Palette.ink)
-            .toolbar(.hidden, for: .navigationBar)
-        }
+            .navigationTitle("Field guide").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
     }
 }

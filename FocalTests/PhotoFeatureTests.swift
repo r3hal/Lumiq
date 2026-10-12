@@ -83,6 +83,7 @@ final class PhotoFeatureTests: XCTestCase {
         settings.autoSaveToPhotos = true
         settings.raw = true
         settings.autoFrame = false
+        settings.smartShutter = true; settings.burstCount = 3; settings.coach = true; settings.challenge = "light"
         let reopened = CameraSettings(defaults: defaults)
         XCTAssertEqual(reopened.aspect, .square)
         XCTAssertEqual(reopened.caption, .garamond)
@@ -90,5 +91,47 @@ final class PhotoFeatureTests: XCTestCase {
         XCTAssertTrue(reopened.autoSaveToPhotos)
         XCTAssertTrue(reopened.raw)
         XCTAssertFalse(reopened.autoFrame)
+        XCTAssertTrue(reopened.smartShutter); XCTAssertEqual(reopened.burstCount,3)
+        XCTAssertTrue(reopened.coach); XCTAssertEqual(reopened.challenge,"light")
     }
+    func testCollectionsPersistAndPreservePhotoFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let library = PhotoLibrary(directory:directory)
+        try library.createCollection("Travel"); try library.createCollection("travel")
+        XCTAssertEqual(library.collections.count,1)
+        let bytes = jpeg()
+        let photo = try await library.add(data:bytes,mode:"Thirds")
+        library.setCollection("Travel",for:photo)
+        let reopened = PhotoLibrary(directory:directory)
+        XCTAssertEqual(reopened.photos.first?.collection,"Travel")
+        XCTAssertEqual(reopened.collections,["Travel"])
+        XCTAssertEqual(try Data(contentsOf:reopened.url(for:photo)),bytes)
+    }
+    func testCustomRecipesSaveReuseAndDelete() throws {
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let store = RecipeStore(defaults:defaults)
+        try store.save(name:"Warm",recipe:FilmPreset.amber.recipe)
+        let reopened = RecipeStore(defaults:defaults)
+        XCTAssertEqual(reopened.recipes.first?.recipe,FilmPreset.amber.recipe)
+        try reopened.delete(XCTUnwrap(reopened.recipes.first).id)
+        XCTAssertTrue(RecipeStore(defaults:defaults).recipes.isEmpty)
+    }
+    func testBestSeriesShotUsesMeasurementsAndKeepsAllShots() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let library = PhotoLibrary(directory:directory)
+        let series = UUID()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let black = UIGraphicsImageRenderer(size:CGSize(width:120,height:160),format:format).image { _ in
+            UIColor.black.setFill(); UIRectFill(CGRect(x:0,y:0,width:120,height:160))
+        }.jpegData(compressionQuality:1)!
+        let dark = try await library.add(data:black,mode:"Thirds",burstID:series)
+        let exposed = try await library.add(data:jpeg(),mode:"Thirds",burstID:series)
+        XCTAssertFalse(library.isBestInBurst(dark)); XCTAssertTrue(library.isBestInBurst(exposed))
+        XCTAssertEqual(library.photos.count,2)
+    }
+
 }

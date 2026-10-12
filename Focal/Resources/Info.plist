@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Focal uses your camera to help you compose and capture photos. Frames are analyzed only on your iPhone.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Focal uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Focal uses your phone’s motion to show a level guide while you compose.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

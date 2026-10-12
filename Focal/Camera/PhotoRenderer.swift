@@ -6,11 +6,7 @@ enum PhotoRenderer {
     static func crop(_ data: Data, to aspect: PhotoAspect) throws -> Data {
         guard let image = CIImage(data: data, options: [.applyOrientationProperty: true]) else { throw RenderError.invalidImage }
         if abs(Double(image.extent.width / image.extent.height) - aspect.ratio) < 0.005 { return data }
-        let rect = aspect.cropRect(in: image.extent.size).offsetBy(dx: image.extent.minX, dy: image.extent.minY)
-        let context = CIContext(options: [.cacheIntermediates: false])
-        guard let cropped = context.createCGImage(image, from: rect),
-              let encoded = UIImage(cgImage: cropped).jpegData(compressionQuality: 0.98) else { throw RenderError.invalidImage }
-        return encoded
+        return try ImageEditor.export(data: data, recipe: EditRecipe(crop: aspect))
     }
 
     static func captionedScan(_ data: Data, style: CaptionStyle) -> Data? {

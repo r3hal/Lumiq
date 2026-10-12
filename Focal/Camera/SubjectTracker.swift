@@ -35,12 +35,13 @@ final class SubjectTracker {
         label = "Your subject"
     }
 
-    func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval) -> VNDetectedObjectObservation? {
+    func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval, visibleRegion: CGRect = CGRect(x:0,y:0,width:1,height:1)) -> VNDetectedObjectObservation? {
         if let tracking {
             do {
                 try sequence.perform([tracking], on: buffer, orientation: .up)
                 if let result = tracking.results?.first as? VNDetectedObjectObservation,
-                   result.confidence >= 0.4, valid(result.boundingBox) {
+                   result.confidence >= 0.4, valid(result.boundingBox),
+                   manual || visibleRegion.contains(CGPoint(x:result.boundingBox.midX,y:result.boundingBox.midY)) {
                     tracking.inputObservation = result
                     candidates = [result]
                     classify(result, in: buffer, timestamp: timestamp)
@@ -60,13 +61,13 @@ final class SubjectTracker {
         do {
             try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, animals, saliency])
             let faceCandidates: [VNDetectedObjectObservation] = (faces.results ?? []).filter {
-                $0.confidence >= 0.5 && valid($0.boundingBox)
+                $0.confidence >= 0.5 && valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
             }
             let objects: [VNDetectedObjectObservation] = (saliency.results?.first?.salientObjects ?? []).filter {
-                valid($0.boundingBox)
+                valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
             }
             let animalCandidates = (animals.results ?? []).filter {
-                $0.confidence >= 0.5 && ($0.labels.first?.confidence ?? 0) >= 0.5 && valid($0.boundingBox)
+                $0.confidence >= 0.5 && ($0.labels.first?.confidence ?? 0) >= 0.5 && valid($0.boundingBox) && visibleRegion.contains(CGPoint(x:$0.boundingBox.midX,y:$0.boundingBox.midY))
             }
             candidates = faceCandidates + animalCandidates + objects
             // Semantic pet boxes avoid zooming into the surrounding bed or background.

@@ -23,7 +23,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     Button { showGuide = true } label: {
                         HStack {
-                            Text("Focal · All features available").foregroundStyle(Palette.yellow)
+                            Text("Focal · Personal camera").foregroundStyle(Palette.yellow)
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
                         }.padding(.horizontal, 15).frame(height: 44).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
@@ -34,6 +34,14 @@ struct SettingsView: View {
                         settingToggle("Level", value: $settings.level)
                         separator
                         settingToggle("Automatic framing", value: $settings.autoFrame)
+                        separator
+                        settingToggle("Smart shutter",value: $settings.smartShutter)
+                        separator
+                        settingToggle("Measured coach",value: $settings.coach)
+                        separator
+                        Picker("Photo series",selection: $settings.burstCount) {
+                            Text("Single").tag(1); Text("3 shots").tag(3); Text("5 shots").tag(5)
+                        }.padding(15)
                         separator
                         settingToggle("Shutter Sound", value: Binding(
                             get: { camera.canMuteShutter ? settings.shutterSound : true },
@@ -65,6 +73,8 @@ struct SettingsView: View {
                         Text("This iPhone/iOS combination controls the camera shutter sound.")
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
+                    Text("Smart shutter is off by default and takes one shot/series per scan when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text("Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; scan starts a new frame.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     section("LIBRARY") {
@@ -85,18 +95,18 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.3 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.4 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
             }
         }
         .foregroundStyle(.white).background(.black).tint(Palette.yellow)
-        .sheet(isPresented: $showGuide) { FieldGuideView().presentationDragIndicator(.visible) }
+        .sheet(isPresented: $showGuide) { NavigationStack { FieldGuideView() }.presentationDragIndicator(.visible) }
         .sheet(isPresented: $showPrivacy) {
             NavigationStack {
                 ScrollView {
-                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no accounts, analytics or cloud AI. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them.\n\nSubject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
+                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no accounts, analytics or cloud AI. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nSubject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
                         .padding(24).lineSpacing(5)
                 }.navigationTitle("Privacy Policy").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showPrivacy = false } } }

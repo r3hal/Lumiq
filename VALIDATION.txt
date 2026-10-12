@@ -1,10 +1,14 @@
-Focal 1.3, build 4
-PASS: Swift grammar parsed 21 source files (18 app, 3 test).
+Focal 1.4, build 5
+PASS: Swift grammar parsed 32 source files (28 app, 4 test).
 PASS: Xcode project parsed; all source references present.
 PASS: Info/privacy plists and shared scheme XML parsed.
+PASS: Camera, motion, add-only Photos and optional location purpose strings present.
 PASS: Asset catalog and bundled caption font files exist.
 PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
+PASS: Python generator syntax and deterministic project/resource regeneration.
+PASS: 48 native XCTest functions registered in the shared test target.
 PASS: git diff --check.
-PENDING: 33 native XCTest regression tests. ios-sideload runs them before IPA packaging.
-PENDING: device checks for preview format and sharpness, subject selection, directional guidance, automatic zoom/cancel/manual override, tracking across lenses, RAW, photo dimensions and interruptions.
-No Swift compiler, Xcode or iOS simulator is available here. The recording was inspected frame by frame; it shows the original Framed app, not a device test of this update.
+PENDING: Swift type checking, native build and all 48 XCTest executions (ios-sideload runs them before IPA packaging).
+PENDING: iPhone navigation/permissions, camera switching/mirroring, EV/focus/RAW, overlay alignment, automatic framing/shutter/series, preview quality, editor export/colors/memory, Photos export, solar/location and performance checks.
+No Swift compiler, Apple SDK, Xcode, simulator or physical iPhone is available in this Linux workspace. Structural checks are not native runtime verification.
+See docs/FEATURE-AUDIT.md, docs/IMPLEMENTATION-REPORT.md and docs/DEVICE-CHECKS.md.

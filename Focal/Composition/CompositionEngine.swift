@@ -25,6 +25,11 @@ struct CompositionReading {
     var rollDegrees: Double = 0
     var title = "Find something worth a second look"
     var detail = "Point at a clear subject to get a little guidance."
+    func alignmentPercent(previewAspect: Double) -> Double? {
+        guard state != .searching, let subject, subject.x.isFinite, subject.y.isFinite, rollDegrees.isFinite else { return nil }
+        let distance = hypot(subject.x-target.x,(subject.y-target.y)/max(0.1,previewAspect))
+        return 100 * max(0,1-max(distance/0.35,abs(rollDegrees)/15))
+    }
 }
 
 struct CompositionEngine {

@@ -4,8 +4,11 @@ struct LibraryView: View {
     @EnvironmentObject private var library: PhotoLibrary
     @State private var favoritesOnly = false
     @State private var selected: SavedPhoto?
+    @State private var collection = ""
+    @State private var newCollection = false
+    @State private var collectionName = ""
     @Environment(\.dismiss) private var dismiss
-    private var visible: [SavedPhoto] { library.photos.filter { !favoritesOnly || $0.isFavorite } }
+    private var visible: [SavedPhoto] { library.photos.filter { (!favoritesOnly || $0.isFavorite) && (collection.isEmpty || $0.collection == collection) } }
 
     var body: some View {
         NavigationStack {
@@ -25,6 +28,14 @@ struct LibraryView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    HStack {
+                        Picker("Collection",selection: $collection) {
+                            Text("All collections").tag("")
+                            ForEach(library.collections,id: \.self) { Text($0).tag($0) }
+                        }
+                        Spacer()
+                        Button { collectionName = ""; newCollection = true } label: { Image(systemName: "folder.badge.plus") }.accessibilityLabel("Create collection")
+                    }
                     if visible.isEmpty {
                         VStack(spacing: 18) {
                             Image(systemName: favoritesOnly ? "heart" : "photo.on.rectangle.angled")
@@ -49,6 +60,7 @@ struct LibraryView: View {
                                         .aspectRatio(3.0 / 4, contentMode: .fit)
                                         .clipShape(RoundedRectangle(cornerRadius: 16))
                                         .overlay(alignment: .topTrailing) {
+                                            if library.isBestInBurst(photo) { Text("Best in series").font(.caption2).padding(6).background(.black.opacity(0.65)).foregroundStyle(Palette.yellow) }
                                             if photo.isFavorite {
                                                 Image(systemName: "heart.fill").font(.caption).foregroundStyle(.white)
                                                     .padding(9).background(.black.opacity(0.25), in: Circle()).padding(8)
@@ -78,6 +90,11 @@ struct LibraryView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .sheet(item: $selected) { PhotoDetailView(photo: $0) }
+            .alert("New collection",isPresented: $newCollection) {
+                TextField("Name",text: $collectionName)
+                Button("Create") { do { try library.createCollection(collectionName) } catch { library.errorMessage = error.localizedDescription } }
+                Button("Cancel",role: .cancel) {}
+            }
             .alert("Your shots", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) {
                 Button("OK") { library.errorMessage = nil }
             } message: { Text(library.errorMessage ?? "") }
@@ -104,8 +121,11 @@ struct PhotoImage: View {
             }
         }
         .task(id: url) {
-            image = await PhotoLoader.load(url: url, maxPixels: maxPixels)
-            failed = image == nil
+            image = nil; failed = false
+            let loaded = await PhotoLoader.load(url: url, maxPixels: maxPixels)
+            guard !Task.isCancelled else { return }
+            image = loaded
+            failed = loaded == nil
         }
     }
 }

@@ -49,6 +49,7 @@ struct CameraPreview: UIViewRepresentable {
     let onSelect: (UnitPoint2D) -> Void
     let onZoom: (Double) -> Void
     let zoom: Double
+    var mirrored = false
 
     func makeUIView(context: Context) -> PreviewSurface {
         let view = PreviewSurface()
@@ -70,6 +71,10 @@ struct CameraPreview: UIViewRepresentable {
         rotate(view)
     }
     private func rotate(_ view: PreviewSurface) {
+        if let connection = view.previewLayer.connection, connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = mirrored
+        }
         if view.previewLayer.connection?.isVideoRotationAngleSupported(90) == true {
             view.previewLayer.connection?.videoRotationAngle = 90
         }

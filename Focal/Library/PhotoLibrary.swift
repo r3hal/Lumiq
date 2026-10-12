@@ -18,6 +18,10 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     var scanFilename: String? = nil
     var aspect: String? = nil
     var subject: String? = nil
+    var collection: String? = nil
+    var challenge: String? = nil
+    var burstID: UUID? = nil
+    var measurements: PhotoMeasurements? = nil
 
     var resolutionLabel: String? {
         guard let width = pixelWidth, let height = pixelHeight else { return nil }
@@ -29,6 +33,7 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
 final class PhotoLibrary: ObservableObject {
     @Published private(set) var photos: [SavedPhoto] = []
     @Published var errorMessage: String?
+    @Published private(set) var collections: [String] = []
     private let directory: URL
     private var manifest: URL { directory.appendingPathComponent("library.json") }
     private var canWrite = true
@@ -38,8 +43,11 @@ final class PhotoLibrary: ObservableObject {
             .appendingPathComponent("Focal", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
+            let collectionFile = self.directory.appendingPathComponent("collections.json")
+            if let bytes = try? Data(contentsOf: collectionFile), let stored = try? JSONDecoder().decode([String].self,from: bytes) { collections = stored }
             if FileManager.default.fileExists(atPath: manifest.path) {
                 photos = try JSONDecoder().decode([SavedPhoto].self, from: Data(contentsOf: manifest))
+                collections = Array(Set(collections + photos.compactMap(\.collection))).sorted()
             }
         } catch {
             canWrite = false
@@ -53,21 +61,25 @@ final class PhotoLibrary: ObservableObject {
     func scanURL(for photo: SavedPhoto) -> URL? { photo.scanFilename.map { directory.appendingPathComponent($0) } }
 
     var storageBytes: Int64 {
-        let names = photos.flatMap { [$0.filename, $0.rawFilename, $0.originalFilename, $0.scanFilename].compactMap { $0 } } + ["library.json"]
-        return names.reduce(0) { total, name in
-            let attributes = try? FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(name).path)
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory,includingPropertiesForKeys: nil)) ?? []
+        return files.reduce(0) { total,file in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
             return total + ((attributes?[.size] as? NSNumber)?.int64Value ?? 0)
         }
     }
 
     @discardableResult
     func add(data: Data, mode: String, isDemo: Bool = false, rawData: Data? = nil,
-             originalData: Data? = nil, scanData: Data? = nil, aspect: String? = nil, subject: String? = nil) async throws -> SavedPhoto {
+             originalData: Data? = nil, scanData: Data? = nil, aspect: String? = nil, subject: String? = nil,
+             challenge: String? = nil, burstID: UUID? = nil) async throws -> SavedPhoto {
         guard canWrite else { throw LibraryError.unavailable }
         var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + ".jpg", createdAt: Date(),
                                mode: mode, isDemo: isDemo, isFavorite: false)
         photo.aspect = aspect
         photo.subject = subject
+        photo.challenge = challenge
+        photo.burstID = burstID
+        photo.measurements = await Task.detached { PhotoMeasurements.from(data: data) }.value
         if rawData != nil { photo.rawFilename = UUID().uuidString + ".dng" }
         if originalData != nil { photo.originalFilename = UUID().uuidString + ".jpg" }
         if scanData != nil { photo.scanFilename = UUID().uuidString + ".jpg" }
@@ -102,6 +114,27 @@ final class PhotoLibrary: ObservableObject {
         return photo
     }
 
+    func createCollection(_ name: String) throws {
+        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canWrite else { throw LibraryError.unavailable }
+        guard !value.isEmpty, !collections.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) else { return }
+        let next = (collections + [value]).sorted()
+        try JSONEncoder().encode(next).write(to: directory.appendingPathComponent("collections.json"),options: [.atomic,.completeFileProtectionUnlessOpen])
+        collections = next
+    }
+    func setCollection(_ name: String?, for photo: SavedPhoto) {
+        guard name == nil || collections.contains(name!) else { return }
+        var next = photos
+        guard let index = next.firstIndex(where: { $0.id == photo.id }) else { return }
+        next[index].collection = name
+        do { try persist(next); photos = next } catch { errorMessage = error.localizedDescription }
+    }
+    func isBestInBurst(_ photo: SavedPhoto) -> Bool {
+        guard let id = photo.burstID, photo.measurements != nil else { return false }
+        let group = photos.filter { $0.burstID == id && $0.measurements != nil }
+        return group.max { ($0.measurements?.technicalScore ?? 0) < ($1.measurements?.technicalScore ?? 0) }?.id == photo.id
+    }
+
     func toggleFavorite(_ photo: SavedPhoto) {
         var next = photos
         guard let index = next.firstIndex(where: { $0.id == photo.id }) else { return }
@@ -115,9 +148,12 @@ final class PhotoLibrary: ObservableObject {
         try persist(next)
         photos = next
         // A failed file removal only leaves an unreferenced file, never a broken manifest.
+        var failure: Error?
         for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo)].compactMap({ $0 }) {
-            try FileManager.default.removeItem(at: file)
+            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            do { try FileManager.default.removeItem(at: file) } catch { failure = error }
         }
+        if let failure { throw failure }
     }
 
     func saveToPhotos(_ photo: SavedPhoto, imageURL: URL? = nil) async throws {

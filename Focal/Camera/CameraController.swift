@@ -25,6 +25,15 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var framingPhase: FramingPhase = .searching
     @Published private(set) var previewResolution = "Configuring…"
     @Published private(set) var qualityZoomLimit: Double = 1
+    @Published private(set) var isFrontCamera = false
+    @Published private(set) var isSwitchingCamera = false
+    @Published private(set) var exposureBias: Float = 0
+    @Published private(set) var exposureRange: ClosedRange<Float> = -3...3
+    @Published private(set) var motionAvailable = false
+    @Published private(set) var levelReliable = false
+    @Published private(set) var coachAdvice: [String] = []
+    @Published private(set) var liveMeasurements: PhotoMeasurements?
+    @Published private(set) var sceneLabel: String?
     @Published var errorMessage: String?
 
     let session = AVCaptureSession()
@@ -34,6 +43,11 @@ final class CameraController: NSObject, ObservableObject {
     private let output = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private var device: AVCaptureDevice?
+    private var position: AVCaptureDevice.Position = .back
+    private var analysisFrontCamera = false
+    private var coachEnabled = false
+    private var lastCoach: TimeInterval = -.infinity
+    private var lastScene: TimeInterval = -.infinity
     private var configured = false
     private var wantsToRun = false // Camera queue only.
     private var engine = CompositionEngine() // Analysis queue only.
@@ -67,6 +81,7 @@ final class CameraController: NSObject, ObservableObject {
     private var pendingProcessed: Data?
     private var pendingRAW: Data?
     private var pendingError: Error?
+    private var pendingCaptureID: Int64?
     private var observers: [NSObjectProtocol] = []
 
     override init() {
@@ -124,6 +139,53 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
+    func switchCamera() {
+        guard !isCapturing, !isSwitchingCamera, isRunning else { return }
+        isSwitchingCamera = true
+        queue.async {
+            defer { DispatchQueue.main.async { self.isSwitchingCamera = false } }
+            guard self.captureCompletion == nil, self.wantsToRun else { return }
+            let previous = self.position
+            self.cancelZoomRamp()
+            self.position = previous == .back ? .front : .back
+            self.discardConfiguration()
+            self.analysisQueue.async { self.ignoreFramesUntil = 0; self.resetAnalysis() }
+            self.configureAndStart()
+            if !self.configured {
+                self.position = previous
+                self.discardConfiguration()
+                self.configureAndStart()
+                DispatchQueue.main.async { self.errorMessage = "That camera is unavailable. Focal kept the previous camera." }
+            }
+        }
+    }
+
+    func setExposure(_ bias: Float) {
+        queue.async {
+            guard self.captureCompletion == nil else { return }
+            guard let device = self.device else { return }
+            let value = max(device.minExposureTargetBias, min(device.maxExposureTargetBias, bias))
+            do {
+                try device.lockForConfiguration()
+                device.setExposureTargetBias(value, completionHandler: nil)
+                device.unlockForConfiguration()
+                DispatchQueue.main.async { self.exposureBias = value }
+            } catch { DispatchQueue.main.async { self.errorMessage = "Exposure could not be adjusted." } }
+        }
+    }
+
+    private func discardConfiguration() {
+        if session.isRunning { session.stopRunning() }
+        session.beginConfiguration()
+        if output.isAppleProRAWEnabled { output.isAppleProRAWEnabled = false }
+        session.inputs.forEach { session.removeInput($0) }
+        session.outputs.forEach { session.removeOutput($0) }
+        session.commitConfiguration()
+        configured = false
+        device = nil
+        DispatchQueue.main.async { self.isRunning = false }
+    }
+
     func setMode(_ mode: CompositionMode) {
         analysisQueue.async { self.mode = mode; self.engine.reset() }
     }
@@ -132,6 +194,14 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async { self.guidanceEnabled = enabled; self.ignoreFramesUntil = 0; self.resetAnalysis() }
+        }
+    }
+
+    func setCoach(_ enabled: Bool) {
+        analysisQueue.async {
+            self.coachEnabled = enabled
+            self.lastCoach = -.infinity
+            if !enabled { DispatchQueue.main.async { self.coachAdvice = []; self.liveMeasurements = nil; self.sceneLabel = nil } }
         }
     }
 
@@ -209,7 +279,7 @@ final class CameraController: NSObject, ObservableObject {
             self.cancelZoomRamp()
             self.analysisQueue.async {
                 self.ignoreFramesUntil = 0
-                let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: self.previewAspect)
+                let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: self.previewAspect, mirrored: self.analysisFrontCamera)
                 self.tracker.select(at: projection.imagePoint(previewPoint))
                 self.engine.reset()
                 self.framing.reset(enabled: self.autoFrameEnabled && self.guidanceEnabled)
@@ -223,6 +293,7 @@ final class CameraController: NSObject, ObservableObject {
     func setZoom(_ displayedZoom: Double) {
         guard !isCapturing else { return }
         queue.async {
+            guard self.captureCompletion == nil else { return }
             guard let device = self.device else { return }
             self.cancelZoomRamp()
             self.analysisQueue.async { self.ignoreFramesUntil = 0; self.framing.reset(enabled: false); self.publishFraming() }
@@ -255,11 +326,16 @@ final class CameraController: NSObject, ObservableObject {
         focusCandidateSince = 0
         lastFocusedPoint = nil
         wantsScan = true
+        lastCoach = -.infinity; lastScene = -.infinity
+        DispatchQueue.main.async {
+            self.scanData = nil; self.reading = CompositionReading(); self.subjectLabel = "Auto subject"
+            self.coachAdvice = []; self.liveMeasurements = nil; self.sceneLabel = nil; self.levelReliable = false
+        }
     }
 
     func focus(at point: CGPoint, continuous: Bool = false) {
         queue.async { [weak self] in
-            guard let device = self?.device else { return }
+            guard let self, self.captureCompletion == nil, let device = self.device else { return }
             do {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
@@ -299,7 +375,13 @@ final class CameraController: NSObject, ObservableObject {
             self.pendingRAW = nil
             self.pendingError = nil
             let settings = self.photoSettings(options: options)
+            self.pendingCaptureID = settings.uniqueID
+            let captureID = settings.uniqueID
             self.output.capturePhoto(with: settings, delegate: self)
+            self.queue.asyncAfter(deadline: .now() + 30) {
+                guard self.pendingCaptureID == captureID, self.captureCompletion != nil else { return }
+                self.finishCapture(.failure(CameraError.timeout))
+            }
         }
     }
 
@@ -329,6 +411,7 @@ final class CameraController: NSObject, ObservableObject {
 
     private func configureAndStart() {
         guard wantsToRun else { return }
+        if !configured { DispatchQueue.main.async { self.access = .checking } }
         do {
             if !configured {
                 session.beginConfiguration()
@@ -336,7 +419,8 @@ final class CameraController: NSObject, ObservableObject {
                 session.sessionPreset = .photo
                 let types: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera,
                                                          .builtInDualCamera, .builtInWideAngleCamera]
-                guard let camera = types.compactMap({ AVCaptureDevice.default($0, for: .video, position: .back) }).first else {
+                let selectedTypes: [AVCaptureDevice.DeviceType] = position == .back ? types : [.builtInTrueDepthCamera, .builtInWideAngleCamera]
+                guard let camera = selectedTypes.compactMap({ AVCaptureDevice.default($0, for: .video, position: position) }).first else {
                     DispatchQueue.main.async { self.access = .unavailable }
                     return
                 }
@@ -365,6 +449,10 @@ final class CameraController: NSObject, ObservableObject {
                 videoOutput.setSampleBufferDelegate(self, queue: analysisQueue)
                 for connection in [videoOutput.connection(with: .video), output.connection(with: .video)] {
                     if connection?.isVideoRotationAngleSupported(90) == true { connection?.videoRotationAngle = 90 }
+                    if connection?.isVideoMirroringSupported == true {
+                        connection?.automaticallyAdjustsVideoMirroring = false
+                        connection?.isVideoMirrored = position == .front && connection === output.connection(with: .video)
+                    }
                 }
                 device = camera
                 try camera.lockForConfiguration()
@@ -390,12 +478,17 @@ final class CameraController: NSObject, ObservableObject {
                 let detailLimit = max(1, max(previewBudget, Double(camera.activeFormat.videoZoomFactorUpscaleThreshold / self.zoomMultiplier)))
                 let autoLimit = min(upper, max(opticalLimit, detailLimit))
                 self.analysisQueue.async {
+                    self.analysisFrontCamera = camera.position == .front
                     self.analysisZoom = 1
                     self.automaticZoomLimit = autoLimit
                     self.detailZoomLimit = max(1, detailLimit)
                     self.nativeZoomStops = [1] + camera.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue / Double(self.zoomMultiplier) }
                 }
                 DispatchQueue.main.async {
+                    self.isFrontCamera = camera.position == .front
+                    self.exposureBias = camera.exposureTargetBias
+                    self.exposureRange = max(-3, camera.minExposureTargetBias)...min(3, camera.maxExposureTargetBias)
+                    self.motionAvailable = self.motion.isDeviceMotionAvailable
                     self.previewResolution = "\(dimensions.height) × \(dimensions.width)"
                     self.qualityZoomLimit = autoLimit
                     self.minimumZoom = lower
@@ -420,6 +513,7 @@ final class CameraController: NSObject, ObservableObject {
                 self.isRunning = self.session.isRunning
             }
         } catch {
+            discardConfiguration()
             DispatchQueue.main.async {
                 self.access = .unavailable
                 self.errorMessage = error.localizedDescription
@@ -435,7 +529,7 @@ final class CameraController: NSObject, ObservableObject {
             return size.width >= 1920 && size.height >= 1080 && size.width <= 4096
                 && abs(Double(size.width) / Double(size.height) - 4.0 / 3) < 0.03
                 && format.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }
-                && !format.supportedMaxPhotoDimensions.isEmpty
+                && !format.supportedMaxPhotoDimensions.isEmpty && format.isHighPhotoQualitySupported
         }
         let best = candidates.max { left, right in
             func score(_ format: AVCaptureDevice.Format) -> Int64 {
@@ -450,7 +544,8 @@ final class CameraController: NSObject, ObservableObject {
         if let best { camera.activeFormat = best }
         if camera.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }) {
             camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-            camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+            let allowsLowLightRate = camera.activeFormat.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 15 && $0.maxFrameRate >= 30 }
+            camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: allowsLowLightRate ? 15 : 30)
         }
     }
 
@@ -512,11 +607,12 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     enum CameraError: LocalizedError {
-        case configuration, missingPhoto, notRunning
+        case configuration, missingPhoto, notRunning, timeout
         var errorDescription: String? {
             switch self {
             case .configuration: return "This device could not configure a camera. You can still explore the demo."
             case .missingPhoto: return "The camera did not return a photo. Please try again."
+            case .timeout: return "The camera did not finish the capture. Retry or restart Focal."
             case .notRunning: return "The camera is paused. Return to the camera and try again."
             }
         }
@@ -531,11 +627,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard now >= ignoreFramesUntil, now - lastAnalysis > 0.2,
               let fullBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastAnalysis = now
-        if !guidanceEnabled {
+        if !guidanceEnabled && !coachEnabled {
             let gravity = motion.deviceMotion?.gravity
             let roll = gravity.map { hypot($0.x, $0.y) > 0.2 ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
             let result = CompositionReading(rollDegrees: roll)
-            DispatchQueue.main.async { self.reading = result }
+            let reliable = gravity.map { hypot($0.x,$0.y) > 0.2 } ?? false
+            DispatchQueue.main.async { self.reading = result; self.levelReliable = reliable }
             return
         }
         guard let buffer = smallAnalysisBuffer(from: fullBuffer) else { return }
@@ -553,11 +650,15 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var bounds: CGRect?
         var imageBounds: CGRect?
         var confidence: Float = 0
-        if let object = tracker.observation(in: buffer, timestamp: now) {
+        let visibleProjection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect)
+        let topLeft = visibleProjection.imagePoint(.init(x:0,y:0))
+        let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
+        let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
+        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion) {
             imageBounds = object.boundingBox
             confidence = object.confidence
             let imagePoint = UnitPoint2D(x: object.boundingBox.midX, y: 1 - object.boundingBox.midY)
-            let projection = PreviewProjection(imageAspect: imageAspect, previewAspect: previewAspect)
+            let projection = PreviewProjection(imageAspect: imageAspect, previewAspect: previewAspect, mirrored: analysisFrontCamera)
             subject = projection.visiblePoint(imagePoint)
             let topLeftRect = CGRect(x: object.boundingBox.minX, y: 1 - object.boundingBox.maxY,
                                      width: object.boundingBox.width, height: object.boundingBox.height)
@@ -576,9 +677,57 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var result = engine.update(subject: subject, rollDegrees: roll, mode: preparing ? .centered : mode, timestamp: now,
                                    preferredTarget: preparing ? nil : preferredTarget, previewAspect: previewAspect)
         result.subjectBounds = bounds
+        let reliable = gravity.map { hypot($0.x,$0.y) > 0.2 } ?? false
+        if !reliable && (result.state == .ready || result.state == .settling) {
+            result.state = .adjusting
+            result.title = "Level unavailable. Frame manually"
+        }
+        if coachEnabled && now - lastCoach >= 2 {
+            lastCoach = now
+            let nativeRect = imageBounds.map { CGRect(x: $0.minX,y: 1 - $0.maxY,width: $0.width,height: $0.height) }
+            let measurements = PhotoMeasurements.from(buffer: buffer,subject: nativeRect)
+            var advice = [String]()
+            if let text = measurements?.lightingAdvice { advice.append(text) }
+            if let text = measurements?.clutterAdvice { advice.append(text) }
+            if let bounds {
+                if max(bounds.width,bounds.height) < 0.18 { advice.append("The subject is small in the frame. Move closer if it is safe.") }
+                if bounds.width > 0.85 || bounds.height > 0.85 { advice.append("The subject fills the edges. Move farther back to leave space.") }
+            }
+            if now-lastScene >= 8 {
+                lastScene = now
+                let scene = VNClassifyImageRequest()
+                do {
+                    try VNImageRequestHandler(cvPixelBuffer: buffer,orientation: .up).perform([scene])
+                    let result = scene.results?.first
+                    let name = (result?.confidence ?? 0) >= 0.55 ? result?.identifier.replacingOccurrences(of: "_",with: " ") : nil
+                    DispatchQueue.main.async { self.sceneLabel = name }
+                } catch { DispatchQueue.main.async { self.sceneLabel = nil } }
+            }
+            if tracker.label == "Person" {
+                let pose = VNDetectHumanBodyPoseRequest()
+                do {
+                    try VNImageRequestHandler(cvPixelBuffer: buffer,orientation: .up).perform([pose])
+                    let bodies = (pose.results ?? []).compactMap { try? $0.recognizedPoints(.all) }
+                    let target = imageBounds.map { CGPoint(x: $0.midX,y: $0.midY) }
+                    let candidates = bodies.filter { points in
+                        guard let target, let nose = points[.nose], nose.confidence > 0.4 else { return false }
+                        return hypot(nose.x-Double(target.x),nose.y-Double(target.y)) < 0.25
+                    }
+                    let points = candidates.min { lhs,rhs in
+                        guard let target,let a = lhs[.nose],let b = rhs[.nose] else { return false }
+                        return hypot(a.x-Double(target.x),a.y-Double(target.y)) < hypot(b.x-Double(target.x),b.y-Double(target.y))
+                    }
+                    if let points, let left = points[.leftShoulder], let right = points[.rightShoulder], left.confidence > 0.5, right.confidence > 0.5 {
+                        if abs(left.y-right.y) < 0.04 { advice.append("Nearly level shoulders detected. Try a slight three-quarter turn.") }
+                        if (points[.leftWrist]?.confidence ?? 0) < 0.3 || (points[.rightWrist]?.confidence ?? 0) < 0.3 { advice.append("Hands are not confidently detected. Check the crop if you want them included.") }
+                    }
+                } catch { /* No pose advice without observed joints. */ }
+            }
+            DispatchQueue.main.async { self.liveMeasurements = measurements; self.coachAdvice = advice }
+        }
         let label = tracker.label
         let phase = framing.phase
-        DispatchQueue.main.async { self.reading = result; self.subjectLabel = label; self.framingPhase = phase }
+        DispatchQueue.main.async { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.levelReliable = reliable }
     }
 
     private func smallAnalysisBuffer(from fullBuffer: CVPixelBuffer) -> CVPixelBuffer? {
@@ -623,6 +772,7 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
                      error: Error?) {
         // Some device failures occur before processing produces any image.
         queue.async {
+            guard self.pendingCaptureID == resolvedSettings.uniqueID else { return }
             if let error { self.pendingError = error }
             if let error = self.pendingError { self.finishCapture(.failure(error)) }
             else if let processed = self.pendingProcessed {
@@ -635,7 +785,9 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
                      error: Error?) {
         let data = photo.fileDataRepresentation()
         let isRaw = photo.isRawPhoto
+        let captureID = photo.resolvedSettings.uniqueID
         queue.async {
+            guard self.pendingCaptureID == captureID else { return }
             if let error { self.pendingError = error }
             else if let data {
                 if isRaw { self.pendingRAW = data } else { self.pendingProcessed = data }
@@ -647,6 +799,8 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
         queue.async {
             let completion = self.captureCompletion
             self.captureCompletion = nil
+            self.pendingCaptureID = nil
+            self.pendingProcessed = nil; self.pendingRAW = nil; self.pendingError = nil
             guard let completion else { return }
             self.analysisQueue.async { self.analysisPaused = false }
             DispatchQueue.main.async {

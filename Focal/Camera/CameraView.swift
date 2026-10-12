@@ -8,6 +8,13 @@ struct CameraView: View {
     @State private var visible = false
     @State private var demo = false
     @State private var showAspect = false
+    @State private var showExposure = false
+    @State private var showReference = false
+    @State private var showExplore = false
+    @State private var reference: UIImage?
+    @State private var referenceOpacity = 0.35
+    @State private var smartGate = SmartShutterGate()
+    @State private var seriesProgress = ""
     @State private var showSettings = false
     @State private var showLibrary = false
     @State private var mode: CompositionMode = .thirds
@@ -15,7 +22,7 @@ struct CameraView: View {
     @State private var saving = false
     @State private var saved = false
     private var reading: CompositionReading { camera.reading }
-    private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing && camera.framingPhase != .zooming }
+    private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming }
     private var subjectName: String { ["Auto subject", "Your subject"].contains(camera.subjectLabel) ? "Subject" : camera.subjectLabel }
     private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
 
@@ -34,6 +41,7 @@ struct CameraView: View {
         .onAppear {
             visible = true
             camera.setPreviewPixelWidth(Double(UIScreen.main.bounds.width * UIScreen.main.scale))
+            camera.setCoach(settings.coach)
             camera.setMode(mode)
             camera.setAutoFraming(settings.autoFrame)
             camera.setGuidance(settings.guide)
@@ -42,19 +50,32 @@ struct CameraView: View {
         }
         .onDisappear { visible = false; camera.stop() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active && visible && !demo && !showSettings && !showLibrary { camera.start() }
+            if phase == .active && visible && !demo && !showSettings && !showLibrary && !showReference && !showExplore { camera.start() }
             else { camera.stop() }
         }
-        .onChange(of: mode) { _, value in camera.setMode(value) }
-        .onChange(of: settings.guide) { _, value in camera.setGuidance(value) }
-        .onChange(of: settings.autoFrame) { _, value in camera.setAutoFraming(value) }
-        .onChange(of: settings.aspect) { _, value in camera.setPreviewAspect(value.ratio) }
-        .onChange(of: corner) { _, value in camera.setTarget(value.map { CompositionEngine.thirdsTargets[$0] }) }
+        .onChange(of: settings.coach) { _, value in camera.setCoach(value) }
+        .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
+        .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
+        .onChange(of: settings.guide) { _, value in smartGate.reset(); camera.setGuidance(value) }
+        .onChange(of: settings.autoFrame) { _, value in smartGate.reset(); camera.setAutoFraming(value) }
+        .onChange(of: settings.aspect) { _, value in smartGate.reset(); camera.setPreviewAspect(value.ratio) }
+        .onChange(of: corner) { _, value in smartGate.reset(); camera.setTarget(value.map { CompositionEngine.thirdsTargets[$0] }) }
         .onChange(of: reading.state) { old, new in
             if old != .ready && new == .ready && settings.guide { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
         }
         .fullScreenCover(isPresented: $showSettings, onDismiss: resume) { SettingsView(camera: camera) }
         .sheet(isPresented: $showLibrary, onDismiss: resume) { LibraryView() }
+        .sheet(isPresented: $showReference, onDismiss: resume) { ReferenceOverlayView(image: $reference,opacity: $referenceOpacity) }
+        .sheet(isPresented: $showExplore, onDismiss: resume) { ExploreView() }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(settings.smartShutter ? 250 : 1000))
+                guard !Task.isCancelled else { return }
+                let active = visible && scenePhase == .active && !demo && !showSettings && !showLibrary && !showReference && !showExplore
+                if smartGate.shouldCapture(enabled: settings.smartShutter && settings.guide,ready: reading.state == .ready && !camera.framingPhase.isPreparing,
+                                           active: active,busy: !canShoot,zooming: camera.framingPhase == .zooming) { shoot() }
+            }
+        }
         .alert("Camera", isPresented: Binding(get: { camera.errorMessage != nil }, set: { if !$0 { camera.errorMessage = nil } })) {
             Button("OK") { camera.errorMessage = nil }
         } message: { Text(camera.errorMessage ?? "") }
@@ -64,7 +85,7 @@ struct CameraView: View {
         HStack(spacing: 20) {
             Button { showAspect.toggle() } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: settings.aspect == .square ? "square" : "rectangle.portrait").font(.system(size: 17))
+                    Image(systemName: settings.aspect == .square ? "square" : settings.aspect.ratio > 1 ? "rectangle" : "rectangle.portrait").font(.system(size: 17))
                     VStack(alignment: .leading, spacing: 0) {
                         Text(settings.aspect.rawValue).font(.system(size: 13, weight: .semibold))
                         if settings.raw && camera.supportsRAW {
@@ -82,6 +103,12 @@ struct CameraView: View {
             }.disabled(!camera.supportsFlash || demo).accessibilityLabel("Flash \(settings.flash.label)")
             Menu {
                 Toggle("Composition guide", isOn: $settings.guide)
+                Button("Switch camera", systemImage: "camera.rotate") { camera.switchCamera() }.disabled(demo)
+                Button("Exposure", systemImage: "plusminus.circle") { showExposure.toggle() }.disabled(demo)
+                Toggle("Smart shutter", isOn: $settings.smartShutter)
+                Toggle("Measured coach",isOn: $settings.coach)
+                Button("Reference overlay",systemImage: "photo.on.rectangle") { camera.stop(); showReference = true }
+                Button("Explore & practice",systemImage: "sparkles") { camera.stop(); showExplore = true }
                 Picker("Composition", selection: $mode) {
                     Text("Thirds").tag(CompositionMode.thirds)
                     Text("Center").tag(CompositionMode.centered)
@@ -98,7 +125,7 @@ struct CameraView: View {
             Button { showAspect = false; camera.stop(); showSettings = true } label: {
                 Image(systemName: "ellipsis").font(.system(size: 21, weight: .bold)).frame(width: 30, height: 44)
             }.accessibilityLabel("Settings")
-        }.padding(.horizontal, 20).disabled(saving || camera.isCapturing || camera.framingPhase == .zooming)
+        }.padding(.horizontal, 20).disabled(saving || camera.isCapturing || camera.isSwitchingCamera || camera.framingPhase == .zooming)
     }
 
     private var viewfinder: some View {
@@ -110,12 +137,41 @@ struct CameraView: View {
                 Text("DEMO").font(.caption.weight(.bold)).padding(12).foregroundStyle(Palette.yellow)
             } else if camera.access == .available {
                 CameraPreview(session: camera.session, onFocus: { camera.focus(at: $0) },
-                              onSelect: { camera.selectSubject(at: $0) }, onZoom: { camera.setZoom($0) }, zoom: camera.zoom)
-                    .disabled(saving || camera.isCapturing)
+                              onSelect: { smartGate.reset(); camera.selectSubject(at: $0) }, onZoom: { camera.setZoom($0) }, zoom: camera.zoom, mirrored: camera.isFrontCamera)
+                    .disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
             } else { permissionView.frame(maxWidth: .infinity, maxHeight: .infinity) }
+            if camera.isSwitchingCamera {
+                ProgressView("Switching camera…").tint(Palette.yellow).frame(maxWidth: .infinity,maxHeight: .infinity).background(.black.opacity(0.35))
+            }
+            if let reference, !demo {
+                GeometryReader { geo in
+                    Image(uiImage: reference).resizable().scaledToFill().frame(width: geo.size.width,height: geo.size.height).clipped().opacity(referenceOpacity)
+                }.allowsHitTesting(false)
+            }
             if demo || camera.access == .available {
                 CompositionOverlay(reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
-                                   showLevel: settings.level, subjectLabel: subjectName, framingPhase: camera.framingPhase)
+                                   showLevel: settings.level && camera.levelReliable, subjectLabel: subjectName, framingPhase: camera.framingPhase)
+            }
+            if settings.coach && !showExposure && !showAspect {
+                VStack(alignment: .leading,spacing: 3) {
+                    if let scene = camera.sceneLabel { Text("Frame label: \(scene)") }
+                    if let measured = camera.liveMeasurements { Text(String(format: "Technical measure %.0f/100",measured.technicalScore)) }
+                    if let alignment = reading.alignmentPercent(previewAspect: settings.aspect.ratio) { Text(String(format: "Guide alignment %.0f%%",alignment)) }
+                }.font(.caption2).padding(7).background(.black.opacity(0.55),in: RoundedRectangle(cornerRadius: 7)).padding(12).allowsHitTesting(false)
+            }
+            if showExposure {
+                VStack(spacing: 8) {
+                    HStack {
+                        Text(String(format: "Exposure %+.1f EV", camera.exposureBias)).font(.caption)
+                        Spacer()
+                        Button("Reset") { camera.setExposure(0) }
+                        Button { showExposure = false } label: { Image(systemName: "xmark") }
+                    }
+                    Slider(value: Binding(get: { Double(camera.exposureBias) }, set: { camera.setExposure(Float($0)) }),
+                           in: Double(camera.exposureRange.lowerBound)...Double(camera.exposureRange.upperBound))
+                        .tint(Palette.yellow)
+                }.padding(14).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 14)).padding(12)
+                    .disabled(saving || camera.isCapturing || camera.isSwitchingCamera || camera.framingPhase == .zooming)
             }
             if showAspect {
                 Color.clear.contentShape(Rectangle()).onTapGesture { showAspect = false }
@@ -131,7 +187,7 @@ struct CameraView: View {
             ForEach(PhotoAspect.allCases) { aspect in
                 Button { settings.aspect = aspect; showAspect = false } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: aspect == .square ? "square" : "rectangle.portrait").font(.system(size: 14))
+                        Image(systemName: aspect == .square ? "square" : aspect.ratio > 1 ? "rectangle" : "rectangle.portrait").font(.system(size: 14))
                         Text(aspect.rawValue).font(.system(size: 16))
                         Spacer()
                         if settings.aspect == aspect { Image(systemName: "checkmark").foregroundStyle(Palette.yellow).font(.system(size: 12)) }
@@ -169,12 +225,12 @@ struct CameraView: View {
                             .foregroundStyle(selected ? Palette.yellow : Color.secondary)
                             .frame(width: 36, height: 36)
                             .background(selected ? Palette.yellow.opacity(0.14) : Color(white: 0.07), in: Circle())
-                    }.disabled(demo || saving || camera.isCapturing).accessibilityLabel("Zoom \(zoomLabel(stop))")
+                    }.disabled(demo || saving || camera.isCapturing || camera.isSwitchingCamera).accessibilityLabel("Zoom \(zoomLabel(stop))")
                 }
             }.frame(height: 43)
             HStack {
                 Button { camera.stop(); showLibrary = true } label: { libraryThumbnail }
-                    .accessibilityLabel("Open photo library").disabled(saving || camera.isCapturing)
+                    .accessibilityLabel("Open photo library").disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
                 Spacer()
                 Button(action: shoot) {
                     ZStack {
@@ -187,11 +243,11 @@ struct CameraView: View {
                 Button {
                     if demo { demo = false; camera.start() }
                     if camera.framingPhase.isPreparing { camera.cancelAutoFraming() }
-                    else { settings.guide = true; corner = nil; camera.findSubject() }
+                    else { settings.guide = true; corner = nil; smartGate.reset(); camera.findSubject() }
                 } label: {
                     Image(systemName: camera.framingPhase.isPreparing ? "xmark" : "arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
                         .frame(width: 48, height: 48).background(Palette.yellow.opacity(0.13), in: Circle())
-                }.accessibilityLabel(camera.framingPhase.isPreparing ? "Cancel automatic framing" : "Scan scene and select a new subject").disabled(saving || camera.isCapturing)
+                }.accessibilityLabel(camera.framingPhase.isPreparing ? "Cancel automatic framing" : "Scan scene and select a new subject").disabled(saving || camera.isCapturing || camera.isSwitchingCamera)
             }.padding(.horizontal, 54).frame(height: 80)
             Spacer(minLength: 0)
         }.background(.black)
@@ -206,9 +262,13 @@ struct CameraView: View {
     }
 
     private var instruction: String {
+        if !seriesProgress.isEmpty { return seriesProgress }
         if saved { return "Saved to your library." }
         if demo { return "Demo scene. Tap scan to return to the camera." }
-        if !settings.guide { return "Tap to focus. Pinch to zoom." }
+        if !settings.guide {
+            if settings.coach, let advice = camera.coachAdvice.first { return advice }
+            return "Tap to focus. Pinch to zoom."
+        }
         switch camera.framingPhase {
         case .searching: return "Finding your subject… Tap it to select."
         case .aligning:
@@ -224,6 +284,7 @@ struct CameraView: View {
         case .framed:
             if reading.subject == nil { return "Subject lost. Tap scan or select it again." }
             if abs(reading.rollDegrees) > 4 { return "Level your phone." }
+            if settings.coach, let advice = camera.coachAdvice.first { return advice }
             return SubjectAdvice.text(for: subjectName)
         case .off: break
         }
@@ -237,13 +298,16 @@ struct CameraView: View {
 
     private var permissionView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "camera").font(.system(size: 38, weight: .light))
+            if camera.access == .checking { ProgressView("Starting camera…").tint(Palette.yellow) }
+            else { Image(systemName: "camera").font(.system(size: 38, weight: .light))
             Text(camera.access == .denied ? "Allow camera access in Settings." : "Camera unavailable.")
                 .font(.subheadline).foregroundStyle(.secondary)
             if camera.access == .denied {
                 Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
             }
+            else { Button("Retry camera") { camera.start() } }
             Button("Open demo") { camera.stop(); demo = true }
+            }
         }.padding(24).multilineTextAlignment(.center)
     }
 
@@ -254,47 +318,56 @@ struct CameraView: View {
 
     private func shoot() {
         guard canShoot else { return }
-        showAspect = false; saving = true
+        smartGate.consume()
+        showAspect = false; showExposure = false; saving = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        if demo, let bytes = UIImage(named: "DemoScene")?.jpegData(compressionQuality: 0.95) {
-            save(CameraCapture(processed: bytes, raw: nil), isDemo: true)
-        } else {
-            let options = CaptureOptions(raw: settings.raw && camera.supportsRAW, flash: settings.flash,
-                                         shutterSound: settings.shutterSound)
-            camera.capture(options: options) { result in
-                switch result {
-                case .success(let capture): save(capture, isDemo: false)
-                case .failure(let error): saving = false; camera.errorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    private func save(_ capture: CameraCapture, isDemo: Bool) {
-        let aspect = settings.aspect
-        let caption = settings.caption
-        let scan = settings.saveScan ? camera.scanData : nil
-        let raw = settings.keepRAW ? capture.raw : nil
-        let autoSave = settings.autoSaveToPhotos
+        let count = demo ? 1 : settings.burstCount
+        let burst = count > 1 ? UUID() : nil
+        let aspect = settings.aspect, caption = settings.caption
+        let keepRAW = settings.keepRAW, autoSave = settings.autoSaveToPhotos
+        let scan = settings.saveScan && !demo ? camera.scanData : nil
         let label = subjectName
         let capturedMode = settings.guide ? mode.rawValue : "Free shoot"
+        let challenge = settings.challenge.isEmpty ? nil : settings.challenge
+        let options = CaptureOptions(raw: settings.raw && camera.supportsRAW,flash: settings.flash,shutterSound: settings.shutterSound)
         Task {
+            var added = [SavedPhoto]()
             do {
-                let rendered = try await Task.detached(priority: .userInitiated) {
-                    let processed = try PhotoRenderer.crop(capture.processed, to: aspect)
-                    return (processed, scan.flatMap { PhotoRenderer.captionedScan($0, style: caption) })
-                }.value
-                let photo = try await library.add(data: rendered.0, mode: capturedMode, isDemo: isDemo,
-                                                  rawData: raw, originalData: rendered.0 == capture.processed ? nil : capture.processed,
-                                                  scanData: rendered.1, aspect: aspect.rawValue, subject: label)
-                if autoSave {
-                    do { try await library.saveToPhotos(photo) }
-                    catch { camera.errorMessage = "Saved in Focal. Photos export: \(error.localizedDescription)" }
+                for index in 0..<count {
+                    guard scenePhase == .active && visible else { break }
+                    seriesProgress = count > 1 ? "Capturing \(index+1) of \(count)…" : "Saving…"
+                    let capture: CameraCapture
+                    if demo {
+                        guard let bytes = UIImage(named: "DemoScene")?.jpegData(compressionQuality: 0.95) else { throw CameraController.CameraError.missingPhoto }
+                        capture = CameraCapture(processed: bytes,raw: nil)
+                    } else {
+                        capture = try await withCheckedThrowingContinuation { continuation in
+                            camera.capture(options: options) { continuation.resume(with: $0) }
+                        }
+                    }
+                    let rendered = try await Task.detached(priority: .userInitiated) {
+                        let processed = try PhotoRenderer.crop(capture.processed,to: aspect)
+                        return (processed, index == 0 ? scan.flatMap { PhotoRenderer.captionedScan($0,style: caption) } : nil)
+                    }.value
+                    let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: demo,
+                        rawData: keepRAW ? capture.raw : nil,originalData: rendered.0 == capture.processed ? nil : capture.processed,
+                        scanData: rendered.1,aspect: aspect.rawValue,subject: label,challenge: challenge,burstID: burst)
+                    added.append(photo)
+                    if index+1 < count { try await Task.sleep(for: .milliseconds(180)) }
                 }
-                saving = false; saved = true
-                try? await Task.sleep(for: .seconds(1.2))
-                saved = false
-            } catch { saving = false; camera.errorMessage = error.localizedDescription }
+                if autoSave {
+                    for photo in added {
+                        do { try await library.saveToPhotos(photo) }
+                        catch { camera.errorMessage = "Saved in Focal. Photos export: \(error.localizedDescription)"; break }
+                    }
+                }
+                saved = !added.isEmpty
+            } catch {
+                camera.errorMessage = (added.isEmpty ? "" : "Earlier shots are saved. ") + error.localizedDescription
+            }
+            saving = false; seriesProgress = ""
+            try? await Task.sleep(for: .seconds(1.2))
+            saved = false
         }
     }
 }
