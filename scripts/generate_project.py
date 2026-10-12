@@ -32,7 +32,7 @@ for path in sorted(ROOT.glob("Focal/**/*.swift")) + sorted(ROOT.glob("FocalTests
     (test_sources if "FocalTests/" in relative else app_sources).append(build)
     (test_refs if "FocalTests/" in relative else source_refs).append(reference)
 
-for path, kind in [("Focal/Resources/Assets.xcassets", "folder.assetcatalog"), ("Focal/Resources/PrivacyInfo.xcprivacy", "text.xml")]:
+for path, kind in [("Focal/Resources/Assets.xcassets", "folder.assetcatalog"), ("Focal/Resources/Fonts", "folder"), ("Focal/Resources/PrivacyInfo.xcprivacy", "text.xml")]:
     reference = add(path, "PBXFileReference", lastKnownFileType=kind, path=path, sourceTree="SOURCE_ROOT")
     resource_refs.append(reference)
     resources.append(add("build:" + path, "PBXBuildFile", fileRef=reference))
@@ -52,7 +52,7 @@ common = dict(SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="17.0", SWIFT_VERSI
 app = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.example.focal",
            INFOPLIST_FILE="Focal/Resources/Info.plist", GENERATE_INFOPLIST_FILE="NO",
            ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", TARGETED_DEVICE_FAMILY="1",
-           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="2", MARKETING_VERSION="1.1", VERSIONING_SYSTEM="apple-generic",
+           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="3", MARKETING_VERSION="1.2", VERSIONING_SYSTEM="apple-generic",
            SUPPORTED_PLATFORMS="iphoneos iphonesimulator", SUPPORTS_MACCATALYST="NO",
            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"],
            ENABLE_PREVIEWS="YES")
@@ -116,7 +116,8 @@ info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplay
             CFBundleExecutable="$(EXECUTABLE_NAME)", CFBundleIdentifier="$(PRODUCT_BUNDLE_IDENTIFIER)",
             CFBundleInfoDictionaryVersion="6.0", CFBundleName="$(PRODUCT_NAME)", CFBundlePackageType="APPL",
             CFBundleShortVersionString="$(MARKETING_VERSION)", CFBundleVersion="$(CURRENT_PROJECT_VERSION)",
-            LSRequiresIPhoneOS=True, UILaunchScreen={}, UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"],
+            LSRequiresIPhoneOS=True, UILaunchScreen={}, UIAppFonts=["Fonts/EBGaramond-Italic.ttf"],
+            UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"],
             UIApplicationSceneManifest=dict(UIApplicationSupportsMultipleScenes=False),
             NSCameraUsageDescription="Focal uses your camera to help you compose and capture photos. Frames are analyzed only on your iPhone.",
             NSMotionUsageDescription="Focal uses your phone’s motion to show a level guide while you compose.",
@@ -125,7 +126,8 @@ info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplay
 privacy = dict(NSPrivacyTracking=False, NSPrivacyTrackingDomains=[], NSPrivacyCollectedDataTypes=[],
                NSPrivacyAccessedAPITypes=[
                    dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryUserDefaults", NSPrivacyAccessedAPITypeReasons=["CA92.1"]),
-                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategorySystemBootTime", NSPrivacyAccessedAPITypeReasons=["35F9.1"])
+                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategorySystemBootTime", NSPrivacyAccessedAPITypeReasons=["35F9.1"]),
+                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryFileTimestamp", NSPrivacyAccessedAPITypeReasons=["C617.1"])
                ])
 (ROOT / "Focal/Resources/PrivacyInfo.xcprivacy").write_bytes(plistlib.dumps(privacy))
 assets = ROOT / "Focal/Resources/Assets.xcassets"

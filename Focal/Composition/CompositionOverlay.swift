@@ -17,67 +17,33 @@ struct CompositionOverlay: View {
     let reading: CompositionReading
     let showGrid: Bool
     let guideEnabled: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    var showLevel = true
+    var subjectLabel = "Subject"
     var body: some View {
         GeometryReader { geometry in
-            if showGrid {
-                ThirdsGrid().stroke(.white.opacity(0.27), lineWidth: 0.65)
-            }
-            if guideEnabled, let subject = reading.subject {
-                if let bounds = reading.subjectBounds {
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                        .frame(width: max(1, bounds.width * geometry.size.width),
-                               height: max(1, bounds.height * geometry.size.height))
-                        .position(x: bounds.midX * geometry.size.width, y: bounds.midY * geometry.size.height)
-                }
-                let target = position(reading.target, in: geometry.size)
-                let current = position(subject, in: geometry.size)
-                Path { path in
-                    path.move(to: current)
-                    path.addLine(to: target)
-                }
-                .stroke(.white.opacity(0.65), style: StrokeStyle(lineWidth: 1, dash: [3, 5]))
-
-                Circle()
-                    .fill(Palette.mint.opacity(reading.state == .ready ? 0.3 : 0.08))
-                    .frame(width: geometry.size.width * 0.13, height: geometry.size.width * 0.13)
-                    .overlay(Circle().stroke(Palette.mint, lineWidth: 1.5))
-                    .overlay {
-                        if reading.state == .ready {
-                            Image(systemName: "checkmark").font(.system(size: 19, weight: .medium)).foregroundStyle(Palette.mint)
-                        } else {
-                            Image(systemName: "plus").font(.system(size: 12, weight: .light)).foregroundStyle(Palette.mint)
-                        }
-                    }
-                    .position(target)
-                if reading.state != .ready {
-                    Circle().fill(.white).frame(width: 9, height: 9)
-                        .shadow(color: .black.opacity(0.3), radius: 3)
-                        .position(current)
-                }
-            }
-            if guideEnabled {
-                ZStack {
-                    Rectangle().fill(.white.opacity(0.35)).frame(width: 70, height: 1)
-                    HStack(spacing: 8) {
-                        Capsule().frame(width: 26, height: 2)
-                        Circle().frame(width: 4, height: 4)
-                        Capsule().frame(width: 26, height: 2)
-                    }
-                    .foregroundStyle(abs(reading.rollDegrees) < 4 ? Palette.mint : .white)
+            if showGrid { ThirdsGrid().stroke(.white.opacity(0.22), lineWidth: 0.6) }
+            if showLevel {
+                Rectangle().fill(Palette.yellow).frame(width: geometry.size.width * 0.36, height: 1.5)
                     .rotationEffect(.degrees(-reading.rollDegrees))
-                }
-                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                Rectangle().fill(abs(reading.rollDegrees) < 4 ? Palette.mint : Palette.yellow)
+                    .frame(width: 2, height: 16).position(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
-        }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: reading.subject)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func position(_ point: UnitPoint2D, in size: CGSize) -> CGPoint {
-        CGPoint(x: point.x * size.width, y: point.y * size.height)
+            if guideEnabled, let point = reading.subject {
+                if reading.state == .adjusting {
+                    Image(systemName: "plus").font(.system(size: 16, weight: .light)).foregroundStyle(Palette.yellow)
+                        .position(x: reading.target.x * geometry.size.width, y: reading.target.y * geometry.size.height)
+                }
+                HStack(spacing: 5) {
+                    Circle().fill(Palette.mint).frame(width: 4, height: 4)
+                    Text(subjectLabel.lowercased()).font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                }
+                .foregroundStyle(Palette.mint).padding(.horizontal, 8).padding(.vertical, 5)
+                .frame(maxWidth: 145, alignment: .leading)
+                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+                .position(x: min(geometry.size.width - 78, max(78, point.x * geometry.size.width)),
+                          y: min(geometry.size.height - 26, max(26, point.y * geometry.size.height + 65)))
+            }
+        }.allowsHitTesting(false).accessibilityHidden(true)
     }
 }

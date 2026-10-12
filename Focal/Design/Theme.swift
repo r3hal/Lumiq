@@ -1,10 +1,11 @@
 import SwiftUI
 
 enum Palette {
-    static let ink = Color(red: 0.055, green: 0.067, blue: 0.063)
-    static let panel = Color(red: 0.10, green: 0.12, blue: 0.11)
+    static let ink = Color.black
+    static let panel = Color(white: 0.12)
     static let paper = Color(red: 0.95, green: 0.94, blue: 0.90)
-    static let mint = Color(red: 0.76, green: 0.96, blue: 0.57)
+    static let mint = Color(red: 0.19, green: 0.78, blue: 0.35)
+    static let yellow = Color(red: 1, green: 0.84, blue: 0.04)
 }
 
 struct Eyebrow: View {

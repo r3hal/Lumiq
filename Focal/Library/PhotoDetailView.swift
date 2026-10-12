@@ -7,15 +7,28 @@ struct PhotoDetailView: View {
     @State private var confirmDelete = false
     @State private var exporting = false
     @State private var message: String?
-    @State private var shareURL: URL?
+    @State private var shareItems: [Any] = []
     @State private var showShare = false
+    @State private var variant = "Photo"
     private var current: SavedPhoto { library.photos.first { $0.id == photo.id } ?? photo }
+    private var imageURL: URL {
+        if variant == "Scan", let scan = library.scanURL(for: photo) { return scan }
+        if variant == "Original", let original = library.originalURL(for: photo) { return original }
+        return library.url(for: photo)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    PhotoImage(url: library.url(for: photo), maxPixels: 4096)
+                    if photo.scanFilename != nil || photo.originalFilename != nil {
+                        Picker("Image", selection: $variant) {
+                            Text("Photo").tag("Photo")
+                            if photo.scanFilename != nil { Text("Scan").tag("Scan") }
+                            if photo.originalFilename != nil { Text("Original").tag("Original") }
+                        }.pickerStyle(.segmented)
+                    }
+                    PhotoImage(url: imageURL, maxPixels: 4096)
                         .clipShape(RoundedRectangle(cornerRadius: 22))
                         .accessibilityLabel(photo.isDemo ? "Sample lake and mountain scene" : "Your captured photo")
                     HStack {
@@ -28,6 +41,7 @@ struct PhotoDetailView: View {
                             if let resolution = photo.resolutionLabel {
                                 Text(resolution).font(.system(.caption2, design: .monospaced)).foregroundStyle(Palette.mint)
                             }
+                            if let aspect = photo.aspect { Text("Aspect \(aspect)").font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
                         Button { library.toggleFavorite(current) } label: {
@@ -39,7 +53,7 @@ struct PhotoDetailView: View {
                     Button {
                         exporting = true
                         Task {
-                            do { try await library.saveToPhotos(photo); message = "Saved to your iPhone photo library." }
+                            do { try await library.saveToPhotos(photo, imageURL: imageURL); message = "Saved to your iPhone photo library." }
                             catch { message = error.localizedDescription }
                             exporting = false
                         }
@@ -51,6 +65,13 @@ struct PhotoDetailView: View {
                         }
                     }
                     .buttonStyle(PrimaryButton()).disabled(exporting)
+                    if let raw = library.rawURL(for: photo) {
+                        Button {
+                            shareItems = [raw]
+                            showShare = true
+                        } label: { Label("Share RAW original", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(12) }
+                        .foregroundStyle(Palette.yellow)
+                    }
                     Button(role: .destructive) { confirmDelete = true } label: {
                         Label("Delete from Focal", systemImage: "trash").font(.subheadline).frame(maxWidth: .infinity).padding(12)
                     }
@@ -64,7 +85,7 @@ struct PhotoDetailView: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        shareURL = library.url(for: photo)
+                        shareItems = [imageURL]
                         showShare = true
                     } label: { Image(systemName: "square.and.arrow.up") }
                     .accessibilityLabel("Share photo")
@@ -80,7 +101,7 @@ struct PhotoDetailView: View {
                 Button("OK") { message = nil }
             } message: { Text(message ?? "") }
             .sheet(isPresented: $showShare) {
-                if let shareURL { ActivitySheet(items: [shareURL]) }
+                ActivitySheet(items: shareItems)
             }
         }
     }

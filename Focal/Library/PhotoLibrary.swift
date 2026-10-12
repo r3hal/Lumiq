@@ -13,6 +13,11 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     var isFavorite: Bool
     var pixelWidth: Int? = nil
     var pixelHeight: Int? = nil
+    var rawFilename: String? = nil
+    var originalFilename: String? = nil
+    var scanFilename: String? = nil
+    var aspect: String? = nil
+    var subject: String? = nil
 
     var resolutionLabel: String? {
         guard let width = pixelWidth, let height = pixelHeight else { return nil }
@@ -28,11 +33,11 @@ final class PhotoLibrary: ObservableObject {
     private var manifest: URL { directory.appendingPathComponent("library.json") }
     private var canWrite = true
 
-    init() {
-        directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    init(directory: URL? = nil) {
+        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Focal", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: manifest.path) {
                 photos = try JSONDecoder().decode([SavedPhoto].self, from: Data(contentsOf: manifest))
             }
@@ -43,12 +48,29 @@ final class PhotoLibrary: ObservableObject {
     }
 
     func url(for photo: SavedPhoto) -> URL { directory.appendingPathComponent(photo.filename) }
+    func rawURL(for photo: SavedPhoto) -> URL? { photo.rawFilename.map { directory.appendingPathComponent($0) } }
+    func originalURL(for photo: SavedPhoto) -> URL? { photo.originalFilename.map { directory.appendingPathComponent($0) } }
+    func scanURL(for photo: SavedPhoto) -> URL? { photo.scanFilename.map { directory.appendingPathComponent($0) } }
+
+    var storageBytes: Int64 {
+        let names = photos.flatMap { [$0.filename, $0.rawFilename, $0.originalFilename, $0.scanFilename].compactMap { $0 } } + ["library.json"]
+        return names.reduce(0) { total, name in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(name).path)
+            return total + ((attributes?[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+    }
 
     @discardableResult
-    func add(data: Data, mode: String, isDemo: Bool = false) async throws -> SavedPhoto {
+    func add(data: Data, mode: String, isDemo: Bool = false, rawData: Data? = nil,
+             originalData: Data? = nil, scanData: Data? = nil, aspect: String? = nil, subject: String? = nil) async throws -> SavedPhoto {
         guard canWrite else { throw LibraryError.unavailable }
         var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + ".jpg", createdAt: Date(),
                                mode: mode, isDemo: isDemo, isFavorite: false)
+        photo.aspect = aspect
+        photo.subject = subject
+        if rawData != nil { photo.rawFilename = UUID().uuidString + ".dng" }
+        if originalData != nil { photo.originalFilename = UUID().uuidString + ".jpg" }
+        if scanData != nil { photo.scanFilename = UUID().uuidString + ".jpg" }
         // Read the file header only, without decoding/re-encoding the full-resolution capture.
         if let source = CGImageSourceCreateWithData(data as CFData, nil),
            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
@@ -59,15 +81,22 @@ final class PhotoLibrary: ObservableObject {
             photo.pixelHeight = orientation >= 5 ? width : height
         }
         let destination = url(for: photo)
-        try await Task.detached(priority: .userInitiated) {
-            try data.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
-        }.value
+        var files: [URL: Data] = [destination: data]
+        if let rawData, let file = rawURL(for: photo) { files[file] = rawData }
+        if let originalData, let file = originalURL(for: photo) { files[file] = originalData }
+        if let scanData, let file = scanURL(for: photo) { files[file] = scanData }
+        let capturedFiles = files
         do {
+            try await Task.detached(priority: .userInitiated) {
+                for (file, bytes) in capturedFiles {
+                    try bytes.write(to: file, options: [.atomic, .completeFileProtectionUnlessOpen])
+                }
+            }.value
             let next = [photo] + photos
             try persist(next)
             photos = next
         } catch {
-            try? FileManager.default.removeItem(at: destination)
+            for file in capturedFiles.keys { try? FileManager.default.removeItem(at: file) }
             throw error
         }
         return photo
@@ -86,15 +115,28 @@ final class PhotoLibrary: ObservableObject {
         try persist(next)
         photos = next
         // A failed file removal only leaves an unreferenced file, never a broken manifest.
-        try FileManager.default.removeItem(at: url(for: photo))
+        for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo)].compactMap({ $0 }) {
+            try FileManager.default.removeItem(at: file)
+        }
     }
 
-    func saveToPhotos(_ photo: SavedPhoto) async throws {
+    func saveToPhotos(_ photo: SavedPhoto, imageURL: URL? = nil) async throws {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else { throw LibraryError.photosDenied }
-        let file = url(for: photo)
+        let file = imageURL ?? url(for: photo)
+        let raw = file == scanURL(for: photo) ? nil : rawURL(for: photo)
+        let separateRAW = file == url(for: photo) && photo.originalFilename != nil
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: file)
+            let request = PHAssetCreationRequest.forAsset()
+            request.addResource(with: .photo, fileURL: file, options: nil)
+            if let raw {
+                if separateRAW {
+                    // A cropped JPEG and full-sensor DNG have different framing. Export as
+                    // separate assets rather than pretending they are an identical image pair.
+                    let rawRequest = PHAssetCreationRequest.forAsset()
+                    rawRequest.addResource(with: .photo, fileURL: raw, options: nil)
+                } else { request.addResource(with: .alternatePhoto, fileURL: raw, options: nil) }
+            }
         }
     }
 

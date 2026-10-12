@@ -55,7 +55,7 @@ struct CompositionEngine {
 
     mutating func update(subject: UnitPoint2D?, rollDegrees: Double,
                          mode: CompositionMode, timestamp: TimeInterval,
-                         preferredTarget: UnitPoint2D? = nil) -> CompositionReading {
+                         preferredTarget: UnitPoint2D? = nil, previewAspect: Double = 0.75) -> CompositionReading {
         if previousMode != mode { reset(); previousMode = mode }
         guard let subject, subject.x.isFinite, subject.y.isFinite,
               (0...1).contains(subject.x), (0...1).contains(subject.y) else {
@@ -90,9 +90,10 @@ struct CompositionEngine {
         if lockedTarget != target { alignedSince = nil }
         lockedTarget = target
         // Check both the raw observation and filtered position so smoothing cannot fake readiness.
-        // The portrait preview is 4/3 as tall as it is wide. Measure actual screen distance.
-        let distance = max(hypot(point.x - target.x, (point.y - target.y) * 4.0 / 3),
-                           hypot(subject.x - target.x, (subject.y - target.y) * 4.0 / 3))
+        // Measure actual screen distance for the selected preview aspect ratio.
+        let verticalScale = 1 / max(0.1, previewAspect)
+        let distance = max(hypot(point.x - target.x, (point.y - target.y) * verticalScale),
+                           hypot(subject.x - target.x, (subject.y - target.y) * verticalScale))
         var reading = CompositionReading(subject: point, target: target, rollDegrees: rollDegrees)
         if abs(rollDegrees) > 4 {
             alignedSince = nil
@@ -104,7 +105,7 @@ struct CompositionEngine {
             reading.state = .adjusting
             let dx = point.x - target.x
             let dy = point.y - target.y
-            let direction = abs(dx) > abs(dy) * 4.0 / 3 ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
+            let direction = abs(dx) > abs(dy) * verticalScale ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
             reading.title = "Aim a little \(direction)"
             reading.detail = "Pan your phone \(direction) until the white dot reaches the ring."
         } else {

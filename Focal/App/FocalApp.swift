@@ -3,32 +3,15 @@ import SwiftUI
 @main
 struct FocalApp: App {
     @StateObject private var library = PhotoLibrary()
-    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
+    @StateObject private var settings = CameraSettings()
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if hasSeenWelcome { RootView() }
-                else { WelcomeView { hasSeenWelcome = true } }
-            }
+            CameraView()
                 .environmentObject(library)
-                .tint(Palette.mint)
+                .environmentObject(settings)
+                .tint(Palette.yellow)
                 .preferredColorScheme(.dark)
         }
-    }
-}
-
-private struct RootView: View {
-    var body: some View {
-        TabView {
-            CameraView()
-                .tabItem { Label("Camera", systemImage: "camera") }
-            LibraryView()
-                .tabItem { Label("Your shots", systemImage: "square.stack") }
-            FieldGuideView()
-                .tabItem { Label("Field notes", systemImage: "sparkles") }
-        }
-        .toolbarBackground(Palette.ink, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
     }
 }

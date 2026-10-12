@@ -4,6 +4,7 @@ struct LibraryView: View {
     @EnvironmentObject private var library: PhotoLibrary
     @State private var favoritesOnly = false
     @State private var selected: SavedPhoto?
+    @Environment(\.dismiss) private var dismiss
     private var visible: [SavedPhoto] { library.photos.filter { !favoritesOnly || $0.isFavorite } }
 
     var body: some View {
@@ -12,8 +13,7 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 10) {
                         Eyebrow(text: "A collection of little moments").foregroundStyle(Palette.mint)
-                        Text("Your perspective.")
-                            .font(.system(size: 38, weight: .regular, design: .serif)).tracking(-1)
+                        Text("Library").font(.system(size: 30, weight: .bold))
                         Text("\(library.photos.count) \(library.photos.count == 1 ? "frame" : "frames") worth keeping.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
@@ -74,7 +74,9 @@ struct LibraryView: View {
                 .padding(.horizontal, 22)
             }
             .background(Palette.ink)
-            .toolbar(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
             .sheet(item: $selected) { PhotoDetailView(photo: $0) }
             .alert("Your shots", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) {
                 Button("OK") { library.errorMessage = nil }

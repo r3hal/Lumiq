@@ -8,6 +8,7 @@ final class SubjectTracker {
     private var tracking: VNTrackObjectRequest?
     private var candidates: [VNDetectedObjectObservation] = []
     private var lastDetection: TimeInterval = -.infinity
+    private var lastClassification: TimeInterval = -.infinity
     private(set) var manual = false
     private(set) var label = "Auto subject"
 
@@ -16,6 +17,7 @@ final class SubjectTracker {
         tracking = nil
         candidates = []
         lastDetection = -.infinity
+        lastClassification = -.infinity
         manual = false
         label = "Auto subject"
     }
@@ -41,6 +43,7 @@ final class SubjectTracker {
                    result.confidence >= 0.4, valid(result.boundingBox) {
                     tracking.inputObservation = result
                     candidates = [result]
+                    classify(result, in: buffer, timestamp: timestamp)
                     return result
                 }
             } catch { /* Lost tracking: reacquire rather than presenting a guessed position. */ }
@@ -67,8 +70,23 @@ final class SubjectTracker {
             guard let selected = choices.max(by: { score($0.boundingBox) < score($1.boundingBox) }) else { return nil }
             label = faceCandidates.isEmpty ? "Auto subject" : "Person"
             start(selected)
+            classify(selected, in: buffer, timestamp: timestamp)
             return selected
         } catch { return nil }
+    }
+
+    private func classify(_ observation: VNDetectedObjectObservation, in buffer: CVPixelBuffer, timestamp: TimeInterval) {
+        guard label != "Person", timestamp - lastClassification > 2 else { return }
+        lastClassification = timestamp
+        let request = VNClassifyImageRequest()
+        request.regionOfInterest = observation.boundingBox.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        do {
+            try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request])
+            if let result = request.results?.first, result.confidence >= 0.45 {
+                let name = result.identifier.components(separatedBy: ",").first ?? result.identifier
+                label = name.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespaces).capitalized
+            }
+        } catch { /* Keep the honest generic label when the classifier is uncertain. */ }
     }
 
     private func start(_ observation: VNDetectedObjectObservation) {

@@ -62,6 +62,7 @@ struct CameraPreview: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: PreviewSurface, context: Context) {
+        view.isUserInteractionEnabled = context.environment.isEnabled
         view.currentZoom = zoom
         view.onFocus = onFocus
         view.onSelect = onSelect

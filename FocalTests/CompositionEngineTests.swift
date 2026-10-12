@@ -115,4 +115,11 @@ final class CompositionEngineTests: XCTestCase {
                                     mode: .centered, timestamp: 0)
         XCTAssertEqual(reading.state, .adjusting)
     }
+
+    func testSquarePreviewUsesSquareDistance() {
+        var engine = CompositionEngine()
+        let reading = engine.update(subject: .init(x: 0.5, y: 0.56), rollDegrees: 0,
+                                    mode: .centered, timestamp: 0, previewAspect: 1)
+        XCTAssertEqual(reading.state, .settling)
+    }
 }

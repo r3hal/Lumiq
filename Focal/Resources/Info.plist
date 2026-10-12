@@ -28,6 +28,10 @@
 	<string>Focal uses your phone’s motion to show a level guide while you compose.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the photos you choose from Focal to your iPhone photo library.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Fonts/EBGaramond-Italic.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

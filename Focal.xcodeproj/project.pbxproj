@@ -5,6 +5,16 @@
 	};
 	"objectVersion" = "56";
 	"objects" = {
+		"9AAEF2D33ECC35F648A5E647" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/App/CameraSettings.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"0A568169E49987AB769EA812" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9AAEF2D33ECC35F648A5E647";
+		};
 		"C7B31A999734912C7380420D" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -24,6 +34,16 @@
 		"1E2FCE7F5E1326FF02DDD42A" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "96A3003DDC188183C803654E";
+		};
+		"38B92521018C4ADA2FFEFA2C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/App/SettingsView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"3884E2592954F27CC0E91E5C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "38B92521018C4ADA2FFEFA2C";
 		};
 		"08E18AD6EA1A26C47D3BC7CD" = {
 			"isa" = "PBXFileReference";
@@ -64,6 +84,16 @@
 		"26754B6C149AA3B77FB06954" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "FF367A3984DC926EE202E1E7";
+		};
+		"B3082BDAB83FE3C7E798BE98" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Camera/PhotoRenderer.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"2BE25F7A30CD371A7ACA8FC9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B3082BDAB83FE3C7E798BE98";
 		};
 		"A4DDB49B1C57E418C87447D2" = {
 			"isa" = "PBXFileReference";
@@ -155,6 +185,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "6C59DDF893487355855966AD";
 		};
+		"9F5036EBFA1C8C5D9E47EE12" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/PhotoFeatureTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"220AB2911A116948FB1E5960" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9F5036EBFA1C8C5D9E47EE12";
+		};
 		"F2DD12ACA0C49E571FEEC22F" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "folder.assetcatalog";
@@ -164,6 +204,16 @@
 		"8CAE91BC90DB002E8DA86E57" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "F2DD12ACA0C49E571FEEC22F";
+		};
+		"A0231DF293BA5BBB7138D700" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "folder";
+			"path" = "Focal/Resources/Fonts";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"FEA40A1F6CC96AFA7E41AA7B" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "A0231DF293BA5BBB7138D700";
 		};
 		"924879FD9B800785113420DF" = {
 			"isa" = "PBXFileReference";
@@ -207,12 +257,15 @@
 		"1455444174429298B0F374B3" = {
 			"isa" = "PBXGroup";
 			"children" = (
+				"9AAEF2D33ECC35F648A5E647",
 				"C7B31A999734912C7380420D",
 				"96A3003DDC188183C803654E",
+				"38B92521018C4ADA2FFEFA2C",
 				"08E18AD6EA1A26C47D3BC7CD",
 				"80ECA8EE485556FF2ED3D571",
 				"583C1B623B2F53A6C2B54CE2",
 				"FF367A3984DC926EE202E1E7",
+				"B3082BDAB83FE3C7E798BE98",
 				"A4DDB49B1C57E418C87447D2",
 				"6E4E878846C3CA82F93F896F",
 				"FD37C76EF9CE840E81963971",
@@ -229,6 +282,7 @@
 			"isa" = "PBXGroup";
 			"children" = (
 				"F2DD12ACA0C49E571FEEC22F",
+				"A0231DF293BA5BBB7138D700",
 				"924879FD9B800785113420DF",
 				"06271BAF49532C879AA3C58B",
 			);
@@ -239,6 +293,7 @@
 			"isa" = "PBXGroup";
 			"children" = (
 				"6C59DDF893487355855966AD",
+				"9F5036EBFA1C8C5D9E47EE12",
 			);
 			"name" = "FocalTests";
 			"sourceTree" = "<group>";
@@ -263,8 +318,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "2";
-				"MARKETING_VERSION" = "1.1";
+				"CURRENT_PROJECT_VERSION" = "3";
+				"MARKETING_VERSION" = "1.2";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -286,8 +341,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "2";
-				"MARKETING_VERSION" = "1.1";
+				"CURRENT_PROJECT_VERSION" = "3";
+				"MARKETING_VERSION" = "1.2";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -312,12 +367,15 @@
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
 			"files" = (
+				"0A568169E49987AB769EA812",
 				"39E7A3C3032A37DD015579A6",
 				"1E2FCE7F5E1326FF02DDD42A",
+				"3884E2592954F27CC0E91E5C",
 				"D128142C592100D17B572CF6",
 				"84E527555B3F57EC22BD06F4",
 				"C8AC88BB57A63BBE5A83FCD8",
 				"26754B6C149AA3B77FB06954",
+				"2BE25F7A30CD371A7ACA8FC9",
 				"AF7CF0039AA6A478054A4F74",
 				"E88EC3256DD45FF9D3E77C96",
 				"07566F72E315C53805A9A166",
@@ -341,6 +399,7 @@
 			"buildActionMask" = "2147483647";
 			"files" = (
 				"8CAE91BC90DB002E8DA86E57",
+				"FEA40A1F6CC96AFA7E41AA7B",
 				"3DE6D3C034589C8430222829",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
@@ -424,6 +483,7 @@
 			"buildActionMask" = "2147483647";
 			"files" = (
 				"AD8878812FD5ECECD7F0C16D",
+				"220AB2911A116948FB1E5960",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};

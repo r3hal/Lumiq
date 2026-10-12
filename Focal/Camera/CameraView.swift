@@ -3,318 +3,276 @@ import SwiftUI
 struct CameraView: View {
     @StateObject private var camera = CameraController()
     @EnvironmentObject private var library: PhotoLibrary
+    @EnvironmentObject private var settings: CameraSettings
     @Environment(\.scenePhase) private var scenePhase
-    @State private var isVisible = false
+    @State private var visible = false
     @State private var demo = false
-    @State private var grid = true
-    @State private var guide = true
+    @State private var showAspect = false
+    @State private var showSettings = false
+    @State private var showLibrary = false
     @State private var mode: CompositionMode = .thirds
+    @State private var corner: Int?
     @State private var saving = false
     @State private var saved = false
-    @State private var showHelp = false
-    @State private var demoSubject = UnitPoint2D(x: 0.55, y: 0.43)
-    @State private var demoEngine = CompositionEngine()
-    @State private var demoReading = CompositionReading()
-    @State private var demoReset = UUID()
-    @State private var corner: Int? = nil
-
-    private var reading: CompositionReading { demo ? demoReading : camera.reading }
+    private var reading: CompositionReading { camera.reading }
     private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing }
+    private var subjectName: String { ["Auto subject", "Your subject"].contains(camera.subjectLabel) ? "Subject" : camera.subjectLabel }
+    private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
 
     var body: some View {
         GeometryReader { geometry in
-            let previewWidth = max(180, min(geometry.size.width - 24, (geometry.size.height - 260) * 0.75))
-            VStack(spacing: 12) {
-                header
-                viewfinder
-                    .frame(width: previewWidth, height: previewWidth * 4 / 3)
-                    .frame(maxWidth: .infinity)
-                guidance
-                controls
+            let availableHeight = max(160, geometry.size.height - 208)
+            let width = min(geometry.size.width, availableHeight * settings.aspect.ratio)
+            VStack(spacing: 0) {
+                toolbar.frame(height: 44)
+                ZStack { viewfinder.frame(width: width, height: width / settings.aspect.ratio) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                footer.frame(height: 164)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(minHeight: geometry.size.height, alignment: .top)
-            .frame(maxWidth: .infinity)
         }
-        .background(Palette.ink)
-        .onAppear { isVisible = true; if !demo { camera.start() } }
-        .onDisappear { isVisible = false; camera.stop() }
+        .background(.black).foregroundStyle(.white)
+        .onAppear {
+            visible = true
+            camera.setMode(mode)
+            camera.setGuidance(settings.guide)
+            camera.setPreviewAspect(settings.aspect.ratio)
+            if !demo { camera.start() }
+        }
+        .onDisappear { visible = false; camera.stop() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active && isVisible && !demo { camera.start() }
+            if phase == .active && visible && !demo && !showSettings && !showLibrary { camera.start() }
             else { camera.stop() }
         }
-        .onChange(of: mode) { _, newMode in camera.setMode(newMode); restartDemo() }
-        .onChange(of: corner) { _, index in
-            camera.setTarget(index.map { CompositionEngine.thirdsTargets[$0] })
-            restartDemo()
-        }
-        .onChange(of: guide) { _, enabled in camera.setGuidance(enabled) }
+        .onChange(of: mode) { _, value in camera.setMode(value) }
+        .onChange(of: settings.guide) { _, value in camera.setGuidance(value) }
+        .onChange(of: settings.aspect) { _, value in camera.setPreviewAspect(value.ratio) }
+        .onChange(of: corner) { _, value in camera.setTarget(value.map { CompositionEngine.thirdsTargets[$0] }) }
         .onChange(of: reading.state) { old, new in
-            if new == .ready && old != .ready && guide {
-                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-            }
+            if old != .ready && new == .ready && settings.guide { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
         }
-        .task(id: demoReset) {
-            guard demo else { return }
-            let start = ProcessInfo.processInfo.systemUptime
-            while !Task.isCancelled {
-                let elapsed = ProcessInfo.processInfo.systemUptime - start
-                let progress = min(elapsed / 3.5, 1)
-                let target = mode == .thirds ? corner.map { CompositionEngine.thirdsTargets[$0] }
-                    ?? CompositionEngine.target(for: demoSubject, mode: mode) : UnitPoint2D(x: 0.5, y: 0.5)
-                let subject = UnitPoint2D(x: demoSubject.x + (target.x - demoSubject.x) * progress,
-                                          y: demoSubject.y + (target.y - demoSubject.y) * progress)
-                demoReading = demoEngine.update(subject: subject, rollDegrees: (1 - progress) * 9,
-                                                mode: mode, timestamp: elapsed, preferredTarget: mode == .thirds ? target : nil)
-                do { try await Task.sleep(for: .milliseconds(220)) } catch { return }
-            }
-        }
-        .sheet(isPresented: $showHelp) { FieldGuideView().presentationDragIndicator(.visible) }
+        .fullScreenCover(isPresented: $showSettings, onDismiss: resume) { SettingsView(camera: camera) }
+        .sheet(isPresented: $showLibrary, onDismiss: resume) { LibraryView() }
         .alert("Camera", isPresented: Binding(get: { camera.errorMessage != nil }, set: { if !$0 { camera.errorMessage = nil } })) {
             Button("OK") { camera.errorMessage = nil }
         } message: { Text(camera.errorMessage ?? "") }
     }
 
-    private var header: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 3) {
-                Text("focal").font(.system(size: 28, weight: .heavy, design: .rounded))
-                Circle().fill(Palette.mint).frame(width: 6, height: 6).offset(y: 8)
-            }
+    private var toolbar: some View {
+        HStack(spacing: 20) {
+            Button { showAspect.toggle() } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: settings.aspect == .square ? "square" : "rectangle.portrait").font(.system(size: 17))
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(settings.aspect.rawValue).font(.system(size: 13, weight: .semibold))
+                        if settings.raw && camera.supportsRAW {
+                            Text("RAW").font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(Palette.yellow)
+                        }
+                    }
+                    Image(systemName: showAspect ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .semibold)).foregroundStyle(showAspect ? Palette.yellow : Color.secondary)
+                }.frame(minHeight: 44)
+            }.accessibilityLabel("Aspect ratio and RAW options")
             Spacer()
-            HStack(spacing: 6) {
-                Circle().fill(demo ? .orange : Palette.mint).frame(width: 5, height: 5)
-                Text(demo ? "DEMO" : camera.photoResolution.uppercased())
-                    .font(.system(size: 10, weight: .medium, design: .monospaced)).tracking(1)
-            }
-            .foregroundStyle(.white.opacity(0.65))
-            Button { showHelp = true } label: {
-                Image(systemName: "questionmark.circle").frame(width: 44, height: 44)
-            }
-            .foregroundStyle(.white.opacity(0.65))
-            .accessibilityLabel("How composition guidance works")
-        }
-        .padding(.horizontal, 6)
+            Button { settings.flash = CameraFlash.allCases[(settings.flash.rawValue + 1) % CameraFlash.allCases.count] } label: {
+                Image(systemName: settings.flash.symbol).font(.system(size: 19)).frame(width: 30, height: 44)
+                    .foregroundStyle(settings.flash == .off ? Color.white : Palette.yellow)
+            }.disabled(!camera.supportsFlash || demo).accessibilityLabel("Flash \(settings.flash.label)")
+            Menu {
+                Toggle("Composition guide", isOn: $settings.guide)
+                Picker("Composition", selection: $mode) {
+                    Text("Thirds").tag(CompositionMode.thirds)
+                    Text("Center").tag(CompositionMode.centered)
+                }
+                Button("Change thirds corner") {
+                    corner = ((CompositionEngine.thirdsTargets.firstIndex(of: reading.target) ?? 0) + 1) % 4
+                }.disabled(mode != .thirds)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "camera.aperture").font(.system(size: 19))
+                    Image(systemName: "chevron.down").font(.system(size: 8))
+                }.frame(height: 44)
+            }.accessibilityLabel("Guide and composition options")
+            Button { showAspect = false; camera.stop(); showSettings = true } label: {
+                Image(systemName: "ellipsis").font(.system(size: 21, weight: .bold)).frame(width: 30, height: 44)
+            }.accessibilityLabel("Settings")
+        }.padding(.horizontal, 20).disabled(saving || camera.isCapturing)
     }
 
     private var viewfinder: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             if demo {
                 GeometryReader { geometry in
-                    Image("DemoScene").resizable().scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                    Image("DemoScene").resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 }
+                Text("DEMO").font(.caption.weight(.bold)).padding(12).foregroundStyle(Palette.yellow)
             } else if camera.access == .available {
                 CameraPreview(session: camera.session, onFocus: { camera.focus(at: $0) },
                               onSelect: { camera.selectSubject(at: $0) }, onZoom: { camera.setZoom($0) }, zoom: camera.zoom)
-            } else {
-                permissionView
-            }
+                    .disabled(saving || camera.isCapturing)
+            } else { permissionView.frame(maxWidth: .infinity, maxHeight: .infinity) }
             if demo || camera.access == .available {
-                CompositionOverlay(reading: reading, showGrid: grid, guideEnabled: guide)
-                VStack {
-                    HStack {
-                        Picker("Composition", selection: $mode) {
-                            Text("Thirds").tag(CompositionMode.thirds)
-                            Text("Center").tag(CompositionMode.centered)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: 155)
-                        .disabled(!guide)
+                CompositionOverlay(reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
+                                   showLevel: settings.level, subjectLabel: subjectName)
+            }
+            if showAspect {
+                Color.clear.contentShape(Rectangle()).onTapGesture { showAspect = false }
+                aspectMenu.padding(.leading, 12).padding(.top, 8)
+            }
+        }.clipped()
+    }
+
+    private var aspectMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Aspect ratio").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 14).padding(.top, 13).padding(.bottom, 5)
+            ForEach(PhotoAspect.allCases) { aspect in
+                Button { settings.aspect = aspect; showAspect = false } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: aspect == .square ? "square" : "rectangle.portrait").font(.system(size: 14))
+                        Text(aspect.rawValue).font(.system(size: 16))
                         Spacer()
-                        if demo {
-                            Button {
-                                demo = false
-                                demoReset = UUID()
-                                camera.start()
-                            } label: { Image(systemName: "xmark").frame(width: 36, height: 36).background(.black.opacity(0.4), in: Circle()) }
-                            .accessibilityLabel("Exit demo and use camera")
-                        } else if guide && mode == .thirds {
-                            Button {
-                                let currentIndex = CompositionEngine.thirdsTargets.firstIndex(of: reading.target) ?? 0
-                                corner = (currentIndex + 1) % 4
-                            } label: {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .frame(width: 40, height: 40).background(.black.opacity(0.4), in: Circle())
-                            }
-                            .accessibilityLabel("Change thirds target corner")
-                        }
+                        if settings.aspect == aspect { Image(systemName: "checkmark").foregroundStyle(Palette.yellow).font(.system(size: 12)) }
                     }
-                    Spacer()
-                    VStack(spacing: 12) {
-                        if guide && !demo {
-                            Button {
-                                corner = nil
-                                camera.findSubject()
-                            } label: {
-                                Label(camera.subjectLabel + " · Rescan", systemImage: "sparkles")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(.black.opacity(0.45), in: Capsule())
-                            }
-                            .accessibilityLabel("Automatically find and focus on a new subject")
-                        }
-                        ViewThatFits(in: .horizontal) {
-                            zoomButtons
-                            ScrollView(.horizontal, showsIndicators: false) { zoomButtons }
-                                .frame(height: 44)
-                        }
-                        if !demo {
-                            Text("\(zoomLabel(camera.zoom)) · PINCH TO ZOOM")
-                                .font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(1)
-                        }
-                    }
-                    .shadow(radius: 4)
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .foregroundStyle(settings.aspect == aspect ? Color.white : Color.secondary)
+                    .background(settings.aspect == aspect ? Color.white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 10))
                 }
-                .foregroundStyle(.white)
-                .padding(12)
+            }.padding(.horizontal, 6)
+            Divider().overlay(Color.white.opacity(0.1)).padding(.horizontal, 12).padding(.vertical, 9)
+            Toggle(isOn: $settings.raw) {
+                HStack(spacing: 9) {
+                    Image(systemName: "camera.aperture").foregroundStyle(Palette.yellow).font(.system(size: 13))
+                    Text(camera.supportsProRAW ? "ProRAW" : "RAW").font(.system(size: 16, weight: .medium))
+                }
+            }.tint(Palette.yellow).controlSize(.mini).disabled(!camera.supportsRAW || demo)
+                .padding(.horizontal, 14).padding(.bottom, 13)
+            if !camera.supportsRAW {
+                Text("Unavailable on this camera").font(.system(size: 9)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14).padding(.bottom, 10)
             }
-            if saved {
-                Label("Saved to your shots", systemImage: "checkmark.circle.fill")
-                    .font(.callout.weight(.medium)).padding(16)
-                    .foregroundStyle(Palette.ink).background(Palette.mint, in: Capsule())
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            }
+        }.frame(width: 150).background(Color(white: 0.08).opacity(0.96), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            Text(instruction).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.mint)
+                .lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: .infinity).frame(height: 29).padding(.horizontal, 12)
+            HStack(spacing: 7) {
+                ForEach(demo ? [1.0] : camera.zoomStops, id: \.self) { stop in
+                    let selected = closestStop == stop
+                    Button { camera.setZoom(stop) } label: {
+                        Text(zoomLabel(selected ? camera.zoom : stop))
+                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? Palette.yellow : Color.secondary)
+                            .frame(width: 36, height: 36)
+                            .background(selected ? Palette.yellow.opacity(0.14) : Color(white: 0.07), in: Circle())
+                    }.disabled(demo || saving || camera.isCapturing).accessibilityLabel("Zoom \(zoomLabel(stop))")
+                }
+            }.frame(height: 43)
+            HStack {
+                Button { camera.stop(); showLibrary = true } label: { libraryThumbnail }
+                    .accessibilityLabel("Open photo library").disabled(saving || camera.isCapturing)
+                Spacer()
+                Button(action: shoot) {
+                    ZStack {
+                        Circle().stroke(.white, lineWidth: 2).frame(width: 62, height: 62)
+                        Circle().fill(.white).frame(width: 52, height: 52)
+                        if saving || camera.isCapturing { ProgressView().tint(.black) }
+                    }.frame(width: 70, height: 70)
+                }.disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
+                Spacer()
+                Button {
+                    if demo { demo = false; camera.start() }
+                    settings.guide = true; corner = nil; camera.findSubject()
+                } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
+                        .frame(width: 48, height: 48).background(Palette.yellow.opacity(0.13), in: Circle())
+                }.accessibilityLabel("Scan scene and select a new subject").disabled(saving || camera.isCapturing)
+            }.padding(.horizontal, 54).frame(height: 80)
+            Spacer(minLength: 0)
+        }.background(.black)
+    }
+
+    private var libraryThumbnail: some View {
+        Group {
+            if let photo = library.photos.first { PhotoImage(url: library.url(for: photo), maxPixels: 180, fill: true) }
+            else { Image(systemName: "photo").font(.system(size: 19)).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.panel) }
+        }.frame(width: 40, height: 40).clipped().clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(0.3), lineWidth: 1))
+    }
+
+    private var instruction: String {
+        if saved { return "Saved to your library." }
+        if demo { return "Demo scene. Tap scan to return to the camera." }
+        if !settings.guide { return "Tap to focus. Pinch to zoom." }
+        switch reading.state {
+        case .searching: return "Point at a subject. Tap scan or select it yourself."
+        case .adjusting: return reading.title + "."
+        case .settling: return "Hold steady. Keep the subject in the guide."
+        case .ready: return "Isolate the \(subjectName.lowercased()). Hold your frame."
         }
-        .background(Palette.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 26))
-        .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.12), lineWidth: 1))
     }
 
     private var permissionView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "viewfinder").font(.system(size: 44, weight: .ultraLight)).foregroundStyle(Palette.mint)
-            Text(camera.access == .checking ? "A new way to see." : "Your eye. A little help.")
-                .font(.system(.title2, design: .serif))
-            Text(camera.access == .denied
-                 ? "Allow camera access in Settings to find your next frame."
-                 : camera.access == .unavailable
-                 ? "A camera isn’t available here. Explore the guided demo, or run Focal on an iPhone."
-                 : "Camera access lets Focal guide your composition, right on your iPhone.")
-                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Image(systemName: "camera").font(.system(size: 38, weight: .light))
+            Text(camera.access == .denied ? "Allow camera access in Settings." : "Camera unavailable.")
+                .font(.subheadline).foregroundStyle(.secondary)
             if camera.access == .denied {
-                Button("Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                }
-                .buttonStyle(.borderedProminent)
-                .foregroundStyle(Palette.ink)
+                Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
             }
-            Button("Explore the demo") {
-                camera.stop()
-                demo = true
-                restartDemo()
-            }
-            .font(.subheadline.weight(.semibold))
-            .padding(8)
-        }
-        .padding(24)
+            Button("Open demo") { camera.stop(); demo = true }
+        }.padding(24).multilineTextAlignment(.center)
     }
 
-    private var guidance: some View {
-        VStack(spacing: 7) {
-            HStack(spacing: 8) {
-                Image(systemName: guide && reading.state == .ready ? "checkmark.circle.fill" : "sparkle")
-                    .foregroundStyle(Palette.mint)
-                Text(guide ? reading.title : "Trust your eye")
-                    .font(.system(.headline, design: .rounded))
-                    .foregroundStyle(guide && reading.state == .ready ? Palette.mint : .white)
-            }
-            Text(guide ? reading.detail : "No directions. Just you and the moment.")
-                .font(.caption).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(minHeight: 50)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var controls: some View {
-        VStack(spacing: 8) {
-            HStack {
-                VStack(spacing: 5) {
-                    RoundToolButton(symbol: "grid", label: "Composition grid", selected: grid) { grid.toggle() }
-                    Text("Grid").font(.caption2).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button(action: shoot) {
-                    ZStack {
-                        Circle().stroke(.white.opacity(0.85), lineWidth: 2).frame(width: 78, height: 78)
-                        Circle().fill(reading.state == .ready && guide ? Palette.mint : Palette.paper).frame(width: 64, height: 64)
-                        if saving || camera.isCapturing { ProgressView().tint(Palette.ink) }
-                    }
-                }
-                .disabled(!canShoot)
-                .opacity(canShoot || saving ? 1 : 0.4)
-                .accessibilityLabel(demo ? "Save demo photo" : "Take photo")
-                Spacer()
-                VStack(spacing: 5) {
-                    RoundToolButton(symbol: "viewfinder", label: "Live composition guidance", selected: guide) { guide.toggle() }
-                    Text("Guide").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 25)
-            Text(demo ? "Simulated guide · sample photo" : "Tap a subject to select and focus")
-                .font(.caption2).foregroundStyle(.white.opacity(0.45))
-        }
-    }
-
+    private func resume() { if visible && scenePhase == .active && !demo { camera.start() } }
     private func zoomLabel(_ value: Double) -> String {
         abs(value.rounded() - value) < 0.04 ? String(format: "%.0f×", value) : String(format: "%.1f×", value)
     }
 
-    private var zoomButtons: some View {
-        HStack(spacing: 7) {
-            ForEach(demo ? [1.0] : camera.zoomStops, id: \.self) { stop in
-                Button { camera.setZoom(stop) } label: {
-                    Text(zoomLabel(stop))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(abs(camera.zoom - stop) < 0.08 ? Palette.ink : .white)
-                        .frame(width: 44, height: 44)
-                        .background(abs(camera.zoom - stop) < 0.08 ? Palette.mint : .black.opacity(0.45), in: Circle())
-                }
-                .disabled(demo || camera.isCapturing || saving)
-                .accessibilityLabel("Zoom \(zoomLabel(stop))")
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func restartDemo() {
-        demoEngine.reset()
-        demoReset = UUID()
-    }
-
     private func shoot() {
         guard canShoot else { return }
+        showAspect = false; saving = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        saving = true
-        if demo {
-            guard let image = UIImage(named: "DemoScene"), let data = image.jpegData(compressionQuality: 0.95) else {
-                saving = false
-                camera.errorMessage = "The demo image could not be loaded."
-                return
-            }
-            save(data, demo: true)
+        if demo, let bytes = UIImage(named: "DemoScene")?.jpegData(compressionQuality: 0.95) {
+            save(CameraCapture(processed: bytes, raw: nil), isDemo: true)
         } else {
-            camera.capture { result in
+            let options = CaptureOptions(raw: settings.raw && camera.supportsRAW, flash: settings.flash,
+                                         shutterSound: settings.shutterSound)
+            camera.capture(options: options) { result in
                 switch result {
-                case .success(let data): save(data, demo: false)
+                case .success(let capture): save(capture, isDemo: false)
                 case .failure(let error): saving = false; camera.errorMessage = error.localizedDescription
                 }
             }
         }
     }
 
-    private func save(_ data: Data, demo: Bool) {
-        let capturedMode = guide ? mode.rawValue : "Free shoot"
+    private func save(_ capture: CameraCapture, isDemo: Bool) {
+        let aspect = settings.aspect
+        let caption = settings.caption
+        let scan = settings.saveScan ? camera.scanData : nil
+        let raw = settings.keepRAW ? capture.raw : nil
+        let autoSave = settings.autoSaveToPhotos
+        let label = subjectName
+        let capturedMode = settings.guide ? mode.rawValue : "Free shoot"
         Task {
             do {
-                _ = try await library.add(data: data, mode: capturedMode, isDemo: demo)
-                withAnimation { saved = true }
-                try? await Task.sleep(for: .seconds(1.3))
-                withAnimation { saved = false }
-            } catch { camera.errorMessage = error.localizedDescription }
-            saving = false
+                let rendered = try await Task.detached(priority: .userInitiated) {
+                    let processed = try PhotoRenderer.crop(capture.processed, to: aspect)
+                    return (processed, scan.flatMap { PhotoRenderer.captionedScan($0, style: caption) })
+                }.value
+                let photo = try await library.add(data: rendered.0, mode: capturedMode, isDemo: isDemo,
+                                                  rawData: raw, originalData: rendered.0 == capture.processed ? nil : capture.processed,
+                                                  scanData: rendered.1, aspect: aspect.rawValue, subject: label)
+                if autoSave {
+                    do { try await library.saveToPhotos(photo) }
+                    catch { camera.errorMessage = "Saved in Focal. Photos export: \(error.localizedDescription)" }
+                }
+                saving = false; saved = true
+                try? await Task.sleep(for: .seconds(1.2))
+                saved = false
+            } catch { saving = false; camera.errorMessage = error.localizedDescription }
         }
     }
 }

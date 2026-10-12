@@ -17,6 +17,11 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var zoomStops: [Double] = [1, 2]
     @Published private(set) var subjectLabel = "Auto subject"
     @Published private(set) var photoResolution = "Full resolution"
+    @Published private(set) var supportsRAW = false
+    @Published private(set) var supportsProRAW = false
+    @Published private(set) var supportsFlash = false
+    @Published private(set) var canMuteShutter = false
+    @Published private(set) var scanData: Data?
     @Published var errorMessage: String?
 
     let session = AVCaptureSession()
@@ -36,6 +41,8 @@ final class CameraController: NSObject, ObservableObject {
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
     private var analysisBuffer: CVPixelBuffer?
     private var imageAspect = 0.75
+    private var previewAspect = 0.75
+    private var wantsScan = true
     private var preferredTarget: UnitPoint2D?
     private var analysisPaused = false
     private var ignoreFramesUntil: TimeInterval = 0
@@ -44,7 +51,10 @@ final class CameraController: NSObject, ObservableObject {
     private var lastAutomaticFocus: TimeInterval = 0
     private var lastFocusedPoint: UnitPoint2D?
     private var zoomMultiplier: CGFloat = 1 // Capture zoom that corresponds to the wide lens's 1×.
-    private var captureCompletion: ((Result<Data, Error>) -> Void)?
+    private var captureCompletion: ((Result<CameraCapture, Error>) -> Void)?
+    private var pendingProcessed: Data?
+    private var pendingRAW: Data?
+    private var pendingError: Error?
     private var observers: [NSObjectProtocol] = []
 
     override init() {
@@ -113,23 +123,30 @@ final class CameraController: NSObject, ObservableObject {
         analysisQueue.async { self.preferredTarget = target; self.engine.reset() }
     }
 
+    func setPreviewAspect(_ aspect: Double) {
+        analysisQueue.async { self.previewAspect = aspect; self.engine.reset() }
+    }
+
     func findSubject() {
         analysisQueue.async {
             self.resetAnalysis()
+            self.wantsScan = true
             DispatchQueue.main.async { self.subjectLabel = "Auto subject"; self.reading = CompositionReading() }
         }
     }
 
     func selectSubject(at previewPoint: UnitPoint2D) {
         analysisQueue.async {
-            let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: 0.75)
+            let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: self.previewAspect)
             self.tracker.select(at: projection.imagePoint(previewPoint))
             self.engine.reset()
+            self.wantsScan = true
             DispatchQueue.main.async { self.subjectLabel = "Your subject" }
         }
     }
 
     func setZoom(_ displayedZoom: Double) {
+        guard !isCapturing else { return }
         queue.async {
             guard let device = self.device else { return }
             let upper = min(device.maxAvailableVideoZoomFactor, self.zoomMultiplier * 6)
@@ -157,6 +174,7 @@ final class CameraController: NSObject, ObservableObject {
         focusCandidate = nil
         focusCandidateSince = 0
         lastFocusedPoint = nil
+        wantsScan = true
     }
 
     func focus(at point: CGPoint, continuous: Bool = false) {
@@ -180,7 +198,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    func capture(completion: @escaping (Result<Data, Error>) -> Void) {
+    func capture(options: CaptureOptions = CaptureOptions(), completion: @escaping (Result<CameraCapture, Error>) -> Void) {
         guard isRunning, !isCapturing else {
             completion(.failure(CameraError.notRunning))
             return
@@ -197,7 +215,10 @@ final class CameraController: NSObject, ObservableObject {
                 return
             }
             self.captureCompletion = completion
-            let settings = self.photoSettings()
+            self.pendingProcessed = nil
+            self.pendingRAW = nil
+            self.pendingError = nil
+            let settings = self.photoSettings(options: options)
             self.output.capturePhoto(with: settings, delegate: self)
         }
     }
@@ -206,11 +227,23 @@ final class CameraController: NSObject, ObservableObject {
         queue.async { if self.wantsToRun { self.configureAndStart() } }
     }
 
-    private func photoSettings() -> AVCapturePhotoSettings {
-        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+    private func photoSettings(options: CaptureOptions = CaptureOptions()) -> AVCapturePhotoSettings {
+        let format: [String: Any] = [AVVideoCodecKey: AVVideoCodecType.jpeg]
+        let settings: AVCapturePhotoSettings
+        let rawFormat = output.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) })
+            ?? output.availableRawPhotoPixelFormatTypes.first
+        if options.raw, let rawFormat {
+            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat, processedFormat: format)
+        } else { settings = AVCapturePhotoSettings(format: format) }
         settings.maxPhotoDimensions = output.maxPhotoDimensions
-        settings.photoQualityPrioritization = .quality
-        settings.flashMode = .off
+        // Bayer RAW bypasses computational processing; ProRAW supports quality processing.
+        let bayerRAW = options.raw && rawFormat.map { !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } == true
+        settings.photoQualityPrioritization = bayerRAW ? .speed : .quality
+        let flash = AVCaptureDevice.FlashMode(rawValue: options.flash.rawValue) ?? .off
+        settings.flashMode = output.supportedFlashModes.contains(flash) ? flash : .off
+        if #available(iOS 18.0, *), output.isShutterSoundSuppressionSupported {
+            settings.isShutterSoundSuppressionEnabled = !options.shutterSound
+        }
         return settings
     }
 
@@ -235,6 +268,7 @@ final class CameraController: NSObject, ObservableObject {
                 session.addOutput(output)
                 session.addOutput(videoOutput)
                 output.maxPhotoQualityPrioritization = .quality
+                if output.isAppleProRAWSupported { output.isAppleProRAWEnabled = true }
                 if let dimensions = camera.activeFormat.supportedMaxPhotoDimensions.max(by: {
                     Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
                 }) {
@@ -270,6 +304,10 @@ final class CameraController: NSObject, ObservableObject {
                     self.maximumZoom = upper
                     self.zoomStops = available
                     self.zoom = Double(camera.videoZoomFactor / self.zoomMultiplier)
+                    self.supportsProRAW = self.output.isAppleProRAWSupported
+                    self.supportsRAW = !self.output.availableRawPhotoPixelFormatTypes.isEmpty
+                    self.supportsFlash = camera.hasFlash
+                    if #available(iOS 18.0, *) { self.canMuteShutter = self.output.isShutterSoundSuppressionSupported }
                 }
                 configured = true
             }
@@ -306,17 +344,34 @@ final class CameraController: NSObject, ObservableObject {
 extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        guard guidanceEnabled, !analysisPaused else { return }
+        guard !analysisPaused else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard now >= ignoreFramesUntil, now - lastAnalysis > 0.12,
-              let fullBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
-              let buffer = smallAnalysisBuffer(from: fullBuffer) else { return }
+              let fullBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastAnalysis = now
+        if !guidanceEnabled {
+            let gravity = motion.deviceMotion?.gravity
+            let roll = gravity.map { hypot($0.x, $0.y) > 0.2 ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
+            let result = CompositionReading(rollDegrees: roll)
+            DispatchQueue.main.async { self.reading = result }
+            return
+        }
+        guard let buffer = smallAnalysisBuffer(from: fullBuffer) else { return }
+        if wantsScan {
+            wantsScan = false
+            let image = CIImage(cvPixelBuffer: fullBuffer)
+            let scale = min(1, 1600 / max(image.extent.width, image.extent.height))
+            let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            if let cgImage = imageContext.createCGImage(scaled, from: scaled.extent),
+               let jpeg = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.93) {
+                DispatchQueue.main.async { self.scanData = jpeg }
+            }
+        }
         var subject: UnitPoint2D?
         var bounds: CGRect?
         if let object = tracker.observation(in: buffer, timestamp: now) {
             let imagePoint = UnitPoint2D(x: object.boundingBox.midX, y: 1 - object.boundingBox.midY)
-            let projection = PreviewProjection(imageAspect: imageAspect, previewAspect: 0.75)
+            let projection = PreviewProjection(imageAspect: imageAspect, previewAspect: previewAspect)
             subject = projection.visiblePoint(imagePoint)
             let topLeftRect = CGRect(x: object.boundingBox.minX, y: 1 - object.boundingBox.maxY,
                                      width: object.boundingBox.width, height: object.boundingBox.height)
@@ -327,7 +382,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         // When looking straight up/down, gravity cannot give a meaningful portrait roll.
         let roll = gravity.map { hypot($0.x, $0.y) > 0.2 ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
         var result = engine.update(subject: subject, rollDegrees: roll, mode: mode, timestamp: now,
-                                   preferredTarget: preferredTarget)
+                                   preferredTarget: preferredTarget, previewAspect: previewAspect)
         result.subjectBounds = bounds
         let label = tracker.label
         DispatchQueue.main.async { self.reading = result; self.subjectLabel = label }
@@ -374,19 +429,28 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
                      error: Error?) {
         // Some device failures occur before processing produces any image.
-        if let error { finishCapture(.failure(error)) }
+        queue.async {
+            if let error { self.pendingError = error }
+            if let error = self.pendingError { self.finishCapture(.failure(error)) }
+            else if let processed = self.pendingProcessed {
+                self.finishCapture(.success(CameraCapture(processed: processed, raw: self.pendingRAW)))
+            } else { self.finishCapture(.failure(CameraError.missingPhoto)) }
+        }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
-        let result: Result<Data, Error>
-        if let error { result = .failure(error) }
-        else if let data = photo.fileDataRepresentation() { result = .success(data) }
-        else { result = .failure(CameraError.missingPhoto) }
-        finishCapture(result)
+        let data = photo.fileDataRepresentation()
+        let isRaw = photo.isRawPhoto
+        queue.async {
+            if let error { self.pendingError = error }
+            else if let data {
+                if isRaw { self.pendingRAW = data } else { self.pendingProcessed = data }
+            } else { self.pendingError = CameraError.missingPhoto }
+        }
     }
 
-    private func finishCapture(_ result: Result<Data, Error>) {
+    private func finishCapture(_ result: Result<CameraCapture, Error>) {
         queue.async {
             let completion = self.captureCompletion
             self.captureCompletion = nil
