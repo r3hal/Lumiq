@@ -11,6 +11,13 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     let mode: String
     let isDemo: Bool
     var isFavorite: Bool
+    var pixelWidth: Int? = nil
+    var pixelHeight: Int? = nil
+
+    var resolutionLabel: String? {
+        guard let width = pixelWidth, let height = pixelHeight else { return nil }
+        return "\(width) × \(height) · \(String(format: "%.1f", Double(width) * Double(height) / 1_000_000)) MP"
+    }
 }
 
 @MainActor
@@ -40,8 +47,17 @@ final class PhotoLibrary: ObservableObject {
     @discardableResult
     func add(data: Data, mode: String, isDemo: Bool = false) async throws -> SavedPhoto {
         guard canWrite else { throw LibraryError.unavailable }
-        let photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + ".jpg", createdAt: Date(),
+        var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + ".jpg", createdAt: Date(),
                                mode: mode, isDemo: isDemo, isFavorite: false)
+        // Read the file header only, without decoding/re-encoding the full-resolution capture.
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+            let width = properties[kCGImagePropertyPixelWidth] as? Int
+            let height = properties[kCGImagePropertyPixelHeight] as? Int
+            let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+            photo.pixelWidth = orientation >= 5 ? height : width
+            photo.pixelHeight = orientation >= 5 ? width : height
+        }
         let destination = url(for: photo)
         try await Task.detached(priority: .userInitiated) {
             try data.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])

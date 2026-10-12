@@ -8,6 +8,14 @@ workflows:
     environment:
       xcode: "16.4"
     scripts:
+      - name: Build and run composition tests on a simulator
+        script: |
+          set -euo pipefail
+          SIMULATOR_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath build/FocalTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO test
       - name: Build native iPhone app without a distribution certificate
         script: |
           set -euo pipefail
@@ -25,6 +33,7 @@ workflows:
           ditto -c -k --keepParent Payload ../Focal-unsigned.ipa
     artifacts:
       - build/Focal-unsigned.ipa
+      - build/FocalTests.xcresult
 
   ios-check:
     name: Focal - build and test (no Apple signing required)

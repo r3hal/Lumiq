@@ -2,7 +2,7 @@
 
 A native iPhone camera app inspired by Framed’s **point → guide → capture** workflow, with original branding and UI. SwiftUI, AVFoundation, Apple Vision, and Core Motion. No third-party SDKs, account, API key, or backend.
 
-**No Mac or paid developer membership?** Follow [INSTALL-FOR-FREE.md](INSTALL-FOR-FREE.md) for Windows + AltStore Classic personal sideloading. The included `ios-sideload` cloud workflow builds an unsigned IPA for AltStore to sign; it has not yet been executed. Only the free `ios-sideload` and `ios-check` workflows are included.
+**No Mac or paid developer membership?** Follow [INSTALL-FOR-FREE.md](INSTALL-FOR-FREE.md) for Windows + AltStore Classic personal sideloading. The `ios-sideload` cloud workflow runs regression tests, then builds an unsigned IPA for AltStore to sign. Only the free `ios-sideload` and `ios-check` workflows are included.
 
 ## Open and run
 
@@ -15,12 +15,12 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 
 ## Included
 
-- Portrait rear-camera preview and full-resolution JPEG capture, with tap-to-focus/exposure.
-- On-device attention saliency detection at approximately 4 Hz, smoothed subject tracking, center/thirds guidance, motion level, and a 650 ms alignment dwell before the ready state.
+- Portrait rear-camera preview, maximum supported photo dimensions with quality prioritization, original JPEG persistence, tap-to-select/focus, and device-aware lens/pinch zoom.
+- On-device face/saliency selection followed by Vision object tracking on a 640-pixel analysis buffer, preview crop mapping, stable center/thirds targets, selectable thirds corners, motion level, and a 650 ms alignment dwell before the ready state.
 - Grid and guide toggles, haptic feedback, independent shutter, and illustrated onboarding/field notes.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with simulated guidance and working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and eight XCTest composition tests.
+- Privacy manifest, app icon, shared scheme, and 15 XCTest regression tests covering composition and preview geometry.
 
 ## Validation status
 
@@ -48,7 +48,9 @@ Device checks before distribution:
 
 ## Scope and behavior
 
-The guide is a composition heuristic built on Apple’s saliency model, not Framed’s proprietary AI and not an aesthetic scoring system. It selects the largest salient region and suggests a nearby thirds intersection or the center. It can miss or misidentify subjects. Readiness means the detected subject is near that point and the phone is level; it does not certify focus, sharpness, or artistic quality. Core Motion estimates phone roll, not a visual horizon. Only the rear wide camera and portrait orientation are included in this version. No filters, subscriptions, front camera, zoom switching, or cloud analysis.
+The guide uses Apple Vision face detection and saliency to select a subject, then tracks that region. It suggests a stable thirds intersection or the center and lets you select another corner. Tap selects a subject; Rescan restarts automatic selection. It is a composition heuristic, not an aesthetic scoring system. It can miss or misidentify subjects. Readiness means the detected subject is near that point and the phone is level; it does not certify focus, sharpness, or artistic quality. Core Motion estimates phone roll, not a visual horizon. Rear virtual cameras use the available ultra-wide/wide/telephoto lenses where supported. Displayed zoom is relative to the wide lens; pinch zoom is capped at 6×. Intermediate and high zoom can crop the image and reduce detail. Portrait orientation is supported. No filters, subscriptions, front camera, or cloud analysis.
+
+Photo capture requests the highest dimensions advertised by the active capture format and uses `.quality` processing. Actual dimensions depend on the device, lens, scene and AVFoundation. Photo detail displays the saved file dimensions. The library and Photos export preserve the original bytes; only gallery display thumbnails and Vision analysis are downsampled. This does not reproduce every Apple Camera feature such as its dedicated Night mode.
 
 The demo moves a simulated marker over a bundled sample photo to demonstrate the UI; it does not analyze the sample in real time. Demo saves are labeled in the gallery. The demo is part of the native app and still requires a compiled installation or an iOS simulator.
 

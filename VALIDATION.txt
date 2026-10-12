@@ -1,5 +1,8 @@
-PASS: Swift grammar parsed 13 source files.
-PASS: Xcode project parsed; all Swift source references present.
+Focal 1.1, build 2
+PASS: Swift grammar parsed 15 source files.
+PASS: Xcode project parsed; all source references present.
 PASS: Info/privacy plists and shared scheme XML parsed.
 PASS: Asset catalog referenced image files exist.
-NOT RUN: Xcode compilation, XCTest, simulator and physical camera tests (Apple toolchain unavailable).
+PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
+PENDING: 15 native XCTest regression tests. ios-sideload runs them before IPA packaging.
+PENDING: device checks for image resolution, autofocus, lens switching, preview dot alignment, and pinch zoom.

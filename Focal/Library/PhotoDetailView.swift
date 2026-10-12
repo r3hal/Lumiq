@@ -15,7 +15,7 @@ struct PhotoDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    PhotoImage(url: library.url(for: photo))
+                    PhotoImage(url: library.url(for: photo), maxPixels: 4096)
                         .clipShape(RoundedRectangle(cornerRadius: 22))
                         .accessibilityLabel(photo.isDemo ? "Sample lake and mountain scene" : "Your captured photo")
                     HStack {
@@ -25,6 +25,9 @@ struct PhotoDetailView: View {
                                 .font(.system(.title2, design: .serif))
                             Text("\(photo.mode) composition · \(photo.createdAt.formatted(date: .omitted, time: .shortened))")
                                 .font(.caption).foregroundStyle(.secondary)
+                            if let resolution = photo.resolutionLabel {
+                                Text(resolution).font(.system(.caption2, design: .monospaced)).foregroundStyle(Palette.mint)
+                            }
                         }
                         Spacer()
                         Button { library.toggleFavorite(current) } label: {

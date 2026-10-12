@@ -2,10 +2,11 @@ import SwiftUI
 
 struct FieldGuideView: View {
     private let notes: [(String, String, String, String)] = [
-        ("01", "viewfinder", "Find your subject.", "Look for a person, a shape, or a little detail. Focal uses on-device visual attention detection to suggest the main subject."),
-        ("02", "circle.dotted.circle", "Give it some space.", "In Thirds mode, bring the white subject dot into the green ring. Center mode puts your subject right in the middle. Follow the direction above the shutter."),
+        ("01", "viewfinder", "Find your subject.", "Focal automatically finds a face or a visually prominent object, focuses on it, and follows it. The dashed box shows the tracked area. Tap your subject to choose it yourself; use Rescan to return to automatic selection."),
+        ("02", "circle.dotted.circle", "Give it some space.", "In Thirds mode, pan the phone in the suggested direction to bring the white subject dot into the green ring. The corner button switches between the four intersections. Center mode uses the middle of the frame."),
         ("03", "level", "Keep an even keel.", "The center line follows your phone’s tilt. Make it level, then hold your frame for a moment. A green check means the subject is aligned and the phone is level."),
-        ("04", "camera.aperture", "Make the call.", "The guide is a suggestion. Take the shot whenever it feels right, or turn guidance off. Tap anywhere in the preview to set focus and exposure.")
+        ("04", "camera.aperture", "Get a little closer.", "Pinch the preview to zoom, or tap a lens button. Available lenses depend on your iPhone. Zoom between lens positions can crop the image and reduce detail. The guide suggests a composition; it cannot move your phone."),
+        ("05", "photo", "Keep the detail.", "Captures request the highest supported resolution and quality processing. The original camera file is saved without resizing or re-encoding. Open a shot to see its actual pixel dimensions and export the original to Photos.")
     ]
 
     var body: some View {

@@ -16,27 +16,26 @@ struct CameraView: View {
     @State private var demoEngine = CompositionEngine()
     @State private var demoReading = CompositionReading()
     @State private var demoReset = UUID()
+    @State private var corner: Int? = nil
 
     private var reading: CompositionReading { demo ? demoReading : camera.reading }
     private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing }
 
     var body: some View {
         GeometryReader { geometry in
-            let previewWidth = min(geometry.size.width - 32, max(220, (geometry.size.height - 315) * 0.75))
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    header
-                    viewfinder
-                        .frame(width: previewWidth, height: previewWidth * 4 / 3)
-                        .frame(maxWidth: .infinity)
-                    guidance
-                    controls
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 18)
-                .frame(minHeight: geometry.size.height, alignment: .top)
+            let previewWidth = max(180, min(geometry.size.width - 24, (geometry.size.height - 260) * 0.75))
+            VStack(spacing: 12) {
+                header
+                viewfinder
+                    .frame(width: previewWidth, height: previewWidth * 4 / 3)
+                    .frame(maxWidth: .infinity)
+                guidance
+                controls
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minHeight: geometry.size.height, alignment: .top)
+            .frame(maxWidth: .infinity)
         }
         .background(Palette.ink)
         .onAppear { isVisible = true; if !demo { camera.start() } }
@@ -46,6 +45,10 @@ struct CameraView: View {
             else { camera.stop() }
         }
         .onChange(of: mode) { _, newMode in camera.setMode(newMode); restartDemo() }
+        .onChange(of: corner) { _, index in
+            camera.setTarget(index.map { CompositionEngine.thirdsTargets[$0] })
+            restartDemo()
+        }
         .onChange(of: guide) { _, enabled in camera.setGuidance(enabled) }
         .onChange(of: reading.state) { old, new in
             if new == .ready && old != .ready && guide {
@@ -58,11 +61,12 @@ struct CameraView: View {
             while !Task.isCancelled {
                 let elapsed = ProcessInfo.processInfo.systemUptime - start
                 let progress = min(elapsed / 3.5, 1)
-                let target = CompositionEngine.target(for: demoSubject, mode: mode)
+                let target = mode == .thirds ? corner.map { CompositionEngine.thirdsTargets[$0] }
+                    ?? CompositionEngine.target(for: demoSubject, mode: mode) : UnitPoint2D(x: 0.5, y: 0.5)
                 let subject = UnitPoint2D(x: demoSubject.x + (target.x - demoSubject.x) * progress,
                                           y: demoSubject.y + (target.y - demoSubject.y) * progress)
                 demoReading = demoEngine.update(subject: subject, rollDegrees: (1 - progress) * 9,
-                                                mode: mode, timestamp: elapsed)
+                                                mode: mode, timestamp: elapsed, preferredTarget: mode == .thirds ? target : nil)
                 do { try await Task.sleep(for: .milliseconds(220)) } catch { return }
             }
         }
@@ -81,7 +85,8 @@ struct CameraView: View {
             Spacer()
             HStack(spacing: 6) {
                 Circle().fill(demo ? .orange : Palette.mint).frame(width: 5, height: 5)
-                Eyebrow(text: demo ? "Demo camera" : "A fresh perspective")
+                Text(demo ? "DEMO" : camera.photoResolution.uppercased())
+                    .font(.system(size: 10, weight: .medium, design: .monospaced)).tracking(1)
             }
             .foregroundStyle(.white.opacity(0.65))
             Button { showHelp = true } label: {
@@ -101,7 +106,8 @@ struct CameraView: View {
                         .frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 }
             } else if camera.access == .available {
-                CameraPreview(session: camera.session, onFocus: camera.focus)
+                CameraPreview(session: camera.session, onFocus: { camera.focus(at: $0) },
+                              onSelect: { camera.selectSubject(at: $0) }, onZoom: { camera.setZoom($0) }, zoom: camera.zoom)
             } else {
                 permissionView
             }
@@ -109,10 +115,13 @@ struct CameraView: View {
                 CompositionOverlay(reading: reading, showGrid: grid, guideEnabled: guide)
                 VStack {
                     HStack {
-                        Label(demo ? "SIMULATED GUIDANCE" : guide ? "GUIDE ON" : "FREE SHOOT", systemImage: "viewfinder")
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .tracking(1.5)
-                            .padding(10).background(.black.opacity(0.3), in: Capsule())
+                        Picker("Composition", selection: $mode) {
+                            Text("Thirds").tag(CompositionMode.thirds)
+                            Text("Center").tag(CompositionMode.centered)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 155)
+                        .disabled(!guide)
                         Spacer()
                         if demo {
                             Button {
@@ -121,21 +130,45 @@ struct CameraView: View {
                                 camera.start()
                             } label: { Image(systemName: "xmark").frame(width: 36, height: 36).background(.black.opacity(0.4), in: Circle()) }
                             .accessibilityLabel("Exit demo and use camera")
+                        } else if guide && mode == .thirds {
+                            Button {
+                                let currentIndex = CompositionEngine.thirdsTargets.firstIndex(of: reading.target) ?? 0
+                                corner = (currentIndex + 1) % 4
+                            } label: {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .frame(width: 40, height: 40).background(.black.opacity(0.4), in: Circle())
+                            }
+                            .accessibilityLabel("Change thirds target corner")
                         }
                     }
                     Spacer()
-                    HStack {
-                        Eyebrow(text: "01 / Wide")
-                        Spacer()
-                        Text("1×").font(.system(.caption, design: .rounded, weight: .medium))
-                            .padding(11).background(.black.opacity(0.3), in: Circle())
-                        Spacer()
-                        Eyebrow(text: "3:4 / Photo")
+                    VStack(spacing: 12) {
+                        if guide && !demo {
+                            Button {
+                                corner = nil
+                                camera.findSubject()
+                            } label: {
+                                Label(camera.subjectLabel + " · Rescan", systemImage: "sparkles")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(.black.opacity(0.45), in: Capsule())
+                            }
+                            .accessibilityLabel("Automatically find and focus on a new subject")
+                        }
+                        ViewThatFits(in: .horizontal) {
+                            zoomButtons
+                            ScrollView(.horizontal, showsIndicators: false) { zoomButtons }
+                                .frame(height: 44)
+                        }
+                        if !demo {
+                            Text("\(zoomLabel(camera.zoom)) · PINCH TO ZOOM")
+                                .font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(1)
+                        }
                     }
                     .shadow(radius: 4)
                 }
                 .foregroundStyle(.white)
-                .padding(16)
+                .padding(12)
             }
             if saved {
                 Label("Saved to your shots", systemImage: "checkmark.circle.fill")
@@ -196,22 +229,12 @@ struct CameraView: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 6) {
-                ForEach(CompositionMode.allCases) { item in
-                    Button { mode = item } label: {
-                        Text(item.rawValue).font(.caption.weight(.semibold))
-                            .padding(.horizontal, 19).padding(.vertical, 9)
-                            .foregroundStyle(mode == item ? Palette.ink : .white.opacity(0.55))
-                            .background(mode == item ? Palette.paper : .clear, in: Capsule())
-                    }
-                    .accessibilityAddTraits(mode == item ? .isSelected : [])
-                }
-            }
-            .padding(4).background(Palette.panel, in: Capsule())
-            .disabled(!guide)
+        VStack(spacing: 8) {
             HStack {
-                RoundToolButton(symbol: "grid", label: "Composition grid", selected: grid) { grid.toggle() }
+                VStack(spacing: 5) {
+                    RoundToolButton(symbol: "grid", label: "Composition grid", selected: grid) { grid.toggle() }
+                    Text("Grid").font(.caption2).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button(action: shoot) {
                     ZStack {
@@ -224,12 +247,36 @@ struct CameraView: View {
                 .opacity(canShoot || saving ? 1 : 0.4)
                 .accessibilityLabel(demo ? "Save demo photo" : "Take photo")
                 Spacer()
-                RoundToolButton(symbol: "viewfinder", label: "Live composition guidance", selected: guide) { guide.toggle() }
+                VStack(spacing: 5) {
+                    RoundToolButton(symbol: "viewfinder", label: "Live composition guidance", selected: guide) { guide.toggle() }
+                    Text("Guide").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             .padding(.horizontal, 25)
-            Eyebrow(text: demo ? "Sample scene · Tap shutter to try saving" : "Find your frame. Keep the moment.")
-                .foregroundStyle(.white.opacity(0.35))
+            Text(demo ? "Simulated guide · sample photo" : "Tap a subject to select and focus")
+                .font(.caption2).foregroundStyle(.white.opacity(0.45))
         }
+    }
+
+    private func zoomLabel(_ value: Double) -> String {
+        abs(value.rounded() - value) < 0.04 ? String(format: "%.0f×", value) : String(format: "%.1f×", value)
+    }
+
+    private var zoomButtons: some View {
+        HStack(spacing: 7) {
+            ForEach(demo ? [1.0] : camera.zoomStops, id: \.self) { stop in
+                Button { camera.setZoom(stop) } label: {
+                    Text(zoomLabel(stop))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(abs(camera.zoom - stop) < 0.08 ? Palette.ink : .white)
+                        .frame(width: 44, height: 44)
+                        .background(abs(camera.zoom - stop) < 0.08 ? Palette.mint : .black.opacity(0.45), in: Circle())
+                }
+                .disabled(demo || camera.isCapturing || saving)
+                .accessibilityLabel("Zoom \(zoomLabel(stop))")
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func restartDemo() {

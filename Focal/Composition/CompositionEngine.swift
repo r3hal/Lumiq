@@ -20,6 +20,7 @@ struct CompositionReading {
     enum State: Equatable { case searching, adjusting, settling, ready }
     var state: State = .searching
     var subject: UnitPoint2D?
+    var subjectBounds: CGRect?
     var target = UnitPoint2D(x: 2.0 / 3, y: 1.0 / 3)
     var rollDegrees: Double = 0
     var title = "Find something worth a second look"
@@ -31,6 +32,12 @@ struct CompositionEngine {
     private var smoothedSubject: UnitPoint2D?
     private var lockedTarget: UnitPoint2D?
     private var previousMode: CompositionMode?
+    private var lastSeen: TimeInterval?
+
+    static let thirdsTargets = [UnitPoint2D(x: 1.0 / 3, y: 1.0 / 3),
+                                UnitPoint2D(x: 2.0 / 3, y: 1.0 / 3),
+                                UnitPoint2D(x: 2.0 / 3, y: 2.0 / 3),
+                                UnitPoint2D(x: 1.0 / 3, y: 2.0 / 3)]
 
     static func target(for subject: UnitPoint2D, mode: CompositionMode) -> UnitPoint2D {
         guard mode == .thirds else { return UnitPoint2D(x: 0.5, y: 0.5) }
@@ -43,18 +50,30 @@ struct CompositionEngine {
         smoothedSubject = nil
         lockedTarget = nil
         previousMode = nil
+        lastSeen = nil
     }
 
     mutating func update(subject: UnitPoint2D?, rollDegrees: Double,
-                         mode: CompositionMode, timestamp: TimeInterval) -> CompositionReading {
+                         mode: CompositionMode, timestamp: TimeInterval,
+                         preferredTarget: UnitPoint2D? = nil) -> CompositionReading {
         if previousMode != mode { reset(); previousMode = mode }
         guard let subject, subject.x.isFinite, subject.y.isFinite,
               (0...1).contains(subject.x), (0...1).contains(subject.y) else {
+            // A single missed frame must not choose a new corner or flash a ready check.
+            alignedSince = nil
+            if let lastSeen, timestamp - lastSeen < 0.4, let point = smoothedSubject {
+                return CompositionReading(state: .searching, subject: point,
+                                          target: lockedTarget ?? Self.target(for: point, mode: mode),
+                                          rollDegrees: rollDegrees,
+                                          title: "Keeping track of your subject",
+                                          detail: "Hold steady, or tap the subject to select it.")
+            }
             reset()
             var reading = CompositionReading()
             reading.rollDegrees = rollDegrees
             return reading
         }
+        lastSeen = timestamp
         let old = smoothedSubject ?? subject
         // A new subject must settle independently; do not interpolate across a scene cut.
         if old.distance(to: subject) > 0.3 {
@@ -66,9 +85,14 @@ struct CompositionEngine {
                                          y: old.y * 0.45 + subject.y * 0.55)
         }
         let point = smoothedSubject ?? subject
-        let target = lockedTarget ?? Self.target(for: point, mode: mode)
+        let target = mode == .centered ? UnitPoint2D(x: 0.5, y: 0.5)
+            : preferredTarget ?? lockedTarget ?? Self.target(for: point, mode: mode)
+        if lockedTarget != target { alignedSince = nil }
         lockedTarget = target
-        let distance = point.distance(to: target)
+        // Check both the raw observation and filtered position so smoothing cannot fake readiness.
+        // The portrait preview is 4/3 as tall as it is wide. Measure actual screen distance.
+        let distance = max(hypot(point.x - target.x, (point.y - target.y) * 4.0 / 3),
+                           hypot(subject.x - target.x, (subject.y - target.y) * 4.0 / 3))
         var reading = CompositionReading(subject: point, target: target, rollDegrees: rollDegrees)
         if abs(rollDegrees) > 4 {
             alignedSince = nil
@@ -80,9 +104,9 @@ struct CompositionEngine {
             reading.state = .adjusting
             let dx = point.x - target.x
             let dy = point.y - target.y
-            let direction = abs(dx) > abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
+            let direction = abs(dx) > abs(dy) * 4.0 / 3 ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
             reading.title = "Aim a little \(direction)"
-            reading.detail = "Bring the white dot into the green ring."
+            reading.detail = "Pan your phone \(direction) until the white dot reaches the ring."
         } else {
             if alignedSince == nil { alignedSince = timestamp }
             if timestamp - (alignedSince ?? timestamp) >= 0.65 {

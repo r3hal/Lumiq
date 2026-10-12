@@ -25,6 +25,13 @@ struct CompositionOverlay: View {
                 ThirdsGrid().stroke(.white.opacity(0.27), lineWidth: 0.65)
             }
             if guideEnabled, let subject = reading.subject {
+                if let bounds = reading.subjectBounds {
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                        .frame(width: max(1, bounds.width * geometry.size.width),
+                               height: max(1, bounds.height * geometry.size.height))
+                        .position(x: bounds.midX * geometry.size.width, y: bounds.midY * geometry.size.height)
+                }
                 let target = position(reading.target, in: geometry.size)
                 let current = position(subject, in: geometry.size)
                 Path { path in
@@ -35,7 +42,7 @@ struct CompositionOverlay: View {
 
                 Circle()
                     .fill(Palette.mint.opacity(reading.state == .ready ? 0.3 : 0.08))
-                    .frame(width: 54, height: 54)
+                    .frame(width: geometry.size.width * 0.13, height: geometry.size.width * 0.13)
                     .overlay(Circle().stroke(Palette.mint, lineWidth: 1.5))
                     .overlay {
                         if reading.state == .ready {
