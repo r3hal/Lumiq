@@ -1,10 +1,10 @@
-Focal 1.2, build 3
-PASS: Swift grammar parsed 19 source files (17 app, 2 test).
+Focal 1.3, build 4
+PASS: Swift grammar parsed 21 source files (18 app, 3 test).
 PASS: Xcode project parsed; all source references present.
 PASS: Info/privacy plists and shared scheme XML parsed.
 PASS: Asset catalog and bundled caption font files exist.
 PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
 PASS: git diff --check.
-PENDING: 22 native XCTest regression tests. ios-sideload runs them before IPA packaging.
-PENDING: iPhone visual comparison, cropped preview alignment, RAW capture/export, shutter muting, image resolution, lens switching and interruptions.
-Native compilation and device verification require Codemagic/Xcode; they were not run in this Linux workspace.
+PENDING: 33 native XCTest regression tests. ios-sideload runs them before IPA packaging.
+PENDING: device checks for preview format and sharpness, subject selection, directional guidance, automatic zoom/cancel/manual override, tracking across lenses, RAW, photo dimensions and interruptions.
+No Swift compiler, Xcode or iOS simulator is available here. The recording was inspected frame by frame; it shows the original Framed app, not a device test of this update.

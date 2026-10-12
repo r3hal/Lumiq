@@ -41,9 +41,9 @@ final class CompositionEngineTests: XCTestCase {
 
     func testDirectionsAccountForCameraMovement() {
         var engine = CompositionEngine()
-        XCTAssertEqual(engine.update(subject: .init(x: 0.8, y: 0.5), rollDegrees: 0, mode: .centered, timestamp: 0).title, "Aim a little right")
+        XCTAssertEqual(engine.update(subject: .init(x: 0.8, y: 0.5), rollDegrees: 0, mode: .centered, timestamp: 0).title, "Move your phone right")
         engine.reset()
-        XCTAssertEqual(engine.update(subject: .init(x: 0.5, y: 0.2), rollDegrees: 0, mode: .centered, timestamp: 1).title, "Aim a little up")
+        XCTAssertEqual(engine.update(subject: .init(x: 0.5, y: 0.2), rollDegrees: 0, mode: .centered, timestamp: 1).title, "Move your phone up")
     }
 
     func testModeChangeResetsDwell() {

@@ -15,14 +15,15 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 
 ## Included
 
-- Portrait rear-camera preview, maximum supported photo dimensions with quality prioritization, original JPEG persistence, tap-to-select/focus, and device-aware lens/pinch zoom.
-- On-device face/saliency selection followed by Vision object tracking on a 640-pixel analysis buffer, preview crop mapping, stable center/thirds targets, selectable thirds corners, motion level, and a 650 ms alignment dwell before the ready state.
+- High-resolution 4:3 live preview format selection with continuous focus, exposure and white balance; portrait rear-camera preview, maximum supported photo dimensions with quality prioritization, original JPEG persistence, tap-to-select/focus, and device-aware lens/pinch zoom.
+- On-device face/pet/saliency selection followed by Vision object tracking on a 640-pixel analysis buffer, preview crop mapping, stable center/thirds targets, selectable thirds corners, motion level, and a 650 ms alignment dwell before the ready state.
+- Scan → center → hold steady → smooth automatic zoom, with a yellow subject box, directional bottom guidance, and subject-specific final advice. One zoom per scan; pinch/lens controls cancel automation.
 - Screenshot-inspired black camera layout, green subject labels, yellow level, white shutter, lens buttons, grouped Settings and aspect popup.
 - Persistent grid, level, shutter sound, scan saving, caption style, Photos export and RAW retention settings. Shutter muting requires supported iOS 18+ hardware/configuration.
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 22 XCTest regression tests covering composition, preview geometry, crops, scan captions, persistence and settings.
+- Privacy manifest, app icon, shared scheme, and 33 XCTest regression tests covering composition, preview geometry, crops, scan captions, persistence and settings.
 
 ## Validation status
 
@@ -50,7 +51,7 @@ Device checks before distribution:
 
 ## Scope and behavior
 
-The guide uses Apple Vision face detection and saliency to select a subject, then tracks that region. It suggests a stable thirds intersection or the center and lets you select another corner. Tap selects a subject; Rescan restarts automatic selection. It is a composition heuristic, not an aesthetic scoring system. It can miss or misidentify subjects. Readiness means the detected subject is near that point and the phone is level; it does not certify focus, sharpness, or artistic quality. Core Motion estimates phone roll, not a visual horizon. Rear virtual cameras use the available ultra-wide/wide/telephoto lenses where supported. Displayed zoom is relative to the wide lens; pinch zoom is capped at 6×. Intermediate and high zoom can crop the image and reduce detail. Portrait orientation is supported. No filters, subscriptions, front camera, or cloud analysis.
+The guide uses Apple Vision face and pet detection and saliency to select a subject, then tracks that region. It suggests a stable thirds intersection or the center and lets you select another corner. Tap selects a subject; Rescan restarts automatic selection. It is a composition heuristic, not an aesthetic scoring system. It can miss or misidentify subjects. Readiness means the detected subject is near that point and the phone is level; it does not certify focus, sharpness, or artistic quality. Core Motion estimates phone roll, not a visual horizon. Rear virtual cameras use the available ultra-wide/wide/telephoto lenses where supported. Displayed zoom is relative to the wide lens; pinch zoom is capped at 6×. Intermediate and high zoom can crop the image and reduce detail. Portrait orientation is supported. No filters, subscriptions, front camera, or cloud analysis.
 
 Photo capture requests the highest dimensions advertised by the active capture format and uses `.quality` processing for JPEG and ProRAW (Bayer RAW uses `.speed`). Actual dimensions depend on the device, lens, scene and AVFoundation. Photo detail displays the saved file dimensions. The default 3:4 JPEG and RAW files retain their captured bytes. Other aspect ratios create a full-resolution centered JPEG crop and retain the uncropped original. Scan references are separate, downsampled images (up to 1600 pixels) with a selected caption style. Gallery thumbnails and Vision analysis do not affect saved photo quality. This does not reproduce every Apple Camera feature such as its dedicated Night mode.
 
@@ -75,3 +76,11 @@ Bundled sample photograph: [lake and mountain scene](https://images.unsplash.com
 Subject names use Apple Vision’s on-device image classifier. Specific descriptions such as “mechanical RGB keyboard” are not guaranteed. RAW remains full-frame; exporting a cropped JPEG and its RAW creates separate Photos assets. No paid upgrade or purchase restoration is included in this personal build.
 
 Caption font: EB Garamond, bundled under the SIL Open Font License in `Focal/Resources/Fonts/OFL.txt`.
+
+## Automatic framing and preview quality (1.3)
+
+A scan identifies and tracks a region, guides the user to center it, waits 750 ms for stability, and ramps camera zoom once. The same tracked region is reprojected across the zoom transition. Manual zoom and cancel stop the ramp; opening Settings or the library stops the camera. Auto framing can be disabled in Settings. Camera shutter remains unavailable during the automatic zoom transition. No automatic photo is taken.
+
+Automatic zoom fits the entire selected region with margins and uses the preview pixel budget and native lens positions to limit magnification. It does not digitally pan an off-center sensor crop: the user must move the phone as directed. Intermediate zoom can still reduce saved-photo detail, and low light can affect lens selection and noise. The native preview layer remains separate from the 640-pixel Vision analysis buffer. Preview format selection prefers a 4:3 format with at least 1920×1080 dimensions and 30 fps support, retaining the device’s supported photo dimensions; devices without such a format retain the system-selected format. Analysis is throttled to five updates per second. Settings displays the selected preview dimensions and automatic zoom cap for device diagnosis.
+
+Bottom advice matches the demonstrated flow but is generated locally from subject class and measured alignment. It does not reproduce Framed’s proprietary scene model or guarantee detailed labels such as “sleeping gray cat.” Live-preview sharpness and lens transitions still need device comparison with the reference app.

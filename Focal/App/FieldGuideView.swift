@@ -3,9 +3,9 @@ import SwiftUI
 struct FieldGuideView: View {
     private let notes: [(String, String, String, String)] = [
         ("01", "viewfinder", "Find your subject.", "Focal finds a face or visually prominent object and follows it. The green label names the subject when on-device classification is confident. Labels can be wrong. Tap to select and focus, or use the yellow scan button to find a new subject."),
-        ("02", "circle.dotted.circle", "Give it some space.", "The yellow cross marks the suggested composition point. Follow the instruction below the preview. The aperture menu switches between Thirds and Center and lets you choose another thirds corner."),
+        ("02", "circle.dotted.circle", "Give it some space.", "The yellow cross marks the suggested composition point. Follow the instruction below the preview. Automatic framing first asks you to center the subject, then zooms once after you hold steady. The aperture menu switches between Thirds and Center when you frame manually."),
         ("03", "level", "Keep an even keel.", "The center line follows your phone’s tilt. Make it level, then hold your frame for a moment. The green center tick marks level. The instruction changes when the subject is aligned and you hold steady."),
-        ("04", "camera.aperture", "Get a little closer.", "Pinch the preview to zoom, or tap a lens button. Available lenses depend on your iPhone. Zoom between lens positions can crop the image and reduce detail. The guide suggests a composition; it cannot move your phone."),
+        ("04", "camera.aperture", "Get a little closer.", "Pinch the preview to zoom, or tap a lens button. This cancels automatic framing until you scan again. Available lenses depend on your iPhone. Zoom between lens positions can crop the image and reduce detail. Automatic framing can zoom, but it cannot move your phone. It limits the crop using preview resolution and available lenses."),
         ("05", "photo", "Keep the detail.", "The aspect menu selects 3:4, 4:5, square or 9:16 and enables RAW on supported cameras. Crops retain the original JPEG. In Settings, choose scan saving, caption style, RAW retention, and automatic Photos export. Open the thumbnail to view or share Photo, Scan, Original, and RAW files.")
     ]
 

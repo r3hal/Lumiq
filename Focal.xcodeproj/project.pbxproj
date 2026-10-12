@@ -125,6 +125,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "FD37C76EF9CE840E81963971";
 		};
+		"F6B45CBABD2940697E419928" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Composition/FramingPlanner.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"23F2E3F4C147C1257AB0482D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F6B45CBABD2940697E419928";
+		};
 		"2F1ADB32C379B37967582641" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -184,6 +194,16 @@
 		"AD8878812FD5ECECD7F0C16D" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "6C59DDF893487355855966AD";
+		};
+		"8324D6A7CE9CC4869FAFC59D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/FramingPlannerTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"A28AFF7E2E2C652907EAA52C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8324D6A7CE9CC4869FAFC59D";
 		};
 		"9F5036EBFA1C8C5D9E47EE12" = {
 			"isa" = "PBXFileReference";
@@ -269,6 +289,7 @@
 				"A4DDB49B1C57E418C87447D2",
 				"6E4E878846C3CA82F93F896F",
 				"FD37C76EF9CE840E81963971",
+				"F6B45CBABD2940697E419928",
 				"2F1ADB32C379B37967582641",
 				"86B8E54C27CB20969E77C895",
 				"4C6B472ADC421C5792FF4E2F",
@@ -293,6 +314,7 @@
 			"isa" = "PBXGroup";
 			"children" = (
 				"6C59DDF893487355855966AD",
+				"8324D6A7CE9CC4869FAFC59D",
 				"9F5036EBFA1C8C5D9E47EE12",
 			);
 			"name" = "FocalTests";
@@ -318,8 +340,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "3";
-				"MARKETING_VERSION" = "1.2";
+				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "1.3";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -341,8 +363,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "3";
-				"MARKETING_VERSION" = "1.2";
+				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "1.3";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -379,6 +401,7 @@
 				"AF7CF0039AA6A478054A4F74",
 				"E88EC3256DD45FF9D3E77C96",
 				"07566F72E315C53805A9A166",
+				"23F2E3F4C147C1257AB0482D",
 				"CAB6F98E6FAA5EFD98AB1B11",
 				"878AEDE2488CE66A9418690F",
 				"F3F126A2BB28214C1F910701",
@@ -483,6 +506,7 @@
 			"buildActionMask" = "2147483647";
 			"files" = (
 				"AD8878812FD5ECECD7F0C16D",
+				"A28AFF7E2E2C652907EAA52C",
 				"220AB2911A116948FB1E5960",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";

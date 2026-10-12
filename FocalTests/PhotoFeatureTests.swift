@@ -82,11 +82,13 @@ final class PhotoFeatureTests: XCTestCase {
         settings.saveScan = false
         settings.autoSaveToPhotos = true
         settings.raw = true
+        settings.autoFrame = false
         let reopened = CameraSettings(defaults: defaults)
         XCTAssertEqual(reopened.aspect, .square)
         XCTAssertEqual(reopened.caption, .garamond)
         XCTAssertFalse(reopened.saveScan)
         XCTAssertTrue(reopened.autoSaveToPhotos)
         XCTAssertTrue(reopened.raw)
+        XCTAssertFalse(reopened.autoFrame)
     }
 }

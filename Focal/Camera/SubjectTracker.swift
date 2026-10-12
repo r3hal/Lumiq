@@ -56,19 +56,27 @@ final class SubjectTracker {
         lastDetection = timestamp
         let faces = VNDetectFaceRectanglesRequest()
         let saliency = VNGenerateAttentionBasedSaliencyImageRequest()
+        let animals = VNRecognizeAnimalsRequest()
         do {
-            try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, saliency])
+            try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, animals, saliency])
             let faceCandidates: [VNDetectedObjectObservation] = (faces.results ?? []).filter {
                 $0.confidence >= 0.5 && valid($0.boundingBox)
             }
             let objects: [VNDetectedObjectObservation] = (saliency.results?.first?.salientObjects ?? []).filter {
                 valid($0.boundingBox)
             }
-            candidates = faceCandidates + objects
-            // Faces are a meaningful foreground subject; saliency is the fallback for scenes.
-            let choices = faceCandidates.isEmpty ? objects : faceCandidates
+            let animalCandidates = (animals.results ?? []).filter {
+                $0.confidence >= 0.5 && ($0.labels.first?.confidence ?? 0) >= 0.5 && valid($0.boundingBox)
+            }
+            candidates = faceCandidates + animalCandidates + objects
+            // Semantic pet boxes avoid zooming into the surrounding bed or background.
+            let choices: [VNDetectedObjectObservation] = !faceCandidates.isEmpty ? faceCandidates
+                : !animalCandidates.isEmpty ? animalCandidates : objects
             guard let selected = choices.max(by: { score($0.boundingBox) < score($1.boundingBox) }) else { return nil }
-            label = faceCandidates.isEmpty ? "Auto subject" : "Person"
+            if !faceCandidates.isEmpty { label = "Person" }
+            else if let animal = selected as? VNRecognizedObjectObservation, let name = animal.labels.first?.identifier {
+                label = name.capitalized
+            } else { label = "Auto subject" }
             start(selected)
             classify(selected, in: buffer, timestamp: timestamp)
             return selected
@@ -76,7 +84,7 @@ final class SubjectTracker {
     }
 
     private func classify(_ observation: VNDetectedObjectObservation, in buffer: CVPixelBuffer, timestamp: TimeInterval) {
-        guard label != "Person", timestamp - lastClassification > 2 else { return }
+        guard !["Person", "Cat", "Dog"].contains(label), timestamp - lastClassification > 2 else { return }
         lastClassification = timestamp
         let request = VNClassifyImageRequest()
         request.regionOfInterest = observation.boundingBox.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
@@ -87,6 +95,15 @@ final class SubjectTracker {
                 label = name.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespaces).capitalized
             }
         } catch { /* Keep the honest generic label when the classifier is uncertain. */ }
+    }
+
+    func reseed(bounds: CGRect, label: String, manual: Bool) {
+        let clipped = bounds.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        guard !clipped.isNull, clipped.width > 0.01, clipped.height > 0.01 else { reset(); return }
+        start(VNDetectedObjectObservation(boundingBox: clipped))
+        self.label = label
+        self.manual = manual
+        lastClassification = -.infinity
     }
 
     private func start(_ observation: VNDetectedObjectObservation) {

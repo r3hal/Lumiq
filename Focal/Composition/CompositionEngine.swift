@@ -106,8 +106,8 @@ struct CompositionEngine {
             let dx = point.x - target.x
             let dy = point.y - target.y
             let direction = abs(dx) > abs(dy) * verticalScale ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
-            reading.title = "Aim a little \(direction)"
-            reading.detail = "Pan your phone \(direction) until the white dot reaches the ring."
+            reading.title = "Move your phone \(direction)"
+            reading.detail = "Pan your phone \(direction) until the subject reaches the guide."
         } else {
             if alignedSince == nil { alignedSince = timestamp }
             if timestamp - (alignedSince ?? timestamp) >= 0.65 {

@@ -33,6 +33,8 @@ struct SettingsView: View {
                         separator
                         settingToggle("Level", value: $settings.level)
                         separator
+                        settingToggle("Automatic framing", value: $settings.autoFrame)
+                        separator
                         settingToggle("Shutter Sound", value: Binding(
                             get: { camera.canMuteShutter ? settings.shutterSound : true },
                             set: { settings.shutterSound = $0 }
@@ -63,6 +65,8 @@ struct SettingsView: View {
                         Text("This iPhone/iOS combination controls the camera shutter sound.")
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
+                    Text("Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; scan starts a new frame.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     section("LIBRARY") {
                         settingToggle("Also Save to Photos", value: $settings.autoSaveToPhotos)
                         separator
@@ -81,7 +85,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.2 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.3 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)

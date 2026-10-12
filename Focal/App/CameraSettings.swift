@@ -60,6 +60,7 @@ final class CameraSettings: ObservableObject {
     @Published var autoSaveToPhotos = false { didSet { defaults.set(autoSaveToPhotos, forKey: "camera.autoPhotos") } }
     @Published var keepRAW = true { didSet { defaults.set(keepRAW, forKey: "camera.keepRAW") } }
     @Published var raw = false { didSet { defaults.set(raw, forKey: "camera.raw") } }
+    @Published var autoFrame = true { didSet { defaults.set(autoFrame, forKey: "camera.autoFrame") } }
     @Published var guide = true { didSet { defaults.set(guide, forKey: "camera.guide") } }
     @Published var aspect: PhotoAspect = .standard { didSet { defaults.set(aspect.rawValue, forKey: "camera.aspect") } }
     @Published var caption: CaptionStyle = .bold { didSet { defaults.set(caption.rawValue, forKey: "camera.caption") } }
@@ -68,7 +69,7 @@ final class CameraSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: ["camera.grid": true, "camera.level": true, "camera.scan": true,
-                                    "camera.keepRAW": true, "camera.guide": true])
+                                    "camera.keepRAW": true, "camera.guide": true, "camera.autoFrame": true])
         grid = defaults.bool(forKey: "camera.grid")
         level = defaults.bool(forKey: "camera.level")
         shutterSound = defaults.bool(forKey: "camera.sound")
@@ -76,6 +77,7 @@ final class CameraSettings: ObservableObject {
         autoSaveToPhotos = defaults.bool(forKey: "camera.autoPhotos")
         keepRAW = defaults.bool(forKey: "camera.keepRAW")
         raw = defaults.bool(forKey: "camera.raw")
+        autoFrame = defaults.bool(forKey: "camera.autoFrame")
         guide = defaults.bool(forKey: "camera.guide")
         aspect = PhotoAspect(rawValue: defaults.string(forKey: "camera.aspect") ?? "") ?? .standard
         caption = CaptionStyle(rawValue: defaults.string(forKey: "camera.caption") ?? "") ?? .bold

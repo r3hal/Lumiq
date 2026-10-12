@@ -15,7 +15,7 @@ struct CameraView: View {
     @State private var saving = false
     @State private var saved = false
     private var reading: CompositionReading { camera.reading }
-    private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing }
+    private var canShoot: Bool { (demo || camera.isRunning) && !saving && !camera.isCapturing && camera.framingPhase != .zooming }
     private var subjectName: String { ["Auto subject", "Your subject"].contains(camera.subjectLabel) ? "Subject" : camera.subjectLabel }
     private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
 
@@ -33,7 +33,9 @@ struct CameraView: View {
         .background(.black).foregroundStyle(.white)
         .onAppear {
             visible = true
+            camera.setPreviewPixelWidth(Double(UIScreen.main.bounds.width * UIScreen.main.scale))
             camera.setMode(mode)
+            camera.setAutoFraming(settings.autoFrame)
             camera.setGuidance(settings.guide)
             camera.setPreviewAspect(settings.aspect.ratio)
             if !demo { camera.start() }
@@ -45,6 +47,7 @@ struct CameraView: View {
         }
         .onChange(of: mode) { _, value in camera.setMode(value) }
         .onChange(of: settings.guide) { _, value in camera.setGuidance(value) }
+        .onChange(of: settings.autoFrame) { _, value in camera.setAutoFraming(value) }
         .onChange(of: settings.aspect) { _, value in camera.setPreviewAspect(value.ratio) }
         .onChange(of: corner) { _, value in camera.setTarget(value.map { CompositionEngine.thirdsTargets[$0] }) }
         .onChange(of: reading.state) { old, new in
@@ -95,7 +98,7 @@ struct CameraView: View {
             Button { showAspect = false; camera.stop(); showSettings = true } label: {
                 Image(systemName: "ellipsis").font(.system(size: 21, weight: .bold)).frame(width: 30, height: 44)
             }.accessibilityLabel("Settings")
-        }.padding(.horizontal, 20).disabled(saving || camera.isCapturing)
+        }.padding(.horizontal, 20).disabled(saving || camera.isCapturing || camera.framingPhase == .zooming)
     }
 
     private var viewfinder: some View {
@@ -112,7 +115,7 @@ struct CameraView: View {
             } else { permissionView.frame(maxWidth: .infinity, maxHeight: .infinity) }
             if demo || camera.access == .available {
                 CompositionOverlay(reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
-                                   showLevel: settings.level, subjectLabel: subjectName)
+                                   showLevel: settings.level, subjectLabel: subjectName, framingPhase: camera.framingPhase)
             }
             if showAspect {
                 Color.clear.contentShape(Rectangle()).onTapGesture { showAspect = false }
@@ -155,7 +158,7 @@ struct CameraView: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
-            Text(instruction).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.mint)
+            Text(instruction).font(.system(size: 12, weight: .medium)).foregroundStyle(camera.framingPhase.isPreparing || (camera.framingPhase == .off && reading.state == .adjusting) ? Palette.yellow : Palette.mint)
                 .lineLimit(2).multilineTextAlignment(.center).frame(maxWidth: .infinity).frame(height: 29).padding(.horizontal, 12)
             HStack(spacing: 7) {
                 ForEach(demo ? [1.0] : camera.zoomStops, id: \.self) { stop in
@@ -183,11 +186,12 @@ struct CameraView: View {
                 Spacer()
                 Button {
                     if demo { demo = false; camera.start() }
-                    settings.guide = true; corner = nil; camera.findSubject()
+                    if camera.framingPhase.isPreparing { camera.cancelAutoFraming() }
+                    else { settings.guide = true; corner = nil; camera.findSubject() }
                 } label: {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
+                    Image(systemName: camera.framingPhase.isPreparing ? "xmark" : "arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
                         .frame(width: 48, height: 48).background(Palette.yellow.opacity(0.13), in: Circle())
-                }.accessibilityLabel("Scan scene and select a new subject").disabled(saving || camera.isCapturing)
+                }.accessibilityLabel(camera.framingPhase.isPreparing ? "Cancel automatic framing" : "Scan scene and select a new subject").disabled(saving || camera.isCapturing)
             }.padding(.horizontal, 54).frame(height: 80)
             Spacer(minLength: 0)
         }.background(.black)
@@ -205,11 +209,29 @@ struct CameraView: View {
         if saved { return "Saved to your library." }
         if demo { return "Demo scene. Tap scan to return to the camera." }
         if !settings.guide { return "Tap to focus. Pinch to zoom." }
+        switch camera.framingPhase {
+        case .searching: return "Finding your subject… Tap it to select."
+        case .aligning:
+            if abs(reading.rollDegrees) > 4 { return "Level your phone." }
+            if let point = reading.subject {
+                let dx = point.x - 0.5, dy = (point.y - 0.5) / settings.aspect.ratio
+                let direction = abs(dx) > abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
+                return "Move your phone \(direction)."
+            }
+            return "Keep your subject in view."
+        case .settling: return "Centered — framing up…"
+        case .zooming: return "Framing your shot…"
+        case .framed:
+            if reading.subject == nil { return "Subject lost. Tap scan or select it again." }
+            if abs(reading.rollDegrees) > 4 { return "Level your phone." }
+            return SubjectAdvice.text(for: subjectName)
+        case .off: break
+        }
         switch reading.state {
         case .searching: return "Point at a subject. Tap scan or select it yourself."
         case .adjusting: return reading.title + "."
         case .settling: return "Hold steady. Keep the subject in the guide."
-        case .ready: return "Isolate the \(subjectName.lowercased()). Hold your frame."
+        case .ready: return SubjectAdvice.text(for: subjectName)
         }
     }
 
