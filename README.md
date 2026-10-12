@@ -2,7 +2,7 @@
 
 A native iPhone camera app inspired by Framed’s **point → guide → capture** workflow, with original branding and UI. SwiftUI, AVFoundation, Apple Vision, and Core Motion. No third-party SDKs, account, API key, or backend.
 
-**No Mac or paid developer membership?** Follow [INSTALL-FOR-FREE.md](INSTALL-FOR-FREE.md) for Windows + AltStore Classic personal sideloading. The included `ios-sideload` cloud workflow builds an unsigned IPA for AltStore to sign; it has not yet been executed. For the optional paid TestFlight route, see [INSTALL-WITHOUT-A-MAC.md](INSTALL-WITHOUT-A-MAC.md).
+**No Mac or paid developer membership?** Follow [INSTALL-FOR-FREE.md](INSTALL-FOR-FREE.md) for Windows + AltStore Classic personal sideloading. The included `ios-sideload` cloud workflow builds an unsigned IPA for AltStore to sign; it has not yet been executed. Only the free `ios-sideload` and `ios-check` workflows are included.
 
 ## Open and run
 
