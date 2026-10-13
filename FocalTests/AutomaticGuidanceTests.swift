@@ -71,4 +71,16 @@ final class AutomaticGuidanceTests: XCTestCase {
         XCTAssertFalse(CameraStability.isStable(rotation:(0,0,0),acceleration:(0,0.05,0)))
         XCTAssertFalse(CameraStability.isStable(rotation:(Double.nan,0,0),acceleration:(0,0,0)))
     }
+    func testLandscapeGuidanceUsesRealSceneAndTiltWithoutSubjectOrReadyClaim() {
+        var guide = AutomaticGuidance()
+        let scene = SubjectScene(label: "Mountain", confidence: 0.9, timestamp: 0)
+        var reading = CompositionReading(); reading.rollDegrees = 8
+        let result = guide.update(reading: reading, phase: .searching, stable: true, rollReliable: true,
+                                  autoEnabled: true, zoomAvailable: true, timestamp: 1, scene: scene)
+        XCTAssertEqual(result.kind, .scene); XCTAssertEqual(result.text, "Keep the camera level")
+        XCTAssertNil(reading.subjectBounds)
+        XCTAssertEqual(guide.update(reading: reading, phase: .searching, stable: true, rollReliable: true,
+                                   autoEnabled: true, zoomAvailable: true, timestamp: 8, scene: scene).kind, .searching)
+    }
+
 }

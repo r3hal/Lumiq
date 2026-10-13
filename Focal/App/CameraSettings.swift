@@ -69,7 +69,8 @@ final class CameraSettings: ObservableObject {
     @Published var burstCount = 1 { didSet { defaults.set(burstCount, forKey: "camera.burst") } }
     @Published var coach = false { didSet { defaults.set(coach, forKey: "camera.coach") } }
     @Published var challenge = "" { didSet { defaults.set(challenge, forKey: "camera.challenge") } }
-    @Published var guide = true { didSet { defaults.set(guide, forKey: "camera.guide") } }
+    @Published var guide = false { didSet { defaults.set(guide, forKey: "camera.guide") } }
+    @Published var subjectThreshold: Double = 0.68 { didSet { defaults.set(subjectThreshold, forKey: "camera.subjectThreshold") } }
     @Published var aspect: PhotoAspect = .standard { didSet { defaults.set(aspect.rawValue, forKey: "camera.aspect") } }
     @Published var caption: CaptionStyle = .bold { didSet { defaults.set(caption.rawValue, forKey: "camera.caption") } }
     @Published var flash: CameraFlash = .off { didSet { defaults.set(flash.rawValue, forKey: "camera.flash") } }
@@ -80,8 +81,12 @@ final class CameraSettings: ObservableObject {
             defaults.set(false,forKey:"camera.grid"); defaults.set(false,forKey:"camera.level")
             defaults.set(1,forKey:"camera.cleanCompositionVersion")
         }
+        if defaults.integer(forKey: "camera.intentionalGuidanceVersion") < 1 {
+            defaults.set(false, forKey: "camera.guide")
+            defaults.set(1, forKey: "camera.intentionalGuidanceVersion")
+        }
         defaults.register(defaults: ["camera.grid": false, "camera.level": false, "camera.holdDuration":0.9, "camera.scan": true,
-                                    "camera.keepRAW": true, "camera.guide": true, "camera.autoFrame": true])
+                                    "camera.keepRAW": true, "camera.guide": false, "camera.subjectThreshold": 0.68, "camera.autoFrame": true])
         smartShutter = defaults.bool(forKey: "camera.smart")
         burstCount = [1, 3, 5].contains(defaults.integer(forKey: "camera.burst")) ? defaults.integer(forKey: "camera.burst") : 1
         coach = defaults.bool(forKey: "camera.coach")
@@ -96,6 +101,7 @@ final class CameraSettings: ObservableObject {
         raw = defaults.bool(forKey: "camera.raw")
         autoFrame = defaults.bool(forKey: "camera.autoFrame")
         guide = defaults.bool(forKey: "camera.guide")
+        subjectThreshold = max(0.55, min(0.85, defaults.double(forKey: "camera.subjectThreshold")))
         aspect = PhotoAspect(rawValue: defaults.string(forKey: "camera.aspect") ?? "") ?? .standard
         caption = CaptionStyle(rawValue: defaults.string(forKey: "camera.caption") ?? "") ?? .bold
         flash = CameraFlash(rawValue: defaults.integer(forKey: "camera.flash")) ?? .off

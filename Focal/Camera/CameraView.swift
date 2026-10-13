@@ -69,6 +69,7 @@ struct CameraView: View {
 
     private var preferenceCamera: some View {
         lifecycleCamera
+            .onChange(of: settings.subjectThreshold) { _, value in camera.setSubjectThreshold(value) }
             .onChange(of: settings.holdDuration) { _, value in camera.setHoldDuration(value) }
             .onChange(of: settings.coach) { _, value in camera.setCoach(value) }
             .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
@@ -77,7 +78,7 @@ struct CameraView: View {
 
     private var compositionCamera: some View {
         preferenceCamera
-            .onChange(of: settings.guide) { _, value in smartGate.reset(); camera.setGuidance(value) }
+            .onChange(of: settings.guide) { _, value in changeGuidance(to: value) }
             .onChange(of: settings.autoFrame) { _, value in smartGate.reset(); camera.setAutoFraming(value) }
             .onChange(of: settings.aspect) { _, value in smartGate.reset(); camera.setPreviewAspect(value.ratio) }
             .onChange(of: corner) { _, value in changeCorner(to: value) }
@@ -110,6 +111,7 @@ struct CameraView: View {
         let analyzer = camera
         sony.onJPEG = { [weak analyzer] in analyzer?.analyzeExternalFrame($0) }
         camera.setAnalysisSource(source)
+        camera.setSubjectThreshold(settings.subjectThreshold)
         camera.setHoldDuration(settings.holdDuration)
         camera.setCoach(settings.coach)
         camera.setMode(mode)
@@ -117,6 +119,12 @@ struct CameraView: View {
         camera.setGuidance(settings.guide)
         camera.setPreviewAspect(settings.aspect.ratio)
         resume()
+    }
+
+    private func changeGuidance(to enabled: Bool) {
+        smartGate.reset()
+        camera.setGuidance(enabled)
+        if enabled && demo { demo = false; camera.start() }
     }
 
     private func handleScenePhase(_ phase: ScenePhase) {
@@ -222,7 +230,9 @@ struct CameraView: View {
     }
 
     @ViewBuilder private var automationMenu: some View {
-        Toggle("Composition guide", isOn: $settings.guide)
+        Toggle("AI Guidance", isOn: $settings.guide)
+        Button("Automatic subject selection", systemImage: "viewfinder") { smartGate.reset(); camera.findSubject() }
+            .disabled(!settings.guide)
         Button("Switch camera", systemImage: "camera.rotate") { camera.switchCamera() }
             .disabled(demo || source == .sony)
         Toggle("Smart shutter", isOn: $settings.smartShutter).disabled(source == .sony)
@@ -352,7 +362,7 @@ struct CameraView: View {
     }
 
     @ViewBuilder private var coachOverlay: some View {
-        if settings.coach && !showExposure && !showAspect && (source == .iPhone ? camera.isRunning : sony.frame != nil) {
+        if settings.guide && settings.coach && !showExposure && !showAspect && (source == .iPhone ? camera.isRunning : sony.frame != nil) {
             VStack(alignment: .leading, spacing: 3) {
                 if let scene = camera.sceneLabel { Text("Frame label: \(scene)") }
                 if let measured = camera.liveMeasurements {
@@ -489,6 +499,7 @@ struct CameraView: View {
     }
 
     private var guidanceColor: Color {
+        if !settings.guide { return Color.secondary }
         if camera.framingPhase.isPreparing || (camera.framingPhase == .off && reading.state == .adjusting) {
             return Palette.yellow
         }
@@ -532,7 +543,7 @@ struct CameraView: View {
             Spacer()
             shutterButton
             Spacer()
-            scanButton
+            guidanceButton
         }.padding(.horizontal, 54).frame(height: 80)
     }
 
@@ -546,14 +557,18 @@ struct CameraView: View {
         }.disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
     }
 
-    private var scanButton: some View {
-        Button {
-            if demo { demo = false; camera.start() }
-            settings.guide = true; smartGate.reset(); camera.findSubject()
-        } label: {
-            Image(systemName: "arrow.clockwise").font(.system(size: 20)).foregroundStyle(Palette.yellow)
-                .frame(width: 48, height: 48).background(Palette.yellow.opacity(0.13), in: Circle())
-        }.accessibilityLabel("Scan scene and select a new subject").disabled(controlsBusy)
+    private var guidanceButton: some View {
+        Button { settings.guide.toggle() } label: {
+            Image(systemName: "sparkles").font(.system(size: 20))
+                .foregroundStyle(settings.guide ? Color.black : Palette.yellow)
+                .frame(width: 48, height: 48)
+                .background(settings.guide ? Palette.yellow : Color(white: 0.07), in: Circle())
+                .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.6), lineWidth: 1))
+        }
+        .accessibilityLabel("AI Guidance")
+        .accessibilityValue(settings.guide ? "On" : "Off")
+        .accessibilityHint("Toggle subject selection, composition guidance and automatic framing")
+        .animation(.easeInOut(duration: 0.18), value: settings.guide)
     }
 
     private var libraryThumbnail: some View {
@@ -567,9 +582,9 @@ struct CameraView: View {
     private var instruction: String {
         if !seriesProgress.isEmpty { return seriesProgress }
         if saved { return "Saved to your library." }
-        if demo { return "Demo scene. Tap scan to return to the camera." }
+        if demo { return "Demo scene. Enable AI Guidance to return to the camera." }
         if source == .sony && sony.state != .streaming { return sony.state == .connecting ? "Connecting to Sony…" : "Connect a Sony camera for guidance" }
-        if !settings.guide { return "Tap to select. Frame manually." }
+        if !settings.guide { return "Tap to enable AI Guidance" }
         if camera.guidance.kind == .ready,settings.coach,let advice = camera.coachAdvice.first { return camera.guidance.text+" · "+advice }
         return camera.guidance.text
     }
@@ -611,8 +626,8 @@ struct CameraView: View {
         let burst = count > 1 ? UUID() : nil
         let aspect = settings.aspect, caption = settings.caption
         let keepRAW = settings.keepRAW, autoSave = settings.autoSaveToPhotos
-        let scan = settings.saveScan && !demo ? camera.scanData : nil
-        let label = subjectName
+        let scan = settings.saveScan && settings.guide && !demo ? camera.scanData : nil
+        let label: String? = settings.guide && !demo && reading.subjectBounds != nil ? subjectName : nil
         let capturedMode = settings.guide ? mode.rawValue : "Free shoot"
         let challenge = settings.challenge.isEmpty ? nil : settings.challenge
         let options = CaptureOptions(raw: settings.raw && camera.supportsRAW && source == .iPhone,flash: settings.flash,shutterSound: settings.shutterSound)

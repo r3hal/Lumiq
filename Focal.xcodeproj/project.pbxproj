@@ -115,6 +115,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "8BF606DC98693D26A8466994";
 		};
+		"DE0C16BC15166366AD430CCF" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Camera/SubjectEvidenceSampler.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"4017E17BB623685E306390EB" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DE0C16BC15166366AD430CCF";
+		};
 		"A4DDB49B1C57E418C87447D2" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -184,6 +194,16 @@
 		"CAB6F98E6FAA5EFD98AB1B11" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2F1ADB32C379B37967582641";
+		};
+		"2C654AB864BD558781B88CC1" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Composition/SubjectSelection.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"FBF14F6CDC303AE866EC1A62" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2C654AB864BD558781B88CC1";
 		};
 		"86B8E54C27CB20969E77C895" = {
 			"isa" = "PBXFileReference";
@@ -405,6 +425,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "242DF3E0A9F1F6F3BB9ED4C8";
 		};
+		"10543D808552C0FCFFF69CF1" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/SubjectSelectionTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"FFAC673909E87EC27977B254" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "10543D808552C0FCFFF69CF1";
+		};
 		"F2DD12ACA0C49E571FEEC22F" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "folder.assetcatalog";
@@ -478,6 +508,7 @@
 				"FF367A3984DC926EE202E1E7",
 				"B3082BDAB83FE3C7E798BE98",
 				"8BF606DC98693D26A8466994",
+				"DE0C16BC15166366AD430CCF",
 				"A4DDB49B1C57E418C87447D2",
 				"4F0B6A4BA0C036BAC4E6BF81",
 				"6E4E878846C3CA82F93F896F",
@@ -485,6 +516,7 @@
 				"F6B45CBABD2940697E419928",
 				"535DCFAD032310B3C8AE5B4E",
 				"2F1ADB32C379B37967582641",
+				"2C654AB864BD558781B88CC1",
 				"86B8E54C27CB20969E77C895",
 				"F7B6C3982CB04A7E5D6BBCD6",
 				"A89389C12A62EF5A7A6C95A1",
@@ -525,6 +557,7 @@
 				"8324D6A7CE9CC4869FAFC59D",
 				"9F5036EBFA1C8C5D9E47EE12",
 				"242DF3E0A9F1F6F3BB9ED4C8",
+				"10543D808552C0FCFFF69CF1",
 			);
 			"name" = "FocalTests";
 			"sourceTree" = "<group>";
@@ -549,8 +582,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "7";
-				"MARKETING_VERSION" = "1.5.1";
+				"CURRENT_PROJECT_VERSION" = "8";
+				"MARKETING_VERSION" = "1.6";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -572,8 +605,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "7";
-				"MARKETING_VERSION" = "1.5.1";
+				"CURRENT_PROJECT_VERSION" = "8";
+				"MARKETING_VERSION" = "1.6";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -609,6 +642,7 @@
 				"26754B6C149AA3B77FB06954",
 				"2BE25F7A30CD371A7ACA8FC9",
 				"88185BBBF818E10442A1F864",
+				"4017E17BB623685E306390EB",
 				"AF7CF0039AA6A478054A4F74",
 				"A8050E43CC47E05A923BDEDF",
 				"E88EC3256DD45FF9D3E77C96",
@@ -616,6 +650,7 @@
 				"23F2E3F4C147C1257AB0482D",
 				"45E2673DFABB12C735A40FD4",
 				"CAB6F98E6FAA5EFD98AB1B11",
+				"FBF14F6CDC303AE866EC1A62",
 				"878AEDE2488CE66A9418690F",
 				"246110F48823C6ACC92E7216",
 				"40E630807FFB0A6B9BE3A419",
@@ -736,6 +771,7 @@
 				"A28AFF7E2E2C652907EAA52C",
 				"220AB2911A116948FB1E5960",
 				"51F9F50945A826860F384807",
+				"FFAC673909E87EC27977B254",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};

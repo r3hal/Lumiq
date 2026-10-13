@@ -148,4 +148,18 @@ final class PhotoFeatureTests: XCTestCase {
         XCTAssertTrue(reopened.grid); XCTAssertTrue(reopened.level); XCTAssertEqual(reopened.holdDuration,1.5)
     }
 
+    func testGuidanceStartsOffThenPersistsExplicitOptInAndThreshold() throws {
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "camera.guide")
+        let migrated = CameraSettings(defaults: defaults)
+        XCTAssertFalse(migrated.guide); XCTAssertEqual(migrated.subjectThreshold, 0.68)
+        migrated.guide = true; migrated.subjectThreshold = 0.8
+        let reopened = CameraSettings(defaults: defaults)
+        XCTAssertTrue(reopened.guide); XCTAssertEqual(reopened.subjectThreshold, 0.8)
+        reopened.guide = false
+        XCTAssertFalse(CameraSettings(defaults: defaults).guide)
+    }
+
 }

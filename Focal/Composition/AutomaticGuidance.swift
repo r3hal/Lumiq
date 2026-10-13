@@ -1,7 +1,7 @@
 import Foundation
 
 struct GuidanceMessage: Equatable {
-    enum Kind: Equatable { case searching, detected, adjustment, steady, framing, ready }
+    enum Kind: Equatable { case searching, detected, adjustment, steady, framing, ready, scene }
     var kind: Kind = .searching
     var text = "Point at a subject"
 }
@@ -18,11 +18,19 @@ struct AutomaticGuidance {
 
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
-                         timestamp: TimeInterval, previewAspect: Double = 0.75) -> GuidanceMessage {
+                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil) -> GuidanceMessage {
         guard let bounds = reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }) else {
-            reset(); return shown
+            reset()
+            if let scene, scene.isLandscape, timestamp - scene.timestamp <= 6 {
+                let text: String
+                if rollReliable && abs(reading.rollDegrees) > 5 { text = "Keep the camera level" }
+                else if let advice = sceneMeasurements?.lightingAdvice { text = advice }
+                else { text = "Take in the scene; tap a subject" }
+                shown = GuidanceMessage(kind: .scene, text: text)
+            }
+            return shown
         }
         let speed: Double
         if let previousBounds, let previousTime, timestamp > previousTime {

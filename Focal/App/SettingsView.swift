@@ -32,6 +32,10 @@ struct SettingsView: View {
                         }.padding(.horizontal, 15).frame(height: 44).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
                     }
                     section("CAMERA") {
+                        settingToggle("AI Guidance", value: $settings.guide)
+                        separator
+                        subjectSelectivity
+                        separator
                         settingToggle("Optional grid", value: $settings.grid)
                         separator
                         settingToggle("Optional level", value: $settings.level)
@@ -82,10 +86,10 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
                     if source == .sony { Text("Sony mode uses actual received frames and advertised controls. Lens zoom and exposure adjustment remain on the camera; iPhone capture options do not control Sony.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
-                    Text("Optional grid/level guides are off by default. Automatic guidance uses a tracked subject box, phone motion and a steady hold. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
-                    Text("Smart shutter is off by default and takes one shot/series per scan when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
+                    Text("Optional grid/level guides are off by default. AI Guidance starts off and is toggled with the yellow footer button. Subject boxes require sustained relevance evidence; plain rooms may have no selected subject. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
+                    Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
-                    Text(source == .sony ? "Sony last received live view: \(sonyModel) · \(sonyResolution). Stream quality is set by the camera; lens zoom stays on the camera." : "Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; scan starts a new frame.")
+                    Text(source == .sony ? "Sony last received live view: \(sonyModel) · \(sonyResolution). Stream quality is set by the camera; lens zoom stays on the camera." : "Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; AI Guidance off/on or Automatic subject selection in the menu starts a new frame.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     section("LIBRARY") {
                         settingToggle("Also Save to Photos", value: $settings.autoSaveToPhotos)
@@ -105,7 +109,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.5.1 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.6 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -132,6 +136,15 @@ struct SettingsView: View {
         HStack { Text(title); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary) }
             .padding(.horizontal, 15).frame(height: 44).foregroundStyle(.white)
     }
+    private var subjectSelectivity: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Subject selectivity").font(.subheadline)
+            Slider(value: $settings.subjectThreshold, in: 0.55...0.85, step: 0.01).tint(Palette.yellow)
+            Text("Higher values require stronger relevance evidence. Manual selection bypasses this threshold.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }.padding(15)
+    }
+
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 15)

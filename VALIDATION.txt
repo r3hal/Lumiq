@@ -1,20 +1,18 @@
-Focal 1.5.1, build 7
-PASS: Swift grammar parsed 40 source files (34 app, 6 test).
+Focal 1.6, build 8
+PASS: Swift grammar parsed 43 source files (36 app, 7 test).
 PASS: Xcode project parsed; all source/resource references present.
-PASS: Info/privacy plists and shared scheme XML parsed.
-PASS: Camera, motion, add-only Photos, optional location and Local Network purpose strings present.
+PASS: Info/privacy plists, shared test scheme and purpose strings parsed.
 PASS: Local HTTP private-range exceptions; no global arbitrary-load exception.
 PASS: Asset catalogs and bundled caption font files exist.
 PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: 69 native XCTest functions registered in the shared test target (not executed).
+PASS: 87 native XCTest functions registered (18 new policy/guidance/settings functions; none executed here).
+PASS: Sony transport/control source files preserved.
 PASS: git diff --check.
-REPORTED: Previous 1.5 Codemagic build failed during CameraView.swift type checking before tests ran.
-CHANGED: Split camera builders/observers into opaque view sections; explicit CGFloat, Double, Color, Duration and lens-array types.
-ATTEMPTED LOCALLY: Xcode build returned exit 127: xcodebuild: command not found.
-PENDING: Swift type checking, native build and all 69 XCTest executions (ios-sideload runs them before IPA packaging).
-PENDING: iPhone automatic framing, motion gating, box geometry/loss, pinch cancellation, exposure strip, native preview quality, capture/RAW/gallery/export and lifecycle checks.
-PENDING: Independent physical Sony A7 III/A6100 connection, actual stream, metadata, capture/transfer, failure/recovery and shared Vision checks. Sony integration is experimental, not hardware-verified.
-No Swift compiler, Apple SDK, Xcode, simulator or physical devices are available in this Linux workspace. Structural checks are not native runtime verification.
-See docs/AUTO-FRAMING-AUDIT.md, docs/AUTO-FRAMING-REPORT.md, docs/SONY-INTEGRATION.md and docs/DEVICE-CHECKS.md.
-See docs/BUILD-FIX-1.5.1.md for the compiler-failure correction and verification limits.
+ATTEMPTED: Native build command returned exit 127: xcodebuild: command not found.
+NOT EXECUTED: Docker-based pure-logic test attempt was cancelled before startup.
+PENDING: Swift type checking, native build and all 87 XCTest executions in Codemagic.
+PENDING: iPhone 16 Pro Max detector relevance/empty-scene/model accuracy, toggle/inference/AF independence, geometry, selection hysteresis, manual targeting, zoom-loss/cancellation, battery/performance and existing capture/library/export checks.
+PENDING: Independent physical Sony A7 III/A6100 live-view, shared selection, focus/capture/capability and failure/recovery checks. Integration remains experimental.
+No Swift compiler, Apple SDK, Xcode, simulator or physical devices were used. Grammar/project checks are not native compilation or runtime tests.
+See docs/SUBJECT-SELECTION-AUDIT.md and docs/SUBJECT-SELECTION-REPORT.md.
