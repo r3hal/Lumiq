@@ -1,0 +1,11 @@
+# Focal 1.5.1 / build 7 — CameraView compilation correction
+
+The supplied Codemagic log reports `The compiler is unable to type-check this expression in reasonable time` while compiling `CameraView.swift` for the simulator. Tests were cancelled because compilation failed. The provided log tail does not include the precise source line; other files listed in failed batch commands are not independently established as the cause.
+
+CameraView combined a large SwiftUI modifier chain and nested view builders. This update introduces opaque `some View` boundaries for layout, lifecycle/preferences/composition observers, presentations, toolbar/menu entries, native/Sony/demo previews, overlays, exposure readings/adjustment, aspect options and footer controls. Event/task logic moves to named methods. Geometry is explicitly CGFloat, Sony tap coordinates become Double, lens collections are [Double], style choices are Color and the smart-shutter interval is Duration. The smart-shutter monitor remains on the main actor and cancellation behavior is preserved.
+
+Camera Source, Sony live view, autofocus/manual selection, automatic framing, pinch cancellation, exposure controls, RAW, gallery, scan, captures and existing lifecycle callbacks remain connected. No SDK/architecture workaround, skipped tests or compiler-timeout relaxation was introduced. The marketing version is 1.5.1 and build number is 7; install over the existing app to retain its library.
+
+Structural verification: all 40 Swift files parse; Xcode source/resource references, plists, permissions, shared test scheme, assets, fonts and both free Codemagic workflows validate. Project regeneration is deterministic. All 69 existing native tests remain registered and their sources are unchanged. Whitespace checks pass.
+
+Native verification is **pending**: there is no Xcode, Swift compiler, Apple SDK or simulator in this Linux workspace. The local build command cannot execute (`xcodebuild: command not found`). A fresh `ios-sideload` build on the latest main branch must confirm that the timeout is resolved, run the 69 tests and create the unsigned IPA. An authored refactor plus structural checks does not establish a successful native build.

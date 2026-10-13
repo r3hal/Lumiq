@@ -111,3 +111,7 @@ See [audit](docs/AUTO-FRAMING-AUDIT.md), [implementation and acceptance report](
 - Experimental, capability-discovered Sony wireless adapter with real received JPEG live view, shared Vision analysis, supported touch AF/capture and reported telemetry. It never substitutes iPhone video or sends Sony lens zoom commands. A7 III/A6100 firmware compatibility and transfer quality require independent physical testing.
 
 Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 69 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
+
+## Compilation correction (1.5.1, build 7)
+
+The 1.5 cloud build reported a Swift type-checking timeout in CameraView before any tests ran. Camera layout, lifecycle/preferences, sheets, previews, toolbar/menu, exposure strip and footer now have smaller opaque view expressions, with explicit numeric, color and collection types. The existing capture pipeline and 69-test suite are retained; the workflow still runs tests before IPA packaging. See [build-fix details](docs/BUILD-FIX-1.5.1.md). Local structural checks pass; a fresh Codemagic build must confirm native compilation and test results.
