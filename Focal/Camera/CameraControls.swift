@@ -44,8 +44,14 @@ struct CameraControlSnapshot: Equatable {
     var manualFocus = false
     var evAdjustable = false
     var lensID: String?
+    var usesAutomaticLenses = true
     var lenses: [CameraLensOption] = []
     var encodings: [PhotoEncoding] = [.jpeg]
+    static func transitioning(mode: CameraControlMode, lenses: [CameraLensOption]) -> Self {
+        var snapshot = Self()
+        snapshot.mode = mode; snapshot.lenses = lenses
+        return snapshot
+    }
     func supports(_ parameter: CameraParameter) -> Bool {
         switch parameter {
         case .iso: return isoRange != nil

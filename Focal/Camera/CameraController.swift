@@ -80,6 +80,8 @@ final class CameraController: NSObject, ObservableObject {
     private var manualApplyScheduled = false
     private var selectedCameraID: String?
     private var cameraLensOptions: [CameraLensOption] = []
+    private var advicePresentation = AutoTunePresentation() // Main queue only.
+    private var currentAutoTuneRecommendations: [AutoTuneRecommendation] = [] // Main queue only.
     private var wantsToRun = false // Camera queue only.
     private var engine = CompositionEngine() // Analysis queue only.
     private var mode: CompositionMode = .automatic
@@ -193,7 +195,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func stop() {
         precisionLock.lock(); precisionContext.generation += 1; precisionLock.unlock()
-        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = [] }
+        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset() }
         zoomRequestLock.lock(); zoomRequests.clear(); zoomRequestLock.unlock()
         videoQueue.async { self.previewCadence = PreviewFrameCadence() }
         queue.async { [weak self] in
@@ -252,8 +254,13 @@ final class CameraController: NSObject, ObservableObject {
         session.commitConfiguration()
         configured = false
         device = nil
+        let transition = CameraControlSnapshot.transitioning(mode: manualState.mode, lenses: cameraLensOptions)
+        precisionLock.lock(); precisionContext.generation += 1; precisionContext.controls = transition; precisionLock.unlock()
         cameraLensOptions = []
-        DispatchQueue.main.async { self.isRunning = false; self.controls = CameraControlSnapshot() }
+        DispatchQueue.main.async {
+            self.isRunning = false; self.controls = transition
+            self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset()
+        }
     }
 
     private func guidanceSnapshot() -> GuidanceActivation.Snapshot {
@@ -314,6 +321,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func setAnalysisSource(_ source: CameraSource) {
         precisionLock.lock(); precisionContext.source = source; precisionContext.generation += 1; precisionLock.unlock()
+        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset() }
         guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled, source: source); guidanceLock.unlock()
         tracker.cancelInference()
         queue.async {
@@ -884,17 +892,27 @@ final class CameraController: NSObject, ObservableObject {
             self.scheduleManualControls()
         }
     }
-    func selectLens(_ id: String) {
+    func selectLens(_ id: String?) {
+        guard !isCapturing, !isSwitchingCamera, isRunning else { return }
+        if id == nil && controls.usesAutomaticLenses { return }
+        if let id, id == controls.lensID && !controls.usesAutomaticLenses { return }
+        isSwitchingCamera = true
+        guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled); guidanceLock.unlock()
+        tracker.cancelInference()
         queue.async {
-            guard self.captureCompletion == nil, self.wantsToRun, self.device?.uniqueID != id else { return }
+            defer { DispatchQueue.main.async { self.isSwitchingCamera = false } }
+            guard self.captureCompletion == nil, self.wantsToRun, self.selectedCameraID != id else { return }
             let devices = AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:self.position).devices
-            guard devices.contains(where:{ $0.uniqueID == id }) else { return }
+            if let id { guard devices.contains(where:{ $0.uniqueID == id }) else { return } }
             let previous = self.selectedCameraID
-            self.cancelZoomRamp(); self.selectedCameraID = id; self.discardConfiguration(); self.configureAndStart(allowFallback:false)
+            self.cancelZoomRamp(); self.selectedCameraID = id; self.discardConfiguration(); self.configureAndStart(allowFallback:id == nil)
             if !self.configured {
                 self.selectedCameraID = previous; self.discardConfiguration(); self.configureAndStart()
                 DispatchQueue.main.async { self.errorMessage = "Lens could not start. The previous camera was restored." }
             }
+            // An explicit lens choice has the same priority as manual pinch.
+            // Keep guidance running, but do not immediately override that zoom.
+            self.analysisQueue.async { self.framing.reset(enabled:false); self.publishFraming() }
         }
     }
     private func updateManualControls() {
@@ -972,6 +990,7 @@ final class CameraController: NSObject, ObservableObject {
         value.canTapFocus = device.isFocusPointOfInterestSupported && (device.isFocusModeSupported(.autoFocus) || device.isFocusModeSupported(.continuousAutoFocus))
         value.evAdjustable = !value.manualExposure && device.minExposureTargetBias < device.maxExposureTargetBias
         value.lensID = device.uniqueID
+        value.usesAutomaticLenses = selectedCameraID == nil
         if cameraLensOptions.isEmpty {
             let discovery = AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:position)
             cameraLensOptions = discovery.devices.map { lens in
@@ -981,7 +1000,10 @@ final class CameraController: NSObject, ObservableObject {
             case .builtInTelephotoCamera: label = "Telephoto"
             case .builtInWideAngleCamera: label = "Wide"
             case .builtInTrueDepthCamera: label = "Front depth"
-            default: label = "Automatic lenses"
+            case .builtInTripleCamera: label = "Triple camera"
+            case .builtInDualWideCamera: label = "Wide + ultra wide"
+            case .builtInDualCamera: label = "Dual camera"
+            default: label = lens.localizedName
             }
             return CameraLensOption(id:lens.uniqueID,label:label)
             }
@@ -1000,7 +1022,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func setPrecisionOptions(_ options: PrecisionOptions) {
         precisionLock.lock(); precisionContext.options = options; precisionContext.generation += 1; precisionLock.unlock()
-        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = [] }
+        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset() }
     }
     private func precisionSnapshot() -> PrecisionContext {
         precisionLock.lock(); defer { precisionLock.unlock() }; return precisionContext
@@ -1057,10 +1079,19 @@ final class CameraController: NSObject, ObservableObject {
             subjectMotion:context.subjectMotionTimestamp.flatMap { timestamp >= $0 && timestamp-$0 < 1.5 ? context.relativeSubjectMotion : nil }) : []
         DispatchQueue.main.async {
             guard self.precisionSnapshot().generation == context.generation else { return }
-            self.precisionReading = reading; self.autoTuneRecommendations = recommendations
+            self.precisionReading = reading
+            self.currentAutoTuneRecommendations = recommendations
+            self.autoTuneRecommendations = self.advicePresentation.update(recommendations, at: reading.timestamp)
         }
     }
+    func isCurrentAutoTuneRecommendation(_ recommendation: AutoTuneRecommendation) -> Bool {
+        let context = precisionSnapshot()
+        return context.options.autoTune && currentAutoTuneRecommendations.contains(recommendation) && precisionReading != nil
+            && AutoTune.permitsApplication(recommendation,source:context.source,mode:controls.mode,manualExposure:controls.manualExposure,
+                                          paused:context.paused,busy:isCapturing || isSwitchingCamera,now:ProcessInfo.processInfo.systemUptime)
+    }
     func applyAutoTune(_ recommendation:AutoTuneRecommendation) {
+        guard isCurrentAutoTuneRecommendation(recommendation) else { return }
         queue.async {
             let context = self.precisionSnapshot(), now = ProcessInfo.processInfo.systemUptime
             guard context.options.autoTune,
@@ -1355,27 +1386,29 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let frames = tracker.compositionFrames(at:evaluatedAt).map {
             projection.visibleRect(CGRect(x:$0.minX,y:1-$0.maxY,width:$0.width,height:$0.height))
         }
+        let availableScales = FramingPlanner.availableScales(currentZoom:analysisZoom,maximumZoom:automaticZoomLimit,detailZoomLimit:detailZoomLimit,nativeStops:nativeZoomStops,maximumScale:photographyIntent.maximumCropScale)
         let plan = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
             others:contextSubjects,enclosingFrames:frames,timestamp:evaluatedAt,
             maximumScale:analysisSource == .iPhone ? max(1,automaticZoomLimit/max(0.01,analysisZoom)) : 1,
-            freeze:zooming,intent:photographyIntent) : nil
+            freeze:zooming || framing.phase == .settling || framing.phase == .framed,intent:photographyIntent,availableScales:availableScales) : nil
         if subject == nil && !tracker.isRecovering { manualTargetLock = nil }
         let manualTarget = preferredTarget ?? manualTargetLock ?? subject.map { CompositionEngine.target(for:$0,mode:mode) } ?? UnitPoint2D(x:0.5,y:0.5)
         if mode == .thirds, subject != nil { manualTargetLock = manualTarget }
-        let layoutTarget = plan?.target ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
-        // Preserve context and off-center placement. Zoom only a positively
-        // evaluated centered crop; changing modes never silently forces center.
         let allowPlannedZoom = photographyIntent.permitsZoom && (planning ? (plan?.permitsZoom ?? false) : mode != .thirds)
+        let preparingZoom = autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing && !zooming && allowPlannedZoom
+        let layoutTarget = (preparingZoom ? plan?.zoomAlignmentTarget : plan?.target) ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
         if (!planning || plan != nil || bounds == nil), let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,
                                             detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:stable, holdDuration:holdDuration, previewAspect:previewAspect,
-                                            alignmentTarget:layoutTarget,allowZoom:allowPlannedZoom,plannedScale:plan?.selected.zoomScale), imageBounds != nil {
+                                            alignmentTarget:layoutTarget,allowZoom:allowPlannedZoom,plannedScale:plan?.selected.zoomScale,zoomDestination:preparingZoom ? plan?.target : nil), imageBounds != nil {
             performAutomaticZoom(to: targetZoom, generation: analysisZoomGeneration)
         }
+        let tolerance = autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing ? FramingPlanner.alignmentTolerance(plannedScale:plan?.selected.zoomScale,destination:preparingZoom ? plan?.target : nil) : 0.065
         var result = engine.update(subject: subject, rollDegrees: roll, mode: mode, timestamp: evaluatedAt,
-                                   preferredTarget: layoutTarget, previewAspect: previewAspect)
+                                   preferredTarget: layoutTarget, previewAspect: previewAspect,alignmentTolerance:tolerance)
         let analysisReadingBounds = bounds
         result.subjectBounds = boxSmoother.update(bounds)
+        result.guidanceBounds = bounds
         result.subjectConfidence = confidence
         let reliable = gravity.map { hypot($0.x,$0.y) > 0.2 } ?? false
         if analysisSource == .iPhone && motionData == nil && (result.state == .ready || result.state == .settling) {

@@ -23,7 +23,7 @@ struct FramingPlanner {
 
     mutating func update(bounds: CGRect?, confidence: Float, roll: Double, timestamp: TimeInterval,
                          currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = [], deviceStable: Bool = true, holdDuration: Double = 0.75, previewAspect: Double = 0.75,
-                         alignmentTarget: UnitPoint2D = .init(x:0.5,y:0.5), allowZoom: Bool = true, plannedScale: Double? = nil) -> Double? {
+                         alignmentTarget: UnitPoint2D = .init(x:0.5,y:0.5), allowZoom: Bool = true, plannedScale: Double? = nil, zoomDestination: UnitPoint2D? = nil) -> Double? {
         guard [roll,timestamp,currentZoom,maximumZoom,holdDuration,previewAspect].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, previewAspect > 0 else { return nil }
         guard phase != .off, phase != .framed, phase != .zooming else { return nil }
         holdProgress = 0
@@ -36,7 +36,8 @@ struct FramingPlanner {
               (0...1).contains(alignmentTarget.x), (0...1).contains(alignmentTarget.y) else { stableSince = nil; return nil }
         let dx = Double(bounds.midX) - alignmentTarget.x
         let dy = Double(bounds.midY) - alignmentTarget.y
-        guard hypot(dx,dy/max(0.1,previewAspect)) <= 0.04, abs(roll) <= 4 else {
+        let tolerance = Self.alignmentTolerance(plannedScale: plannedScale, destination: zoomDestination)
+        guard hypot(dx,dy/max(0.1,previewAspect)) <= tolerance, abs(roll) <= 4 else {
             phase = .aligning; stableSince = nil
             return nil
         }
@@ -54,10 +55,24 @@ struct FramingPlanner {
         let requiredHold = max(0.5,min(3,holdDuration))
         holdProgress = min(1, max(0, (timestamp - (stableSince ?? timestamp)) / requiredHold))
         guard holdProgress >= 1 else { return nil }
-        // Off-center layouts are settled at their real target. Never apply a
-        // sensor-centered zoom to thirds/negative-space/group compositions.
-        guard allowZoom, alignmentTarget.distance(to:.init(x:0.5,y:0.5)) < 0.01 else { phase = .framed; return nil }
+        guard allowZoom else { phase = .framed; return nil }
         if let plannedScale, !plannedScale.isFinite || plannedScale < 1 { phase = .framed; return nil }
+        if let destination = zoomDestination, let scale = plannedScale {
+            guard [destination.x,destination.y].allSatisfy(\.isFinite), (0...1).contains(destination.x), (0...1).contains(destination.y) else { phase = .framed; return nil }
+            let preZoom = UnitPoint2D(x:0.5+(destination.x-0.5)/scale,y:0.5+(destination.y-0.5)/scale)
+            let target = currentZoom*scale
+            let projected = Self.zoomedRect(bounds,scale:scale)
+            let margin = CGRect(x:0.025,y:0.025,width:0.95,height:0.95)
+            let supported = Self.availableScales(currentZoom:currentZoom,maximumZoom:maximumZoom,detailZoomLimit:detailZoomLimit ?? maximumZoom,nativeStops:nativeStops,maximumScale:scale)
+            guard preZoom.distance(to:alignmentTarget) < 0.001, margin.contains(projected),
+                  hypot(Double(projected.midX)-destination.x,(Double(projected.midY)-destination.y)/max(0.1,previewAspect)) <= 0.065,
+                  supported.contains(where: { abs($0-scale) < 0.001 }), target > currentZoom*1.12, target <= maximumZoom+0.001 else { phase = .framed; return nil }
+            phase = .zooming
+            return target
+        }
+        // Legacy/manual layouts require a centered target unless the planner
+        // supplies a verified pre-zoom point and final destination above.
+        guard alignmentTarget.distance(to:.init(x:0.5,y:0.5)) < 0.01 else { phase = .framed; return nil }
         // Account for the off-center extent, so zoom never cuts off the selected subject.
         let fit = min(0.72 / (Double(bounds.width) + 2 * abs(dx)),
                       0.62 / (Double(bounds.height) + 2 * abs(dy)))
@@ -79,6 +94,19 @@ struct FramingPlanner {
     static func zoomedRect(_ rect: CGRect, scale: Double) -> CGRect {
         CGRect(x: (rect.minX - 0.5) * scale + 0.5, y: (rect.minY - 0.5) * scale + 0.5,
                width: rect.width * scale, height: rect.height * scale)
+    }
+    static func alignmentTolerance(plannedScale: Double?, destination: UnitPoint2D?) -> Double {
+        guard destination != nil, let scale = plannedScale, scale.isFinite, scale > 1 else { return 0.04 }
+        return min(0.04,0.06/scale)
+    }
+    static func availableScales(currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double, nativeStops: [Double], maximumScale: Double) -> [Double] {
+        guard [currentZoom,maximumZoom,detailZoomLimit,maximumScale].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, maximumScale >= 1 else { return [1] }
+        let native = nativeStops.filter { $0.isFinite && $0 > currentZoom }.map { $0/currentZoom }
+        let proposals = [1.0,1.15,1.35,1.6,2.0,2.5,3.0] + native
+        return Array(Set(proposals.filter { scale in
+            scale >= 1 && scale <= maximumScale && currentZoom*scale <= maximumZoom+0.001
+                && (scale == 1 || currentZoom*scale <= detailZoomLimit+0.001 || native.contains(where: { abs($0-scale) < 0.001 }))
+        })).sorted()
     }
 
     private func valid(_ rect: CGRect) -> Bool {

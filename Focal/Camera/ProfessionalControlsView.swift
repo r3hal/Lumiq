@@ -12,7 +12,8 @@ struct ProfessionalControlsView: View {
     var body: some View {
         VStack(spacing:10) {
             if let selected { adjustment(selected).transition(.opacity.combined(with:.move(edge:.bottom))) }
-            ScrollView(.horizontal,showsIndicators:false) {
+            HStack(spacing: 4) {
+              ScrollView(.horizontal,showsIndicators:false) {
                 HStack(spacing:6) {
                     ForEach(CameraParameter.allCases.filter { camera.controls.supports($0) }) { parameter in
                         Button { choose(parameter) } label: {
@@ -25,10 +26,9 @@ struct ProfessionalControlsView: View {
                                 .background(selected == parameter ? Palette.yellow.opacity(0.10) : .clear,in:RoundedRectangle(cornerRadius:10))
                         }.accessibilityLabel("Adjust \(parameter.rawValue), \(label(parameter))")
                     }
-                    Menu {
-                        ForEach(camera.controls.lenses) { lens in Button(lens.label) { camera.selectLens(lens.id) } }
-                    } label: { Label("LENS",systemImage:"camera.aperture").font(.caption).frame(minHeight:46).padding(.horizontal,10) }
                 }
+              }
+              lensMenu
             }
             if camera.controls.isoRange == nil && camera.controls.durationRange == nil {
                 Text("Custom exposure is unavailable on this selected device. Check a physical camera in LENS.").font(.caption2).foregroundStyle(Palette.muted)
@@ -37,6 +37,22 @@ struct ProfessionalControlsView: View {
             .disabled(busy).animation(.easeInOut(duration:0.18),value:selected)
             .onChange(of:camera.controls.mode) { _,mode in if mode == .auto { selected = nil; magnify = false } }
             .onChange(of:camera.controls.lensID) { _,_ in selected = nil; magnify = false }
+    }
+    private var lensMenu: some View {
+        Menu {
+            Button { camera.selectLens(nil) } label: {
+                if camera.controls.usesAutomaticLenses { Label("Automatic lenses", systemImage: "checkmark") }
+                else { Text("Automatic lenses") }
+            }
+            ForEach(camera.controls.lenses) { lens in
+                Button { camera.selectLens(lens.id) } label: {
+                    if camera.controls.lensID == lens.id && !camera.controls.usesAutomaticLenses { Label(lens.label, systemImage: "checkmark") }
+                    else { Text(lens.label) }
+                }
+            }
+        } label: {
+            Label("LENS",systemImage:"camera.aperture").font(.caption).frame(minHeight:46).padding(.horizontal,10)
+        }.accessibilityLabel("Change camera lens, or return to automatic lenses")
     }
     private func isAutomatic(_ parameter:CameraParameter) -> Bool {
         switch parameter {

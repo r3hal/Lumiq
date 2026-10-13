@@ -1,5 +1,7 @@
 # Focal 2.0.1 / build 17 — professional camera upgrade
 
+This is the build 17 baseline report. Build 18 updates advice timing, PRO lens switching, subject eligibility and automatic crop geometry; see [Guidance refinement](GUIDANCE-REFINEMENT.md) for the current behavior and checks.
+
 Build 17 corrects the two `Section` initializers in Precision settings to use explicit content, header and footer closures. Codemagic reported that build 16 did not compile because its title-plus-footer calls selected no supported SwiftUI initializer. The correction awaits a fresh native build; existing functionality and test requirements are preserved.
 
 ## Outcome and verification status

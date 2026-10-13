@@ -7,7 +7,9 @@ enum SubjectIdentity {
     static func name(_ identifier: String) -> String? {
         let first = identifier.hasPrefix("“") ? identifier : identifier.components(separatedBy: ",").first ?? identifier
         let cleaned = first.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = Set(cleaned.lowercased().split { !$0.isLetter }.map(String.init))
         guard !cleaned.isEmpty, cleaned.count <= 55, !generic.contains(cleaned.lowercased()),
+              words.isDisjoint(with: ["unknown", "unidentified", "imaginary", "thing", "object", "objects", "structure", "structures", "background"]),
               cleaned.rangeOfCharacter(from: .letters) != nil else { return nil }
         return cleaned.prefix(1).uppercased() + String(cleaned.dropFirst())
     }
@@ -22,10 +24,15 @@ enum SubjectIdentity {
         guard let best = ranked.first, best.value >= (localized ? 0.25 : 0.45) else { return nil }
         // Moderate crop predictions require a clear competing-class margin,
         // a known photographic noun and subsequent spatial/temporal evidence.
-        if best.value < 0.45 && !isCommonPhotographicSubject(best.key) { return nil }
+        if best.value < 0.45 && best.value < minimumLocalizedConfidence(for:best.key) { return nil }
         let margin = best.value >= 0.6 ? 0.08 : best.value >= 0.45 ? 0.15 : 0.06
         if ranked.count > 1, best.value - ranked[1].value < margin { return nil }
         return (best.key, best.value)
+    }
+    static func minimumLocalizedConfidence(for label: String) -> Double {
+        // Familiar aliases retain their existing sensitivity. Every other
+        // specific Vision label is eligible with stronger crop evidence.
+        isCommonPhotographicSubject(label) ? 0.25 : 0.35
     }
     static func isCommonPhotographicSubject(_ label: String) -> Bool {
         let words = Set(label.lowercased().split { !$0.isLetter }.map(String.init))
@@ -75,13 +82,13 @@ struct CompositionCue {
     let aligned: Bool
     let direction: String
     init?(reading: CompositionReading, previewAspect: Double) {
-        guard reading.subjectConfidence >= 0.4, let bounds = reading.subjectBounds,
+        guard reading.subjectConfidence >= 0.4, let bounds = reading.guidanceBounds ?? reading.subjectBounds,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.midX, bounds.midY, reading.target.x, reading.target.y].allSatisfy(\.isFinite),
               (0...1).contains(reading.target.x), (0...1).contains(reading.target.y) else { return nil }
         subject = UnitPoint2D(x: bounds.midX, y: bounds.midY); target = reading.target
         let dx = subject.x - target.x, dy = (subject.y - target.y) / max(0.1, previewAspect)
-        aligned = hypot(dx, dy) <= 0.065
+        aligned = hypot(dx, dy) <= reading.alignmentTolerance
         direction = abs(dx) > abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
     }
     func instruction(subjectName: String) -> String {

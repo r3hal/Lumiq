@@ -322,7 +322,7 @@ struct CameraView: View {
             previewContent
             switchingOverlay
             referenceOverlay
-            PrecisionOverlayView(reading:camera.precisionReading,options:precisionOptions,recommendations:camera.autoTuneRecommendations,apply:camera.applyAutoTune)
+            PrecisionOverlayView(reading:camera.precisionReading,options:precisionOptions,recommendations:camera.autoTuneRecommendations,apply:camera.applyAutoTune,canApply:camera.isCurrentAutoTuneRecommendation)
                 .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
             subjectOverlay
             coachOverlay

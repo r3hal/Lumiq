@@ -8,6 +8,10 @@ struct SonyRemoteError: LocalizedError {
 
 /// Only the manually selected local camera may supply control, stream or photo URLs.
 enum SonyEndpoint {
+    static func initialHost(previous: String?) -> String {
+        let saved = previous?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return validHost(saved) ? saved : "192.168.122.1"
+    }
     static func validHost(_ host: String) -> Bool {
         let segments = host.split(separator:".",omittingEmptySubsequences:false)
         let parts = segments.compactMap { Int($0) }

@@ -27,6 +27,8 @@ struct CompositionReading {
     var rollDegrees: Double = 0
     var title = "Find something worth a second look"
     var detail = "Point at a clear subject to get a little guidance."
+    var guidanceBounds: CGRect?
+    var alignmentTolerance: Double = 0.065
     func alignmentPercent(previewAspect: Double) -> Double? {
         guard state != .searching, let subject, subject.x.isFinite, subject.y.isFinite, rollDegrees.isFinite else { return nil }
         let distance = hypot(subject.x-target.x,(subject.y-target.y)/max(0.1,previewAspect))
@@ -62,7 +64,7 @@ struct CompositionEngine {
 
     mutating func update(subject: UnitPoint2D?, rollDegrees: Double,
                          mode: CompositionMode, timestamp: TimeInterval,
-                         preferredTarget: UnitPoint2D? = nil, previewAspect: Double = 0.75) -> CompositionReading {
+                         preferredTarget: UnitPoint2D? = nil, previewAspect: Double = 0.75, alignmentTolerance: Double = 0.065) -> CompositionReading {
         if previousMode != mode { reset(); previousMode = mode }
         guard let subject, subject.x.isFinite, subject.y.isFinite,
               (0...1).contains(subject.x), (0...1).contains(subject.y) else {
@@ -102,12 +104,13 @@ struct CompositionEngine {
         let distance = max(hypot(point.x - target.x, (point.y - target.y) * verticalScale),
                            hypot(subject.x - target.x, (subject.y - target.y) * verticalScale))
         var reading = CompositionReading(subject: point, target: target, rollDegrees: rollDegrees)
+        reading.alignmentTolerance = alignmentTolerance.isFinite ? max(0.01,min(0.065,alignmentTolerance)) : 0.065
         if abs(rollDegrees) > 4 {
             alignedSince = nil
             reading.state = .adjusting
             reading.title = "Level things out"
             reading.detail = "Gently rotate your phone until the line is level."
-        } else if distance > 0.065 {
+        } else if distance > reading.alignmentTolerance {
             alignedSince = nil
             reading.state = .adjusting
             let dx = point.x - target.x

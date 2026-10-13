@@ -10,6 +10,33 @@ struct AutoTuneRecommendation: Equatable, Identifiable {
     var id: Kind { kind }
 }
 
+/// Keep advice readable without allowing retained exposure proposals to act on
+/// stale evidence. The existing application guard still checks the timestamp.
+struct AutoTunePresentation {
+    private var shown: AutoTuneRecommendation?
+    private var shownSince: TimeInterval = 0
+    private var candidateKind: AutoTuneRecommendation.Kind?
+    private var candidateSince: TimeInterval = 0
+    private var lastUpdate: TimeInterval?
+    mutating func reset() { self = Self() }
+    mutating func update(_ recommendations: [AutoTuneRecommendation], at time: TimeInterval) -> [AutoTuneRecommendation] {
+        guard time.isFinite else { reset(); return [] }
+        if let lastUpdate, time < lastUpdate || time-lastUpdate > 4 { reset() }
+        lastUpdate = time
+        // Same advice gets fresh measured values, while its readable dwell
+        // remains anchored to when the card was first shown.
+        if let current = shown, let fresh = recommendations.first(where: { $0.kind == current.kind }) { shown = fresh }
+        let next = recommendations.first
+        if next?.kind == shown?.kind { candidateKind = nil; return shown.map { [$0] } ?? [] }
+        if shown == nil, let next { shown = next; shownSince = time; return [next] }
+        if candidateKind != next?.kind { candidateKind = next?.kind; candidateSince = time }
+        if time-shownSince >= 3.5 && (next == nil || time-candidateSince >= 0.7) {
+            shown = next; shownSince = time; candidateKind = nil
+        }
+        return shown.map { [$0] } ?? []
+    }
+}
+
 enum AutoTune {
     static func permitsApplication(_ recommendation:AutoTuneRecommendation,source:CameraSource,mode:CameraControlMode,manualExposure:Bool,paused:Bool,busy:Bool,now:TimeInterval) -> Bool {
         source == .iPhone && mode == .auto && !manualExposure && !paused && !busy

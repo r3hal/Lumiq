@@ -1,19 +1,17 @@
-Focal 2.0.1, build 17 — Precision settings compilation fix
-REPORTED: Codemagic build 16 failed compiling PrecisionSettingsView with Section initializer errors (missing content label, String passed where a content closure was expected, uninferred Content).
-FIXED IN SOURCE: Both titled sections with footers now use explicit content/header/footer closures supported by SwiftUI. Awaiting native build verification.
-PASS: Existing providers/capture/library/editor/detection/zoom/Sony audit and preservation mapping documented.
-PASS: Lexical delimiters across 81 Swift files (64 app, 17 test); not a Swift grammar/type check.
-PASS: All app/test sources and resources registered; deterministic project generation.
-PASS: Plists/shared scheme, assets/font, cloud YAML/shell syntax and git diff --check.
-PASS: 235 XCTest functions registered (34 new); none executed here.
-ATTEMPTED: Stage/final simulator builds and final simulator test. Exit 127: xcodebuild: command not found.
-PENDING: Native compile/type checking and all 235 XCTest executions in Codemagic.
-PENDING: Actual iPhone 16 Pro Max capture/aspect/mirroring/RAW/HEIF/JPEG/permissions/gallery/editor regressions.
-PENDING: AUTO/PRO hardware ranges, linked ISO/shutter AUTO, WB gains, protected focus/exposure, lens selection, loupe and session recovery.
-PENDING: Actual intent recognition, stable boxes/readiness/ramp and immediate pinch/manual-control priority.
-PENDING: Histogram/zebra/peaking geometry and accuracy, AutoTune evidence/expiry/PRO guards and real preview/memory/heat measurements.
-PENDING: Captured-image Insights/Compare native image I/O, metadata, layouts and preservation checks.
-PENDING: A7 III discovery/local permission/descriptor/stream/capture/focus/metadata/recovery/shared analysis and transfer quality; A6100 remains independently unverified.
-LIMITS: No physical hardware tests. No trained aesthetic/gaze/depth/optical-sharpness model or objective greatest-photo guarantee. Peaking is approximate; preview clipping differs from RAW. WB temperature is requested through clamped actual gains. Long PRO exposures may reduce frame cadence. Discovery is bounded unicast, not SSDP multicast, and may miss devices. PTP/IP and unsupported Sony lens/RAW/exposure controls remain absent. No new app package, backend, SDK or entitlement.
-Structural checks do not establish native compilation, visual matching, device compatibility or runtime performance.
-See docs/PROFESSIONAL-AUDIT.md and docs/PROFESSIONAL-UPGRADE.md.
+Focal 2.1, build 18 — guidance and camera controls refinement
+SOURCE: Sony defaults to 192.168.122.1, retaining a valid saved alternative.
+SOURCE: AutoTune cards persist for 3.5 seconds; replacement needs repeated evidence. Retained/stale exposure proposals cannot be applied.
+SOURCE: PRO survives lens transitions; pinned LENS menu offers Automatic lenses, hardware choices and selection indicators.
+SOURCE: Composition readiness takes priority over optional clutter advice; measured light warnings remain in aligned guidance.
+SOURCE: Shared raw-boundary alignment tolerance for planner, guidance and direction overlay. Hold/ramp/final layout remain frozen through automatic framing.
+SOURCE: Evaluated thirds/golden-ratio crops use a real pre-zoom target; crop containment, final placement, detail/native-stop budgets and manual cancellation are enforced.
+SOURCE: Specific Vision labels beyond familiar aliases can qualify with stronger measured evidence; two crops per pass rotate among four real proposals, with a bounded fresh identity cache.
+PASS: Lexical delimiter checks across 82 Swift files (64 app, 18 test); not Swift syntax/type checking.
+PASS: Deterministic generation, all app/test sources registered, resources, plists/shared scheme, YAML/shell syntax and git diff --check.
+REGISTERED: 257 XCTest functions, including 22 new refinement regressions. None executed in this workspace.
+ATTEMPTED: Native simulator build/test; xcodebuild unavailable in this Linux environment.
+PENDING: Native compilation and all XCTest executions in Codemagic, then unsigned IPA archive.
+PENDING: Real iPhone repeated PRO lens switching, AUTO return, manual controls, crop geometry at each aspect, preview quality, physical hold and immediate pinch cancellation.
+PENDING: Sony A7 III remembered/default address, genuine live view/capture/recovery and shared analysis; Sony zoom remains on the camera lens.
+LIMITS: Apple Vision's installed classifiers cannot identify every conceivable object. No universal detector or objective best-photo guarantee was added. Unknown/generic/weak/ambiguous regions remain unselected. Crops cannot pan digitally, reveal unobserved scenery or exceed the camera's measured detail/native-stop budget. Group/context/negative-space layouts retain their surroundings. Physical-device behavior remains unverified here.
+See docs/GUIDANCE-REFINEMENT.md and docs/PROFESSIONAL-UPGRADE.md.

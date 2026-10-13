@@ -5,6 +5,7 @@ struct PrecisionOverlayView: View {
     let options: PrecisionOptions
     let recommendations: [AutoTuneRecommendation]
     let apply: (AutoTuneRecommendation) -> Void
+    let canApply: (AutoTuneRecommendation) -> Bool
     var body: some View {
         ZStack(alignment:.topLeading) {
             if options.highlights, let image = reading?.zebra { Image(decorative:image,scale:1).resizable().interpolation(.none).allowsHitTesting(false).accessibilityHidden(true) }
@@ -15,7 +16,11 @@ struct PrecisionOverlayView: View {
                     VStack(alignment:.leading,spacing:6) {
                         Label(recommendation.title,systemImage:"slider.horizontal.3").font(.caption.weight(.semibold))
                         Text(recommendation.reason).font(.caption2).fixedSize(horizontal:false,vertical:true)
-                        if let ev = recommendation.exposureBias { Button(String(format:"Try %+.1f EV",ev)) { apply(recommendation) }.font(.caption.weight(.medium)).frame(minHeight:32) }
+                        if let ev = recommendation.exposureBias {
+                            Button(String(format:"Try %+.1f EV",ev)) { apply(recommendation) }
+                                .font(.caption.weight(.medium)).frame(minHeight:32)
+                                .disabled(!canApply(recommendation))
+                        }
                     }.padding(10).frame(maxWidth:220,alignment:.leading).background(Palette.ink.opacity(0.88),in:RoundedRectangle(cornerRadius:12)).foregroundStyle(Palette.text)
                 }
                 if options.peaking { Text("EDGE ASSIST · APPROXIMATE").font(.system(size:9,design:.monospaced)).padding(5).background(Palette.ink.opacity(0.8)).foregroundStyle(Palette.muted).allowsHitTesting(false) }

@@ -26,6 +26,8 @@ final class SubjectTracker {
     private var candidates: [Detection] = []
     private var trackedCandidate: SubjectCandidate?
     private var selector = SubjectSelector()
+    private var cropSchedule = SubjectCropSchedule()
+    private var cropIdentities = SubjectCropIdentityCache()
     private var health = SubjectTrackingHealth()
     private var selectedPoint: CGPoint?
     private var lastDetection: TimeInterval = -.infinity
@@ -85,6 +87,7 @@ final class SubjectTracker {
     func reset() {
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
         candidates = []; enclosingRectangles = []; selectedPoint = nil; selector.reset(); health.reset()
+        cropSchedule.reset(); cropIdentities.reset()
         lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
         manual = false; label = "Auto subject"; isRecovering = false
     }
@@ -92,6 +95,7 @@ final class SubjectTracker {
         let point = CGPoint(x: imagePoint.x, y: 1 - imagePoint.y)
         selectedPoint = point; manual = true
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
+        cropSchedule.reset(); cropIdentities.reset()
         selector.reset(); health.reset(); label = "Your subject"
         if ProcessInfo.processInfo.systemUptime - lastDetection < 2,
            let index = selector.select(candidates.map(\.candidate), timestamp: ProcessInfo.processInfo.systemUptime, manualPoint: point) {
@@ -244,17 +248,22 @@ final class SubjectTracker {
             if !duplicate { objects.append(proposal) }
         }
         let full = CIImage(cvPixelBuffer: detailBuffer)
-        let eligible = objects.filter { object in
+        let eligible = Array(objects.filter { object in
             !detections.contains {
                 let candidate = $0.candidate, overlap = candidate.bounds.intersection(object.boundingBox)
                 let area = object.boundingBox.width * object.boundingBox.height
                 return candidate.category.semantic && !overlap.isNull && area > 0 && overlap.width * overlap.height / area > 0.6
             }
-        }
+        }.prefix(4))
         // The crop budget begins after proposal detection, so a slower device
         // always gets a chance to classify its first actual object boundary.
         let deadline = ProcessInfo.processInfo.systemUptime + 1.3
-        for object in eligible.prefix(2) {
+        var identities = [Int: (name: String, confidence: Double)]()
+        for (index, object) in eligible.enumerated() {
+            identities[index] = cropIdentities.identity(for:object.boundingBox,at:timestamp)
+        }
+        for index in cropSchedule.indices(count:eligible.count) {
+            let object = eligible[index]
             guard canContinue() else { return [] }
             if ProcessInfo.processInfo.systemUptime > deadline { break }
             let native = object.boundingBox.insetBy(dx: -0.025, dy: -0.025).intersection(visibleRegion)
@@ -265,10 +274,18 @@ final class SubjectTracker {
             let request = VNClassifyImageRequest()
             guard (try? performRequests([request], canContinue: canContinue) {
                 try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request])
-            }) != nil,
-                let identity = SubjectIdentity.recognized((request.results ?? []).prefix(12).map { ($0.identifier, Double($0.confidence)) }, localized: true) else { continue }
+            }) != nil else { continue }
+            guard let identity = SubjectIdentity.recognized((request.results ?? []).prefix(24).map { ($0.identifier, Double($0.confidence)) }, localized: true) else {
+                cropIdentities.invalidate(object.boundingBox); identities[index] = nil; continue
+            }
             let category = SubjectCategory.classified(identity.name)
-            guard !category.semantic else { continue }
+            guard !category.semantic else { cropIdentities.invalidate(object.boundingBox); identities[index] = nil; continue }
+            identities[index] = identity
+            cropIdentities.store(bounds:object.boundingBox,name:identity.name,confidence:identity.confidence,at:timestamp)
+        }
+        for (index, object) in eligible.enumerated() {
+            guard let identity = identities[index] else { continue }
+            let category = SubjectCategory.classified(identity.name)
             append(object, category: category, label: identity.name, semanticConfidence: identity.confidence, localized: true)
         }
         let hasObject = detections.contains { !$0.candidate.category.semantic && $0.candidate.score(configuration: selector.configuration) != nil }

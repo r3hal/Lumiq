@@ -42,7 +42,7 @@ final class PrintedGuidanceTests: XCTestCase {
         XCTAssertNotNil(whole.lightingAdvice); XCTAssertNil(subject.lightingAdvice)
         XCTAssertEqual(subject.brightness, 0.8, accuracy: 0.001)
     }
-    func testMeasuredSubjectLightPreventsPrematureGreatFraming() {
+    func testAlignedCompositionRetainsMeasuredLightWarningWithoutBlockingPlacement() {
         var guide = AutomaticGuidance()
         let reading = CompositionReading(state: .ready, subject: .init(x: 0.5, y: 0.5), subjectBounds: CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2), subjectConfidence: 0.9, target: .init(x: 0.5, y: 0.5))
         let dark = PhotoMeasurements(brightness: 0.1, shadowFraction: 0.8, highlightFraction: 0, detail: 0.05, backgroundEdges: nil)
@@ -51,7 +51,7 @@ final class PrintedGuidanceTests: XCTestCase {
                 subjectLabel: "Belot cards", subjectMeasurements: dark)
         }
         _ = step(0); _ = step(0.5)
-        XCTAssertEqual(step(1.2).kind, .adjustment); XCTAssertTrue(step(1.3).text.contains("soft light"))
+        XCTAssertEqual(step(1.2).kind, .ready); XCTAssertTrue(step(1.3).text.contains("soft light"))
     }
     func testPanInstructionTakesPriorityOverLightingWhenSubjectIsOffTarget() {
         var guide = AutomaticGuidance()

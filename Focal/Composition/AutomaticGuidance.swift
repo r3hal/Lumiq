@@ -63,7 +63,7 @@ struct AutomaticGuidance {
         else {
             let point = UnitPoint2D(x:bounds.midX,y:bounds.midY)
             let dx = point.x-reading.target.x, dy = point.y-reading.target.y
-            let tolerance = autoEnabled && phase.isPreparing ? 0.04 : 0.065
+            let tolerance = reading.alignmentTolerance
             if hypot(dx,dy/max(0.1,previewAspect)) > tolerance {
                 let text = abs(dx) > abs(dy)/max(0.1,previewAspect) ? (dx > 0 ? "Move slightly right" : "Move slightly left") : (dy > 0 ? "Lower the camera" : "Raise the camera")
                 let specific = name.flatMap { label in CompositionCue(reading: reading, previewAspect: previewAspect)?.instruction(subjectName: label) }
@@ -71,10 +71,13 @@ struct AutomaticGuidance {
                 desired = GuidanceMessage(kind:.adjustment,text:compositionPlan?.movementInstruction(reading:reading,previewAspect:previewAspect) ?? phoneText ?? specific ?? text)
             } else if max(bounds.width,bounds.height) < 0.16 && compositionPlan == nil && (!autoEnabled || !zoomAvailable || phase == .framed) {
                 desired = GuidanceMessage(kind:.adjustment,text:name.map { "Move closer to the \($0.lowercased())" } ?? "Move closer")
+            } else if stable && reading.state == .ready && !phase.isPreparing {
+                let exposure = subjectMeasurements.flatMap { measuredExposureAdvice($0,name:name) }
+                desired = GuidanceMessage(kind:.ready,text:exposure.map { "Composition aligned · \($0)" } ?? compositionPlan.map { "Composition aligned · \($0.selected.explanation)" } ?? name.map { "Composition aligned · \(SubjectIdentity.tip(for: $0))" } ?? "Composition aligned")
+            } else if phase.isPreparing {
+                desired = GuidanceMessage(kind:.steady,text:compositionPlan.map { "Hold steady · \($0.selected.technique.rawValue.lowercased())" } ?? (autoEnabled && phase == .settling && stable ? "Placement stable · preparing crop" : "Hold steady"))
             } else if let measurements = subjectMeasurements, let advice = measuredAdvice(measurements, name: name) {
                 desired = GuidanceMessage(kind: .adjustment, text: advice)
-            } else if stable && reading.state == .ready && !phase.isPreparing {
-                desired = GuidanceMessage(kind:.ready,text:compositionPlan.map { "Composition aligned · \($0.selected.explanation)" } ?? name.map { "Composition aligned · \(SubjectIdentity.tip(for: $0))" } ?? "Composition aligned")
             } else { desired = GuidanceMessage(kind:.steady,text:compositionPlan.map { "Hold steady · \($0.selected.technique.rawValue.lowercased())" } ?? (autoEnabled && phase == .settling && stable ? "Placement stable · preparing crop" : "Hold steady")) }
         }
         // Loss and actual zoom transitions are immediate; movement text must persist.
@@ -87,11 +90,16 @@ struct AutomaticGuidance {
         return shown
     }
     private func measuredAdvice(_ measurements: PhotoMeasurements, name: String?) -> String? {
+        if let exposure = measuredExposureAdvice(measurements,name:name) { return exposure }
+        let subject = name?.lowercased() ?? "subject"
+        if measurements.shadowFraction > 0.4 { return "Try softer light to reveal the \(subject)" }
+        if let edges = measurements.backgroundEdges, edges > 0.23 { return "Change your angle to separate the \(subject)" }
+        return nil
+    }
+    private func measuredExposureAdvice(_ measurements: PhotoMeasurements, name: String?) -> String? {
         let subject = name?.lowercased() ?? "subject"
         if measurements.highlightFraction > 0.12 { return "Protect the \(subject) highlights · lower exposure" }
         if measurements.brightness < 0.18 || measurements.shadowFraction > 0.65 { return "Add soft light to the \(subject); hold steady" }
-        if measurements.shadowFraction > 0.4 { return "Try softer light to reveal the \(subject)" }
-        if let edges = measurements.backgroundEdges, edges > 0.23 { return "Change your angle to separate the \(subject)" }
         return nil
     }
 }

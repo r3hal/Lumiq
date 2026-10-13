@@ -96,7 +96,9 @@ final class SceneCompositionPlannerTests: XCTestCase {
             XCTAssertTrue(SceneCompositionEvidence.full.contains(option.crop))
             XCTAssertTrue(option.crop.contains(subject))
             XCTAssertLessThanOrEqual(option.zoomScale,1.35)
-            if option.target != UnitPoint2D(x:0.5,y:0.5) { XCTAssertEqual(option.zoomScale,1) }
+            if option.target != UnitPoint2D(x:0.5,y:0.5), option.zoomScale > 1 {
+                XCTAssertTrue([CompositionTechnique.thirds,.goldenRatio,.contrast].contains(option.technique))
+            }
         }
     }
     func testStaleEvidenceCannotAcquirePlan() throws {

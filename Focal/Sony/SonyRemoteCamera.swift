@@ -21,7 +21,7 @@ final class SonyRemoteCamera: ObservableObject {
     @Published private(set) var resolution = "—"
     @Published private(set) var isCapturing = false
     @Published private(set) var message: String?
-    @Published var host = UserDefaults.standard.string(forKey:"sony.lastCameraHost") ?? ""
+    @Published var host = SonyEndpoint.initialHost(previous: UserDefaults.standard.string(forKey:"sony.lastCameraHost"))
     var discoveredDescriptorURL:URL?
     var onImage: ((CGImage)->Void)?
     private var deliveredFrames = 0

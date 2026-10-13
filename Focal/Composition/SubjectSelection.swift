@@ -18,6 +18,44 @@ struct SubjectSelectionConfiguration {
     var switchDwell: TimeInterval = 1.5
 }
 
+/// Bound Vision work to two crops per pass, but revisit the other actual
+/// proposals instead of permanently analyzing only the first two regions.
+struct SubjectCropSchedule {
+    private var next = 1
+    mutating func reset() { next = 1 }
+    mutating func indices(count: Int) -> [Int] {
+        guard count > 1 else { next = 1; return count == 1 ? [0] : [] }
+        if next >= count { next = 1 }
+        let selected = [0,next]
+        next = next+1 >= count ? 1 : next+1
+        return selected
+    }
+}
+
+struct SubjectCropIdentityCache {
+    private struct Entry { var bounds: CGRect; var name: String; var confidence: Double; var time: TimeInterval }
+    private var entries: [Entry] = []
+    mutating func reset() { entries = [] }
+    mutating func store(bounds: CGRect, name: String, confidence: Double, at time: TimeInterval) {
+        guard time.isFinite, confidence.isFinite, (0...1).contains(confidence), SubjectIdentity.name(name) != nil,
+              [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy(\.isFinite), bounds.width > 0, bounds.height > 0,
+              CGRect(x:0,y:0,width:1,height:1).contains(bounds) else { return }
+        entries.removeAll { time < $0.time || time-$0.time > 2.5 || Self.matches($0.bounds,bounds) }
+        entries.append(Entry(bounds:bounds,name:name,confidence:confidence,time:time))
+        entries = Array(entries.suffix(4))
+    }
+    func identity(for bounds: CGRect, at time: TimeInterval) -> (name: String, confidence: Double)? {
+        guard time.isFinite else { return nil }
+        guard let entry = entries.last(where: { time >= $0.time && time-$0.time <= 2.5 && Self.matches($0.bounds,bounds) }) else { return nil }
+        return (entry.name,entry.confidence)
+    }
+    mutating func invalidate(_ bounds: CGRect) { entries.removeAll { Self.matches($0.bounds,bounds) } }
+    private static func matches(_ a: CGRect, _ b: CGRect) -> Bool {
+        let overlap = a.intersection(b), union = a.width*a.height+b.width*b.height-overlap.width*overlap.height
+        return !overlap.isNull && union.isFinite && union > 0 && overlap.width*overlap.height/union > 0.5
+    }
+}
+
 enum SubjectCategory: Equatable {
     case person, face, pet, object, nature, architecture, background, landscape
     var priority: Double {
@@ -89,7 +127,7 @@ struct SubjectCandidate {
             let printed = textConfidence >= 0.65 && prominence >= 0.2 && detail >= 0.008
             let localized = localizedProposal && confidence >= 0.75 && prominence >= 0.55 && centerPreference >= 0.4
                 && visibleArea >= 0.02 && visibleArea <= 0.85 && detail >= 0.003
-                && SubjectIdentity.isCommonPhotographicSubject(label)
+                && classificationConfidence >= SubjectIdentity.minimumLocalizedConfidence(for:label)
             if classificationConfidence < 0.6 && !printed && !localized {
                 guard isolation >= 0.35, prominence >= 0.55, detail >= 0.01 else { return nil }
             }

@@ -14,7 +14,7 @@ enum PhotographyIntent: String, CaseIterable, Identifiable, Sendable {
         }
     }
     var permitsZoom: Bool { self != .architecture && self != .landscape }
-    var maximumCropScale: Double { self == .portrait ? 1.35 : permitsZoom ? 1.6 : 1 }
+    var maximumCropScale: Double { self == .portrait ? 1.6 : permitsZoom ? 3 : 1 }
     func bonus(for technique: CompositionTechnique) -> Double {
         switch self {
         case .portrait: return [CompositionTechnique.thirds,.goldenRatio,.centered,.negativeSpace].contains(technique) ? 0.04 : 0

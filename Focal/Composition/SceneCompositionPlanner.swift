@@ -21,7 +21,13 @@ struct SceneCompositionPlan {
     var subjectLabel: String
     var timestamp: TimeInterval
     var target: UnitPoint2D { selected.target }
-    var permitsZoom: Bool { selected.zoomScale > 1.12 && [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast].contains(selected.technique) }
+    var permitsZoom: Bool { selected.zoomScale > 1.12 && [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast,.thirds,.goldenRatio].contains(selected.technique) }
+    var zoomAlignmentTarget: UnitPoint2D {
+        guard permitsZoom, selected.zoomScale.isFinite else { return target }
+        // Sensor zoom expands from the center. Pan to this pre-zoom point so
+        // the real subject lands on the selected mark after the lens ramp.
+        return UnitPoint2D(x: 0.5+(target.x-0.5)/selected.zoomScale, y: 0.5+(target.y-0.5)/selected.zoomScale)
+    }
     var summary: String { "\(selected.technique.rawValue) · \(selected.explanation)" }
     func movementInstruction(reading: CompositionReading, previewAspect: Double) -> String? {
         guard let cue = CompositionCue(reading:reading,previewAspect:previewAspect) else { return nil }
@@ -42,7 +48,7 @@ struct SceneCompositionPlanner {
 
     mutating func update(subject: CGRect?, confidence: Float, label: String, evidence: SceneCompositionEvidence?,
                          others: [CompositionContextSubject] = [], enclosingFrames: [CGRect] = [],
-                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto) -> SceneCompositionPlan? {
+                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil) -> SceneCompositionPlan? {
         guard timestamp.isFinite else { reset(); return nil }
         guard let subject, Self.valid(subject), confidence >= 0.55 else {
             // Return no plan/box during loss; preserve the choice only for a
@@ -63,7 +69,7 @@ struct SceneCompositionPlanner {
             }
             return nil
         }
-        let options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent)
+        let options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent,availableScales:availableScales)
         guard let best = options.first else { reset(); return nil }
         let chosen: CompositionOption
         if let old = plan,
@@ -88,7 +94,7 @@ struct SceneCompositionPlanner {
         return retained
     }
     static func compare(subject: CGRect, evidence: SceneCompositionEvidence, others: [CompositionContextSubject] = [],
-                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto) -> [CompositionOption] {
+                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil) -> [CompositionOption] {
         guard intent != .landscape else { return [] }
         guard valid(subject), maximumScale.isFinite, maximumScale >= 1 else { return [] }
         let center = UnitPoint2D(x:subject.midX,y:subject.midY)
@@ -151,8 +157,9 @@ struct SceneCompositionPlanner {
         if separation > 0.65 { add(.contrast,third,0.61+separation*0.15,"preserve the subject's color separation") }
         var ranked = [CompositionOption]()
         for (technique,target,support,reason) in specifications {
-            let canTighten = [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast].contains(technique) && !hasGroup && enclosing.isEmpty
-            let scales = canTighten ? [1.0,1.15,1.35,1.6].filter { $0 <= maximumScale } : [1.0]
+            let canTighten = [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast,.thirds,.goldenRatio].contains(technique) && !hasGroup && enclosing.isEmpty && intent.permitsZoom
+            let choices = availableScales ?? [1.0,1.15,1.35,1.6,2.0,2.5,3.0]
+            let scales = canTighten ? Array(Set([1.0] + choices.filter { $0.isFinite && $0 >= 1 && $0 <= min(maximumScale,intent.maximumCropScale) })).sorted() : [1.0]
             var best: CompositionOption?
             for scale in scales {
                 // Physical phone zoom is centered. Score ONLY that observed
@@ -161,6 +168,9 @@ struct SceneCompositionPlanner {
                 guard crop.insetBy(dx:0.025/scale,dy:0.025/scale).contains(subject),
                       context.allSatisfy({ crop.contains($0.bounds) }), enclosing.allSatisfy({ crop.contains($0) }) else { continue }
                 let relative = CGRect(x:(subject.minX-crop.minX)/crop.width,y:(subject.minY-crop.minY)/crop.height,width:subject.width/crop.width,height:subject.height/crop.height)
+                // The whole subject must also fit at its intended final mark.
+                let safe = safeTarget(target,subject:relative)
+                guard safe.distance(to:target) < 0.001 else { continue }
                 let area = Double(relative.width*relative.height)
                 let idealArea = technique == .fillFrame ? 0.42 : technique == .negativeSpace ? 0.10 : 0.25
                 let size = max(0,1-abs(area-idealArea)/max(0.15,idealArea))
@@ -169,9 +179,7 @@ struct SceneCompositionPlanner {
                 let clean = max(0,1-croppedBackground.edgeDensity*2)
                 let penalty = croppedBackground.clipping*0.06+(scale-1)*0.025
                 let score = support*0.68+size*0.1+ease*0.1+clean*0.12-penalty+intent.bonus(for:technique)
-                // Non-centered layouts never auto-zoom: it would move the
-                // subject off the selected target. Manual recompose comes first.
-                let zoom = intent.permitsZoom && target.distance(to:.init(x:0.5,y:0.5)) < 0.01 ? scale : 1
+                let zoom = canTighten ? scale : 1
                 let option = CompositionOption(technique:technique,target:target,crop:crop,score:score,explanation:reason,zoomScale:zoom)
                 if best == nil || option.score > (best?.score ?? 0) { best = option }
             }
