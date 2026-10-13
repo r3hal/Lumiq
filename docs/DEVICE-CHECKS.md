@@ -1,4 +1,4 @@
-Latest design/state/settings checks: [1.11 retest](TWELVE-SCREEN-DESIGN.md). Native compile, tests and visual/hardware verification remain pending.
+Latest composition checks: [1.12 research and retest](COMPOSITION-PLANNING.md). Earlier design/state/settings checks: [1.11 retest](TWELVE-SCREEN-DESIGN.md). Native compile, tests and visual/hardware verification remain pending.
 
 Latest phone/Sony acquisition checks: [1.10 retest](BROAD-SUBJECT-GUIDANCE.md). Native execution and hardware retests remain pending.
 

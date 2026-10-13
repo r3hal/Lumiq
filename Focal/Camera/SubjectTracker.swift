@@ -36,6 +36,17 @@ final class SubjectTracker {
     private(set) var scene: SubjectScene?
     private(set) var isRecovering = false
     private(set) var features = SubjectAnalysisFeatures()
+    private var enclosingRectangles: [CGRect] = []
+    /// Only detector observations fresh enough for scene context. Tracked
+    /// subject movement does not make old background detections fresh again.
+    func compositionSubjects(at timestamp: TimeInterval) -> [SubjectCandidate] {
+        guard timestamp >= lastDetection, timestamp-lastDetection <= 1.5 else { return [] }
+        return candidates.map(\.candidate).filter { $0.score(configuration:selector.configuration) != nil }
+    }
+    func compositionFrames(at timestamp: TimeInterval) -> [CGRect] {
+        guard timestamp >= lastDetection, timestamp-lastDetection <= 1.5 else { return [] }
+        return enclosingRectangles
+    }
     private var petDetection: Bool { features.petDetection }
     private var trackingEnabled: Bool { features.subjectTracking }
 
@@ -62,7 +73,7 @@ final class SubjectTracker {
     }
     func reset() {
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
-        candidates = []; selectedPoint = nil; selector.reset(); health.reset()
+        candidates = []; enclosingRectangles = []; selectedPoint = nil; selector.reset(); health.reset()
         lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
         manual = false; label = "Auto subject"; isRecovering = false
     }
@@ -79,7 +90,7 @@ final class SubjectTracker {
     }
 
     func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval,
-                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, canContinue: () -> Bool = { true }) -> SubjectObservation? {
+                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, retainSelection: Bool = false, canContinue: () -> Bool = { true }) -> SubjectObservation? {
         isRecovering = false
         guard canContinue() else { return nil }
         var retained: VNDetectedObjectObservation?
@@ -110,6 +121,7 @@ final class SubjectTracker {
         let detected = detect(in: buffer, detailBuffer: detailBuffer ?? buffer, timestamp: timestamp, visibleRegion: visibleRegion, canContinue: canContinue)
         guard canContinue() else { return nil }
         candidates = detected
+        if retainSelection, let retained { return SubjectObservation(retained) }
         if let index = selector.select(detected.map(\.candidate), timestamp: timestamp,
                                        current: retained == nil ? nil : trackedCandidate, manualPoint: manual ? selectedPoint : nil) {
             start(detected[index])
@@ -156,6 +168,7 @@ final class SubjectTracker {
             _ = run([objectness]); _ = run([attention]); _ = run([rectangles])
         }
         guard canContinue() else { return [] }
+        enclosingRectangles = (rectangles.results ?? []).filter { $0.confidence >= 0.75 }.map(\.boundingBox)
         func prominence(_ bounds: CGRect) -> Double? {
             let values = [objectness.results?.first?.pixelBuffer, attention.results?.first?.pixelBuffer]
                 .compactMap { SubjectSaliencyEvidence.prominence(bounds, buffer: $0) }
@@ -239,13 +252,20 @@ final class SubjectTracker {
             lastPrinted = timestamp
             detections += printedDetections(in: detailBuffer, proposals: eligible, evidence: evidence, visibleRegion: visibleRegion, canContinue: canContinue)
         }
-        if canContinue(), retainedSceneNeeded(detections), timestamp - lastScene >= 3, ProcessInfo.processInfo.systemUptime <= deadline {
+        if canContinue(), timestamp - lastScene >= (retainedSceneNeeded(detections) ? 3 : 6), ProcessInfo.processInfo.systemUptime <= deadline {
             lastScene = timestamp
             let request = VNClassifyImageRequest()
             if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request]) }) != nil,
                let result = request.results?.first, result.confidence >= 0.65 {
                 scene = SubjectScene(label: result.identifier, confidence: result.confidence, timestamp: timestamp)
             } else { scene = nil }
+        }
+        // Composition merit is category-neutral. Real named objects can win
+        // through isolation/detail/usable framing, even when a person exists.
+        for index in detections.indices {
+            let c = detections[index].candidate
+            let size = min(1,c.visibleArea/0.08)*max(0,min(1,(0.85-c.visibleArea)/0.25))
+            detections[index].candidate.compositionPotential = c.isolation*0.4+min(1,c.detail/0.08)*0.2+size*0.25+c.centerPreference*0.15
         }
         return canContinue() ? detections : []
     }
@@ -323,6 +343,7 @@ final class SubjectTracker {
         trackedCandidate = detection.candidate; label = detection.candidate.label
     }
     func reseed(bounds: CGRect, label: String, manual: Bool) {
+        candidates = []; enclosingRectangles = []; lastDetection = -.infinity
         let clipped = bounds.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
         guard !clipped.isNull, valid(clipped) else { reset(); return }
         var candidate = trackedCandidate ?? SubjectCandidate(bounds: clipped, confidence: 0, category: .object, label: label)

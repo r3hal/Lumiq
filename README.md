@@ -23,7 +23,15 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 176 XCTest functions covering composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
+- Privacy manifest, app icon, shared scheme, and 201 XCTest functions covering composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
+
+## Composition planning (1.12, build 15)
+
+Automatic composition now compares supported layouts using real viewport pixels and detected subjects, instead of forcing centered phone framing. It considers thirds, golden-ratio placement, symmetry, negative space, tight framing, leading lines, diagonals, enclosing frames, balance, triangles, odd groups, repetition, layered context, background simplification and color contrast. Landscape horizon advice requires both scene classification and an observed horizontal boundary.
+
+The card shows the selected technique and guides the camera toward its target. Center/Thirds remain explicit menu overrides. AI Settings adds persistent Composition Planning and a guide to 22 common techniques. People, pets and named objects share the planner; generic object/background labels remain excluded. Only supported centered crops can auto-zoom, with existing detail limits, measured hold and immediate pinch priority. Sony uses the same guidance with manual lens controls.
+
+See [research, implementation and device checks](docs/COMPOSITION-PLANNING.md). The planner ranks visible supported options; it does not guarantee a globally best photograph or infer gaze, depth, reflections or artistic intent. Structural checks passed. Native build/tests could not execute because Xcode is unavailable here; run Codemagic `ios-sideload` on latest `main`, then install its IPA over Focal using AltStore.
 
 ## Validation status
 

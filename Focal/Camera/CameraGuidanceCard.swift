@@ -44,6 +44,7 @@ struct CameraGuidanceCard: View {
     let instruction: String
     let holdProgress: Double
     var showHoldProgress = true
+    var composition: String? = nil
     var body: some View {
         if state != .off {
             VStack(spacing: 7) {
@@ -54,6 +55,9 @@ struct CameraGuidanceCard: View {
                         Text(title).font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(state == .detected || state == .zooming ? Color.white : Palette.mint)
                         if instruction != title { Text(instruction).font(.system(size: 11)).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true).lineLimit(2) }
+                        if let composition, state != .searching && state != .recovering {
+                            Text(composition).font(.system(size:10,weight:.medium)).foregroundStyle(Palette.yellow)
+                        }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if state == .holding && showHoldProgress {

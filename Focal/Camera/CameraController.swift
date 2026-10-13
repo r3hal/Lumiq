@@ -38,6 +38,7 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var coachAdvice: [String] = []
     @Published private(set) var liveMeasurements: PhotoMeasurements?
     @Published private(set) var sceneLabel: String?
+    @Published private(set) var compositionPlan: SceneCompositionPlan?
     @Published var errorMessage: String?
 
     let session = AVCaptureSession()
@@ -65,7 +66,11 @@ final class CameraController: NSObject, ObservableObject {
     private var configured = false
     private var wantsToRun = false // Camera queue only.
     private var engine = CompositionEngine() // Analysis queue only.
-    private var mode: CompositionMode = .thirds
+    private var mode: CompositionMode = .automatic
+    private var compositionPlanning = true
+    private var scenePlanner = SceneCompositionPlanner()
+    private var compositionEvidence: SceneCompositionEvidence?
+    private var lastCompositionEvidence: TimeInterval = -.infinity
     private var guidanceEnabled = false
     private let guidanceLock = NSLock()
     private var activation = GuidanceActivation()
@@ -101,6 +106,7 @@ final class CameraController: NSObject, ObservableObject {
     private var previewAspect = 0.75
     private var wantsScan = true
     private var preferredTarget: UnitPoint2D?
+    private var manualTargetLock: UnitPoint2D?
     private var analysisPaused = false
     private var interfacePaused = false
     private var manualInferenceResumeAfter: TimeInterval = 0 // Analysis queue only.
@@ -357,7 +363,27 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setMode(_ mode: CompositionMode) {
-        analysisQueue.async { self.mode = mode; self.engine.reset() }
+        queue.async {
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.mode = mode; self.engine.reset(); self.scenePlanner.reset(); self.manualTargetLock = nil
+                self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
+                self.publishFraming()
+            }
+        }
+    }
+
+    func setCompositionPlanning(_ enabled: Bool) {
+        queue.async {
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.compositionPlanning = enabled; self.scenePlanner.reset(); self.engine.reset()
+                self.compositionEvidence = nil; self.lastCompositionEvidence = -.infinity
+                self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
+                self.publishFraming()
+                if !enabled { DispatchQueue.main.async { self.compositionPlan = nil } }
+            }
+        }
     }
 
     func setGuidance(_ enabled: Bool) {
@@ -366,7 +392,7 @@ final class CameraController: NSObject, ObservableObject {
         if !enabled {
             DispatchQueue.main.async {
                 guard self.guidanceSnapshot() == snapshot else { return }
-                self.reading = CompositionReading(); self.guidance = GuidanceMessage()
+                self.reading = CompositionReading(); self.guidance = GuidanceMessage(); self.compositionPlan = nil
                 self.framingPhase = .off; self.scanData = nil
                 self.coachAdvice = []; self.liveMeasurements = nil; self.sceneLabel = nil
             }
@@ -440,11 +466,21 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setTarget(_ target: UnitPoint2D?) {
-        analysisQueue.async { self.preferredTarget = target; self.engine.reset() }
+        queue.async {
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.preferredTarget = target; self.engine.reset(); self.scenePlanner.reset(); self.manualTargetLock = nil
+                self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
+                self.publishFraming()
+            }
+        }
     }
 
     func setPreviewAspect(_ aspect: Double) {
-        analysisQueue.async { self.previewAspect = aspect; self.engine.reset() }
+        analysisQueue.async {
+            self.previewAspect = aspect; self.engine.reset(); self.scenePlanner.reset()
+            self.compositionEvidence = nil; self.lastCompositionEvidence = -.infinity
+        }
     }
 
     func findSubject() {
@@ -533,6 +569,8 @@ final class CameraController: NSObject, ObservableObject {
         automaticGuidance.reset(); boxSmoother.reset(); latestNativeBounds = nil
         publishFraming()
         engine.reset()
+        manualTargetLock = nil
+        scenePlanner.reset(); compositionEvidence = nil; lastCompositionEvidence = -.infinity
         tracker.reset()
         focusCandidate = nil
         focusCandidateSince = 0
@@ -542,7 +580,7 @@ final class CameraController: NSObject, ObservableObject {
         subjectMeasurements = nil; subjectMeasurementLabel = nil; lastSubjectMeasurement = -.infinity
         sceneMeasurements = nil; lastSceneMeasurement = -.infinity; manualInferenceResumeAfter = 0
         DispatchQueue.main.async {
-            self.scanData = nil; self.reading = CompositionReading(); self.subjectLabel = "Auto subject"; self.guidance = GuidanceMessage()
+            self.scanData = nil; self.reading = CompositionReading(); self.subjectLabel = "Auto subject"; self.guidance = GuidanceMessage(); self.compositionPlan = nil
             self.coachAdvice = []; self.liveMeasurements = nil; self.sceneLabel = nil; self.levelReliable = false
         }
     }
@@ -966,7 +1004,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
         let keepFramedSubject = analysisSource == .iPhone && framing.phase == .framed && latestNativeBounds != nil
-        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || keepFramedSubject || now < manualInferenceResumeAfter,
+        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || now < manualInferenceResumeAfter, retainSelection:keepFramedSubject,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
             imageBounds = object.boundingBox
             latestNativeBounds = object.boundingBox; latestBoundsZoom = analysisZoom
@@ -997,13 +1035,40 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         } ?? (analysisSource == .sony)
         // When looking straight up/down, gravity cannot give a meaningful portrait roll.
         let roll = gravity.map { hypot($0.x, $0.y) > 0.2 ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
-        if let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
+        let planning = compositionPlanning && mode == .automatic
+        let projection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect,mirrored:analysisFrontCamera)
+        if planning, !zooming, !rapidMovement, now >= manualInferenceResumeAfter, evaluatedAt-lastCompositionEvidence >= 0.8 {
+            lastCompositionEvidence = evaluatedAt
+            compositionEvidence = SubjectImageEvidence.sample(buffer).flatMap {
+                SceneCompositionEvidence(image:$0,projection:projection,timestamp:evaluatedAt)
+            }
+        }
+        let contextSubjects = tracker.compositionSubjects(at:evaluatedAt).map { c in
+            let topLeft = CGRect(x:c.bounds.minX,y:1-c.bounds.maxY,width:c.bounds.width,height:c.bounds.height)
+            return CompositionContextSubject(bounds:projection.visibleRect(topLeft),label:c.label,confidence:c.confidence)
+        }
+        let frames = tracker.compositionFrames(at:evaluatedAt).map {
+            projection.visibleRect(CGRect(x:$0.minX,y:1-$0.maxY,width:$0.width,height:$0.height))
+        }
+        let plan = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
+            others:contextSubjects,enclosingFrames:frames,timestamp:evaluatedAt,
+            maximumScale:analysisSource == .iPhone ? max(1,automaticZoomLimit/max(0.01,analysisZoom)) : 1,
+            freeze:zooming) : nil
+        if subject == nil && !tracker.isRecovering { manualTargetLock = nil }
+        let manualTarget = preferredTarget ?? manualTargetLock ?? subject.map { CompositionEngine.target(for:$0,mode:mode) } ?? UnitPoint2D(x:0.5,y:0.5)
+        if mode == .thirds, subject != nil { manualTargetLock = manualTarget }
+        let layoutTarget = plan?.target ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
+        // Preserve context and off-center placement. Zoom only a positively
+        // evaluated centered crop; changing modes never silently forces center.
+        let allowPlannedZoom = planning ? (plan?.permitsZoom ?? false) : mode != .thirds
+        if (!planning || plan != nil || bounds == nil), let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,
-                                            detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:stable, holdDuration:holdDuration, previewAspect:previewAspect), imageBounds != nil {
+                                            detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:stable, holdDuration:holdDuration, previewAspect:previewAspect,
+                                            alignmentTarget:layoutTarget,allowZoom:allowPlannedZoom,plannedScale:plan?.selected.zoomScale), imageBounds != nil {
             performAutomaticZoom(to: targetZoom, generation: analysisZoomGeneration)
         }
-        var result = engine.update(subject: subject, rollDegrees: roll, mode: autoFrameEnabled && analysisSource == .iPhone ? .centered : mode, timestamp: evaluatedAt,
-                                   preferredTarget: autoFrameEnabled && analysisSource == .iPhone ? nil : preferredTarget, previewAspect: previewAspect)
+        var result = engine.update(subject: subject, rollDegrees: roll, mode: mode, timestamp: evaluatedAt,
+                                   preferredTarget: layoutTarget, previewAspect: previewAspect)
         let analysisReadingBounds = bounds
         result.subjectBounds = boxSmoother.update(bounds)
         result.subjectConfidence = confidence
@@ -1074,11 +1139,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var measured = result; measured.subjectBounds = analysisReadingBounds
         let message = automaticGuidance.update(reading:measured,phase:framing.phase,stable:stable,
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
-            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering)
+            zoomAvailable:allowPlannedZoom && automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering,
+            compositionPlan:plan,sceneEvidence:planning ? compositionEvidence : nil)
         let label = tracker.label
         let phase = framing.phase
         let progress = framing.holdProgress
-        publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message }
+        publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message; self.compositionPlan = plan }
     }
 
     private func smallAnalysisBuffer(from fullBuffer: CVPixelBuffer) -> CVPixelBuffer? {

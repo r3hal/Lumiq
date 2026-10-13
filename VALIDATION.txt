@@ -1,17 +1,18 @@
-Focal 1.11, build 14
-PASS: Supplied 12-state design compared against existing SwiftUI/services; mapping and preservation audit documented.
-PASS: Lexical delimiter balance in 64 Swift files (49 app, 15 test). Not a Swift grammar/type check.
+Focal 1.12, build 15
+PASS: Photography research reviewed; evidence/technique mapping and limitations documented in docs/COMPOSITION-PLANNING.md.
+PASS: Lexical delimiter balance in 69 Swift files (53 app, 16 test). Not a Swift grammar/type check.
 PASS: All sources/resources registered; plists/shared scheme, assets and fonts inspected.
 PASS: Python generator syntax and deterministic project/resource regeneration.
 PASS: Cloud workflows/shell syntax checked; native tests remain before archive and unsigned IPA packaging.
-PASS: 176 native XCTest functions registered (13 new); none executed here.
+PASS: 201 native XCTest functions registered (25 new); none executed here.
 PASS: git diff --check.
 ATTEMPTED: Xcode simulator build and simulator test; both exited 127, xcodebuild: command not found.
-PENDING: Native syntax/type checking/build and all 176 XCTest executions in Codemagic.
-PENDING: Actual visual comparison on iPhone 16 Pro Max, safe areas, Dynamic Island/home indicator, larger text, sheet navigation/press/transitions and all twelve states.
-PENDING: Capture/RAW/focus/white balance/lens/pinch/editor/gallery/permissions/lifecycle and AI feature-switch regressions; measured hold progress and manual-zoom priority after menu dismissal.
-PENDING: A7 III connection/dashboard/live telemetry/capture/touch focus/reconnect/shared AI; A6100 remains planned and independently unverified.
-PENDING: Inference/preview cadence and heat with tracking on/off, real recognition labels/bounds and false positives.
-LIMITS: No fake live-feed photography or demo state timers. Sony status uses only reported model/real stream data; battery/storage/signal metrics are not populated from the mockup. Native camera symbol is used in setup. Sony full-frame aspect is retained. Recognition remains probabilistic. Phone-only editing restrictions remain.
-No Swift compiler, Apple SDK, Xcode, simulator or devices were used. Structural checks do not establish native compilation, visual matching or runtime behavior.
-See docs/TWELVE-SCREEN-DESIGN.md.
+PENDING: Native syntax/type checking/build and all 201 XCTest executions in Codemagic.
+PENDING: Actual visual comparison/safe areas/native UI transitions on iPhone 16 Pro Max and other supported devices.
+PENDING: Real object/person/pet selection, no forced blank-wall subjects, pixel evidence accuracy and stable composition recommendations.
+PENDING: Direction/hold/ready/zoom states, crop/context retention, native-lens/detail limits, pinch cancellation and sheet-dismissal/manual priority.
+PENDING: Capture/RAW/focus/white balance/gallery/editor/permission/lifecycle regressions.
+PENDING: Actual iPhone/Sony preview FPS, analysis cadence, memory/heat while moving, zooming and after settling.
+PENDING: A7 III real connection/stream/capture/focus/recovery and shared guidance; A6100 remains planned and independently unverified.
+LIMITS: Research covers 22 common techniques, not every possible artistic arrangement. Sixteen subject layout families compare heuristic evidence; horizon advice uses a landscape-plus-edge path. Five techniques remain visual-judgment advice. No trained aesthetic model, global-best guarantee, gaze/depth/reflection/spiral/story inference, fabricated boxes or unsupported Sony lens control.
+No Swift compiler, Apple SDK, Xcode, simulator or physical devices were available. Structural checks do not establish native compilation, visual matching or runtime performance.

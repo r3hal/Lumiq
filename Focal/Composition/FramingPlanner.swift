@@ -22,7 +22,8 @@ struct FramingPlanner {
     mutating func finish() { phase = .framed }
 
     mutating func update(bounds: CGRect?, confidence: Float, roll: Double, timestamp: TimeInterval,
-                         currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = [], deviceStable: Bool = true, holdDuration: Double = 0.75, previewAspect: Double = 0.75) -> Double? {
+                         currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = [], deviceStable: Bool = true, holdDuration: Double = 0.75, previewAspect: Double = 0.75,
+                         alignmentTarget: UnitPoint2D = .init(x:0.5,y:0.5), allowZoom: Bool = true, plannedScale: Double? = nil) -> Double? {
         guard [roll,timestamp,currentZoom,maximumZoom,holdDuration,previewAspect].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, previewAspect > 0 else { return nil }
         guard phase != .off, phase != .framed, phase != .zooming else { return nil }
         holdProgress = 0
@@ -31,8 +32,10 @@ struct FramingPlanner {
             return nil
         }
         defer { previous = bounds }
-        let dx = Double(bounds.midX) - 0.5
-        let dy = Double(bounds.midY) - 0.5
+        guard alignmentTarget.x.isFinite, alignmentTarget.y.isFinite,
+              (0...1).contains(alignmentTarget.x), (0...1).contains(alignmentTarget.y) else { stableSince = nil; return nil }
+        let dx = Double(bounds.midX) - alignmentTarget.x
+        let dy = Double(bounds.midY) - alignmentTarget.y
         guard hypot(dx,dy/max(0.1,previewAspect)) <= 0.04, abs(roll) <= 4 else {
             phase = .aligning; stableSince = nil
             return nil
@@ -51,12 +54,17 @@ struct FramingPlanner {
         let requiredHold = max(0.5,min(3,holdDuration))
         holdProgress = min(1, max(0, (timestamp - (stableSince ?? timestamp)) / requiredHold))
         guard holdProgress >= 1 else { return nil }
+        // Off-center layouts are settled at their real target. Never apply a
+        // sensor-centered zoom to thirds/negative-space/group compositions.
+        guard allowZoom, alignmentTarget.distance(to:.init(x:0.5,y:0.5)) < 0.01 else { phase = .framed; return nil }
+        if let plannedScale, !plannedScale.isFinite || plannedScale < 1 { phase = .framed; return nil }
         // Account for the off-center extent, so zoom never cuts off the selected subject.
         let fit = min(0.72 / (Double(bounds.width) + 2 * abs(dx)),
                       0.62 / (Double(bounds.height) + 2 * abs(dy)))
         let centerDistance = hypot(dx,dy/max(0.1,previewAspect))
         let positionLimit = centerDistance > 0.01 ? 0.06/centerDistance : 5
-        let desired = max(currentZoom,min(maximumZoom,currentZoom*min(5,min(fit,positionLimit))))
+        let scaleLimit = min(5,plannedScale ?? 5)
+        let desired = max(currentZoom,min(maximumZoom,currentZoom*min(scaleLimit,min(fit,positionLimit))))
         // Above the preview pixel budget, prefer an actual lens position.
         // A telephoto lens does not make all intermediate digital zooms optical.
         let target: Double

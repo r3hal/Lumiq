@@ -83,6 +83,7 @@ final class AISettingsPersistenceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = CameraSettings(defaults: defaults)
         XCTAssertTrue(settings.petDetection); XCTAssertTrue(settings.subjectTracking); XCTAssertTrue(settings.smartSelection)
+        XCTAssertTrue(settings.compositionPlanning)
         XCTAssertFalse(settings.guide)
     }
     func testAllAISettingsAndThreeSecondHoldSurviveRelaunch() throws {
@@ -90,9 +91,11 @@ final class AISettingsPersistenceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = CameraSettings(defaults: defaults)
         settings.petDetection = false; settings.subjectTracking = false; settings.smartSelection = false
+        settings.compositionPlanning = false
         settings.guide = true; settings.autoFrame = false; settings.holdDuration = 3
         let reopened = CameraSettings(defaults: defaults)
         XCTAssertFalse(reopened.petDetection); XCTAssertFalse(reopened.subjectTracking); XCTAssertFalse(reopened.smartSelection)
+        XCTAssertFalse(reopened.compositionPlanning)
         XCTAssertTrue(reopened.guide); XCTAssertFalse(reopened.autoFrame); XCTAssertEqual(reopened.holdDuration, 3)
     }
 }

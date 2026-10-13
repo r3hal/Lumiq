@@ -55,6 +55,7 @@ struct SubjectCandidate {
     var detail: Double = 0
     var textureDensity: Double = 0
     var localizedProposal = false
+    var compositionPotential: Double = 0
     var visibleRegion = CGRect(x: 0, y: 0, width: 1, height: 1)
 
     var visibleArea: Double {
@@ -76,7 +77,7 @@ struct SubjectCandidate {
     }
     func score(configuration: SubjectSelectionConfiguration) -> Double? {
         guard validBoundary, confidence >= configuration.minimumConfidence,
-              [prominence, isolation, detail, textureDensity, classificationConfidence, textConfidence].allSatisfy(\.isFinite) else { return nil }
+              [prominence, isolation, detail, textureDensity, classificationConfidence, textConfidence, compositionPotential].allSatisfy(\.isFinite) else { return nil }
         // Recognized people/pets should not need a high-contrast background.
         // A salient region needs a specific, confident name AND separation.
         if !category.semantic {
@@ -102,7 +103,7 @@ struct SubjectCandidate {
         // Small peripheral people should not eclipse an isolated foreground
         // product. A central portrait keeps its normal semantic priority.
         let peripheralPenalty = category.semantic && area < 0.035 ? (1 - centerPreference) * 0.12 : 0
-        return max(0, min(1, score - peripheralPenalty))
+        return max(0, min(1, score - peripheralPenalty + max(0,min(1,compositionPotential))*0.10))
     }
     var manuallySelectable: Bool {
         validBoundary && confidence >= 0.5 && (category.semantic || (detail >= 0.015 && (isolation >= 0.15 || prominence >= 0.5)))

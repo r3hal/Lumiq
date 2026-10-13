@@ -18,7 +18,8 @@ struct AutomaticGuidance {
 
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
-                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil, subjectMeasurements: PhotoMeasurements? = nil, recovering: Bool = false) -> GuidanceMessage {
+                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil, subjectMeasurements: PhotoMeasurements? = nil, recovering: Bool = false,
+                         compositionPlan: SceneCompositionPlan? = nil, sceneEvidence: SceneCompositionEvidence? = nil) -> GuidanceMessage {
         guard let bounds = reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }) else {
@@ -33,6 +34,11 @@ struct AutomaticGuidance {
                 let text: String
                 if rollReliable && abs(reading.rollDegrees) > 5 { text = "Keep the camera level" }
                 else if let advice = sceneMeasurements?.lightingAdvice { text = advice }
+                else if let evidence = sceneEvidence, evidence.isFresh(at:timestamp), let line = evidence.horizontalBoundary() {
+                    let y = (line.start.y+line.end.y)/2
+                    let desired = y < 0.5 ? 1.0/3 : 2.0/3
+                    text = abs(y-desired) < 0.06 ? "Horizon placement · keep the sky and foreground balanced" : (y > desired ? "Lower the camera slightly · give the foreground room" : "Raise the camera slightly · give the sky room")
+                }
                 else { text = SubjectIdentity.name(scene.label).map { "\($0) scene · leave a clear foreground" } ?? "Leave a clear foreground in the scene" }
                 shown = GuidanceMessage(kind: .scene, text: text)
             } else if let advice = sceneMeasurements?.lightingAdvice {
@@ -62,14 +68,14 @@ struct AutomaticGuidance {
                 let text = abs(dx) > abs(dy)/max(0.1,previewAspect) ? (dx > 0 ? "Move slightly right" : "Move slightly left") : (dy > 0 ? "Lower the camera" : "Raise the camera")
                 let specific = name.flatMap { label in CompositionCue(reading: reading, previewAspect: previewAspect)?.instruction(subjectName: label) }
                 let phoneText = autoEnabled && phase.isPreparing ? CompositionCue(reading: reading, previewAspect: previewAspect)?.phoneInstruction : nil
-                desired = GuidanceMessage(kind:.adjustment,text:phoneText ?? specific ?? text)
-            } else if max(bounds.width,bounds.height) < 0.16 && (!autoEnabled || !zoomAvailable || phase == .framed) {
+                desired = GuidanceMessage(kind:.adjustment,text:compositionPlan?.movementInstruction(reading:reading,previewAspect:previewAspect) ?? phoneText ?? specific ?? text)
+            } else if max(bounds.width,bounds.height) < 0.16 && compositionPlan == nil && (!autoEnabled || !zoomAvailable || phase == .framed) {
                 desired = GuidanceMessage(kind:.adjustment,text:name.map { "Move closer to the \($0.lowercased())" } ?? "Move closer")
             } else if let measurements = subjectMeasurements, let advice = measuredAdvice(measurements, name: name) {
                 desired = GuidanceMessage(kind: .adjustment, text: advice)
             } else if stable && reading.state == .ready && !phase.isPreparing {
-                desired = GuidanceMessage(kind:.ready,text:name.map { "Great framing · \(SubjectIdentity.tip(for: $0))" } ?? "Great framing")
-            } else { desired = GuidanceMessage(kind:.steady,text:autoEnabled && phase == .settling && stable ? "Centered — framing up…" : "Hold steady") }
+                desired = GuidanceMessage(kind:.ready,text:compositionPlan.map { "Great framing · \($0.selected.explanation)" } ?? name.map { "Great framing · \(SubjectIdentity.tip(for: $0))" } ?? "Great framing")
+            } else { desired = GuidanceMessage(kind:.steady,text:compositionPlan.map { "Hold steady · \($0.selected.technique.rawValue.lowercased())" } ?? (autoEnabled && phase == .settling && stable ? "Centered — framing up…" : "Hold steady")) }
         }
         // Loss and actual zoom transitions are immediate; movement text must persist.
         if desired.kind == .framing || shown.kind == .searching || desired.kind == .detected || (desired.kind == .steady && shown.kind == .detected) {

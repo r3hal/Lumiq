@@ -68,6 +68,7 @@ final class CameraSettings: ObservableObject {
     @Published var petDetection = true { didSet { defaults.set(petDetection, forKey: "camera.petDetection") } }
     @Published var subjectTracking = true { didSet { defaults.set(subjectTracking, forKey: "camera.subjectTracking") } }
     @Published var smartSelection = true { didSet { defaults.set(smartSelection, forKey: "camera.smartSelection") } }
+    @Published var compositionPlanning = true { didSet { defaults.set(compositionPlanning, forKey:"camera.compositionPlanning") } }
     @Published var reviewAfterCapture = true { didSet { defaults.set(reviewAfterCapture, forKey: "camera.reviewAfterCapture") } }
     @Published var smartShutter = false { didSet { defaults.set(smartShutter, forKey: "camera.smart") } }
     @Published var burstCount = 1 { didSet { defaults.set(burstCount, forKey: "camera.burst") } }
@@ -91,7 +92,8 @@ final class CameraSettings: ObservableObject {
         }
         defaults.register(defaults: ["camera.grid": false, "camera.level": false, "camera.holdDuration":0.9, "camera.scan": true,
                                     "camera.keepRAW": true, "camera.guide": false, "camera.subjectThreshold": 0.68, "camera.autoFrame": true, "camera.reviewAfterCapture": true,
-                                    "camera.petDetection": true, "camera.subjectTracking": true, "camera.smartSelection": true])
+                                    "camera.petDetection": true, "camera.subjectTracking": true, "camera.smartSelection": true, "camera.compositionPlanning":true])
+        compositionPlanning = defaults.bool(forKey:"camera.compositionPlanning")
         petDetection = defaults.bool(forKey: "camera.petDetection")
         subjectTracking = defaults.bool(forKey: "camera.subjectTracking")
         smartSelection = defaults.bool(forKey: "camera.smartSelection")

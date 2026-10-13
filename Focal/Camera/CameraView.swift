@@ -29,7 +29,7 @@ struct CameraView: View {
     @State private var pendingPanelAction: PanelAction?
     private enum PanelAction { case reference, explore }
     @State private var showLibrary = false
-    @State private var mode: CompositionMode = .centered
+    @State private var mode: CompositionMode = .automatic
     @State private var corner: Int?
     @State private var saving = false
     @State private var saved = false
@@ -100,6 +100,7 @@ struct CameraView: View {
             .onChange(of: settings.coach) { _, value in camera.setCoach(value) }
             .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
             .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
+            .onChange(of: settings.compositionPlanning) { _, value in smartGate.reset(); camera.setCompositionPlanning(value) }
     }
 
     private var compositionCamera: some View {
@@ -146,6 +147,7 @@ struct CameraView: View {
         camera.setHoldDuration(settings.holdDuration)
         camera.setCoach(settings.coach)
         camera.setMode(mode)
+        camera.setCompositionPlanning(settings.compositionPlanning)
         configureSubjectFeatures()
         camera.setAutoFraming(settings.autoFrame && settings.subjectTracking)
         camera.setGuidance(settings.guide)
@@ -188,7 +190,7 @@ struct CameraView: View {
         camera.stop(); sony.disconnect(); demo = false; showExposure = false
         smartGate.reset(); camera.setAnalysisSource(value)
         if value == .iPhone { if !showCameraPanel { camera.start() } }
-        else { sonyFullFrame = true; mode = .thirds }
+        else { sonyFullFrame = true }
     }
 
     private func changeCorner(to value: Int?) {
@@ -290,7 +292,8 @@ struct CameraView: View {
                 if showExposure && hasLivePreview {
                     exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if hasLivePreview && settings.guide {
-                    CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling)
+                    CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
+                                       composition:camera.compositionPlan?.selected.technique.rawValue)
                         .allowsHitTesting(false)
                 }
                 if source == .iPhone && (demo || camera.access == .available) { lensButtons }
@@ -653,7 +656,7 @@ struct CameraView: View {
         let keepRAW = settings.keepRAW, autoSave = settings.autoSaveToPhotos
         let scan = settings.saveScan && settings.guide && !demo ? camera.scanData : nil
         let label: String? = settings.guide && !demo && reading.subjectBounds != nil ? subjectName : nil
-        let capturedMode = settings.guide ? mode.rawValue : "Free shoot"
+        let capturedMode = settings.guide ? (mode == .automatic ? camera.compositionPlan?.selected.technique.rawValue ?? mode.rawValue : mode.rawValue) : "Free shoot"
         let challenge = settings.challenge.isEmpty ? nil : settings.challenge
         let options = CaptureOptions(raw: settings.raw && camera.supportsRAW && source == .iPhone,flash: settings.flash,shutterSound: settings.shutterSound)
         captureTask = Task {

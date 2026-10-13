@@ -11,6 +11,7 @@ struct UnitPoint2D: Equatable {
 }
 
 enum CompositionMode: String, CaseIterable, Identifiable {
+    case automatic = "Automatic"
     case thirds = "Thirds"
     case centered = "Center"
     var id: Self { self }

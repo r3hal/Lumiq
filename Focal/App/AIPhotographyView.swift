@@ -19,11 +19,23 @@ struct AIPhotographyView: View {
                     row("Subject Tracking", subtitle: "Keep focus on the selected subject", value: $settings.subjectTracking)
                     divider
                     row("Smart Subject Selection", subtitle: "Focus only on meaningful subjects", value: $settings.smartSelection)
+                    divider
+                    row("Composition Planning", subtitle: "Compare framing, space, lines and balance", value: $settings.compositionPlanning)
                 }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
                 Text(settings.smartSelection ? "Subjects are selected from real detections. Some scenes may have no suitable subject." : "Tap a detected subject in the viewfinder to select it. Normal autofocus remains active.")
                     .font(.caption).foregroundStyle(.secondary)
                 if !settings.subjectTracking { Text("Tracking is off. Subjects are checked with fresh detections; automatic zoom requires tracking.").font(.caption).foregroundStyle(.secondary) }
                 if source == .sony { Text("The same on-device guidance analyzes the real Sony live view. Automatic lens zoom and phone motion leveling apply only to iPhone.").font(.caption).foregroundStyle(.secondary) }
+                NavigationLink { CompositionLibraryView() } label: {
+                    HStack {
+                        Image(systemName:"square.stack.3d.up")
+                        Text("Composition techniques").font(.subheadline)
+                        Spacer()
+                        Image(systemName:"chevron.right").font(.caption)
+                    }.padding(15).background(Palette.panel,in:RoundedRectangle(cornerRadius:16))
+                }.foregroundStyle(Palette.yellow)
+                Text("Automatic composition chooses from supported layouts in the visible scene. Center and Thirds in the camera menu override it. Some techniques require your own visual judgment.")
+                    .font(.caption).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 9) {
                     Text("Subject selectivity").font(.subheadline)
                     Slider(value: $settings.subjectThreshold, in: 0.55...0.85, step: 0.01).tint(Palette.yellow)

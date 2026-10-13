@@ -66,11 +66,12 @@ struct CameraOptionsSheet: View {
             Button { camera.switchCamera(); dismiss() } label: { row("Flip iPhone camera", symbol: "camera.rotate") }.disabled(source == .sony || !camera.isRunning)
             divider
             Picker("Composition", selection: $mode) {
+                Text("Automatic").tag(CompositionMode.automatic)
                 Text("Center").tag(CompositionMode.centered); Text("Thirds").tag(CompositionMode.thirds)
-            }.font(.system(size: 14)).padding(15).disabled(source == .iPhone && settings.autoFrame && settings.subjectTracking)
+            }.font(.system(size: 14)).padding(15)
             Button {
                 corner = ((CompositionEngine.thirdsTargets.firstIndex(of: camera.reading.target) ?? 0) + 1) % 4
-            } label: { row("Change thirds corner", symbol: "square.grid.2x2") }.disabled(mode != .thirds || (source == .iPhone && settings.autoFrame && settings.subjectTracking))
+            } label: { row("Change thirds corner", symbol: "square.grid.2x2") }.disabled(mode != .thirds)
             divider
             Button { openReference(); dismiss() } label: { row("Reference overlay", symbol: "photo.on.rectangle") }
             divider
