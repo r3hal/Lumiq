@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "source": "Unsplash photo-1476514525535-07fb3b4ae5f1",
+  "sourceURL": "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1",
+  "asset": "DemoScene",
+  "intent": "Landscape",
+  "noObjectBoxNeeded": true,
+  "acceptableComposition": true,
+  "framingIssue": "None",
+  "preferredRecommendation": "none",
+  "annotationProvenance": "Starter reference from visual inspection during development; confirm on the phone before benchmarking.",
+  "limitations": "One correlated source photograph. No cat examples or measured model results are supplied by this seed."
+}

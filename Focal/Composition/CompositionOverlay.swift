@@ -21,6 +21,7 @@ struct CompositionOverlay: View {
     var subjectLabel = "Subject"
     var framingPhase: FramingPhase = .off
     var guidanceReady = true
+    var showDirection = true
     var body: some View {
         GeometryReader { geometry in
             if showGrid { ThirdsGrid().stroke(.white.opacity(0.22), lineWidth: 0.6) }
@@ -32,7 +33,7 @@ struct CompositionOverlay: View {
                     .frame(width: 2, height: 16).position(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
             if guideEnabled, reading.subjectConfidence >= 0.4, let actual = reading.subjectBounds {
-                FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady)
+                if showDirection { FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady) }
                 let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
                 if !rect.isNull && rect.width > 0 && rect.height > 0 {
                         SubjectCorners().stroke(Palette.yellow, style: StrokeStyle(lineWidth:1.4,lineCap:.round))

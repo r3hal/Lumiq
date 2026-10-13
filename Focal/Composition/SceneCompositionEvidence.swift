@@ -1,6 +1,6 @@
 import Foundation
 
-struct CompositionLine {
+struct CompositionLine: Sendable {
     var start: UnitPoint2D
     var end: UnitPoint2D
     var support: Double
@@ -20,8 +20,8 @@ struct CompositionLine {
 
 /// Bounded CPU analysis of actual visible pixels. No extra Vision inference,
 /// depth claims, fabricated objects, or changes to native preview resolution.
-struct SceneCompositionEvidence {
-    struct Region {
+struct SceneCompositionEvidence: Sendable {
+    struct Region: Sendable {
         var edgeDensity = 0.0
         var variance = 0.0
         var clipping = 0.0
@@ -96,9 +96,32 @@ struct SceneCompositionEvidence {
         let inside = region(subject), outside = region(subject.insetBy(dx:-0.15,dy:-0.15),excluding:subject)
         return min(1,sqrt(pow(inside.red-outside.red,2)+pow(inside.green-outside.green,2)+pow(inside.blue-outside.blue,2))/0.7)
     }
+    func balanceOffset(in crop: CGRect) -> Double? {
+        let clipped = crop.intersection(Self.full)
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
+        let average = region(clipped)
+        let mean = average.red*0.2126+average.green*0.7152+average.blue*0.0722
+        var weight = 0.0, xSum = 0.0, ySum = 0.0
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let point = CGPoint(x:(Double(x)+0.5)/Double(image.width),y:(Double(y)+0.5)/Double(image.height))
+                guard clipped.contains(point) else { continue }
+                let mass = abs(image.pixels[y*image.width+x].luma-mean)
+                weight += mass; xSum += Double(point.x)*mass; ySum += Double(point.y)*mass
+            }
+        }
+        guard weight > 0.5 else { return nil }
+        return hypot((xSum/weight-Double(clipped.midX))/Double(clipped.width),(ySum/weight-Double(clipped.midY))/Double(clipped.height))
+    }
     func horizontalBoundary() -> CompositionLine? {
         lines.filter { abs($0.end.y-$0.start.y) < 0.045 && abs($0.end.x-$0.start.x) > 0.65 && $0.start.y > 0.15 && $0.start.y < 0.85 }
             .max { $0.support < $1.support }
+    }
+    func tiltedSceneBoundary() -> CompositionLine? {
+        lines.filter {
+            abs($0.end.x-$0.start.x) > 0.65 && abs($0.end.y-$0.start.y) < 0.2 && $0.support >= 0.8
+                && ($0.start.y+$0.end.y)/2 > 0.15 && ($0.start.y+$0.end.y)/2 < 0.85
+        }.max { $0.support < $1.support }
     }
     private func periodicity() -> Double {
         // Compare repeating bands against their actual variance; white walls

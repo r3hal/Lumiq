@@ -48,18 +48,18 @@ final class PrintedGuidanceTests: XCTestCase {
         let dark = PhotoMeasurements(brightness: 0.1, shadowFraction: 0.8, highlightFraction: 0, detail: 0.05, backgroundEdges: nil)
         func step(_ time: Double) -> GuidanceMessage {
             guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: time,
-                subjectLabel: "Belot cards", subjectMeasurements: dark)
+                subjectLabel: "Belot cards", subjectMeasurements: dark,manualComposition:true)
         }
         _ = step(0); _ = step(0.5)
-        XCTAssertEqual(step(1.2).kind, .ready); XCTAssertTrue(step(1.3).text.contains("soft light"))
+        XCTAssertEqual(step(1.2).action, .addLight); XCTAssertTrue(step(1.3).text.contains("light"))
     }
-    func testPanInstructionTakesPriorityOverLightingWhenSubjectIsOffTarget() {
+    func testSevereMeasuredExposureIsNotHiddenByAManualPositionRequest() {
         var guide = AutomaticGuidance()
         let reading = CompositionReading(state: .adjusting, subjectBounds: CGRect(x: 0.65, y: 0.4, width: 0.2, height: 0.2), subjectConfidence: 0.9, target: .init(x: 0.5, y: 0.5))
         let dark = PhotoMeasurements(brightness: 0.1, shadowFraction: 0.8, highlightFraction: 0, detail: 0.05, backgroundEdges: nil)
         for time in [0.0, 0.5, 1.2] {
-            _ = guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: time, subjectLabel: "Belot cards", subjectMeasurements: dark)
+            _ = guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: time, subjectLabel: "Belot cards", subjectMeasurements: dark,manualComposition:true)
         }
-        XCTAssertTrue(guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: 1.3, subjectLabel: "Belot cards", subjectMeasurements: dark).text.contains("Pan right"))
+        XCTAssertTrue(guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: 1.3, subjectLabel: "Belot cards", subjectMeasurements: dark,manualComposition:true).action == .addLight)
     }
 }

@@ -61,6 +61,16 @@ struct PhotoInsightsView: View {
                 Text(String(format:"Classifier score %.2f (not an aesthetic score)",subject.classificationScore)).font(.caption2).foregroundStyle(Palette.muted)
             } else { Text("No sufficiently supported subject candidate. Scene-wide exposure measurements still apply.").font(.subheadline).foregroundStyle(Palette.muted) }
             if let proposed = report.proposedComposition { Text("Suggested layout: \(proposed)").font(.subheadline).foregroundStyle(Palette.yellow) }
+            if let facts = report.assessment {
+                if let margin = facts.minimumMargin { Text(String(format:"Minimum visible margin %.1f%%",margin*100)).font(.caption) }
+                if let headroom = facts.headroom { Text(String(format:"Margin above observed head region %.1f%%",headroom*100)).font(.caption) }
+                if let angle = facts.candidateBoundaryDegrees { Text(String(format:"Candidate scene boundary %.1f°; not a confirmed horizon",angle)).font(.caption) }
+                if let yaw = facts.headYawRadians { Text(String(format:"Head yaw estimate %.2f radians; eye gaze is not measured",yaw)).font(.caption2) }
+            }
+            if let score = report.aestheticScore {
+                Text(String(format:"Apple whole-image aesthetics signal %.2f (−1…1)",score)).font(.caption)
+                Text("Supplementary model signal; never used to invent camera directions or prove quality.").font(.caption2).foregroundStyle(Palette.muted)
+            }
         }.padding(16).background(Palette.panel,in:RoundedRectangle(cornerRadius:16))
     }
     @ViewBuilder private func subjectIndicator(_ report:PhotoInsight) -> some View {

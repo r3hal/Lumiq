@@ -337,7 +337,7 @@ struct CameraView: View {
                     exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if hasLivePreview && settings.guide {
                     CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
-                                       composition:camera.compositionPlan?.selected.technique.rawValue)
+                                       composition:camera.compositionPlan.flatMap { $0.selected.isCurrentFrame ? nil : $0.selected.technique.rawValue })
                         .allowsHitTesting(false)
                 }
                 if source == .iPhone && (demo || camera.access == .available) { lensButtons }
@@ -428,7 +428,8 @@ struct CameraView: View {
             CompositionOverlay(
                 reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
                 showLevel: settings.level && camera.levelReliable && source == .iPhone,
-                subjectLabel: subjectName, framingPhase: camera.framingPhase, guidanceReady: camera.guidance.kind == .ready)
+                subjectLabel: subjectName, framingPhase: camera.framingPhase, guidanceReady: camera.guidance.kind == .ready,
+                showDirection:camera.guidance.showsDirection)
         }
     }
 
@@ -655,7 +656,6 @@ struct CameraView: View {
         if demo { return "Demo scene. Enable AI Guidance to return to the camera." }
         if source == .sony && sony.state != .streaming { return (sony.state == .connecting || sony.state == .reconnecting) ? (sony.message ?? "Connecting to Sony…") : "Connect a Sony camera for guidance" }
         if !settings.guide { return "" }
-        if camera.guidance.kind == .ready,settings.coach,let advice = camera.coachAdvice.first { return camera.guidance.text+" · "+advice }
         return camera.guidance.text
     }
 

@@ -8,7 +8,7 @@ final class AutomaticGuidanceTests: XCTestCase {
     private func update(_ guide: inout AutomaticGuidance, _ reading: CompositionReading, at time: Double,
                         phase: FramingPhase = .off, stable: Bool = true) -> GuidanceMessage {
         guide.update(reading:reading,phase:phase,stable:stable,rollReliable:true,autoEnabled:phase != .off,
-                     zoomAvailable:true,timestamp:time)
+                     zoomAvailable:true,timestamp:time,manualComposition:true)
     }
     func testSearchRequiresConfirmedBounds() {
         var guide = AutomaticGuidance()
@@ -21,39 +21,40 @@ final class AutomaticGuidanceTests: XCTestCase {
     func testDetectionThenReadyDwellAndImmediateLoss() {
         var guide = AutomaticGuidance()
         XCTAssertEqual(update(&guide,reading(),at:0).kind,.detected)
-        XCTAssertEqual(update(&guide,reading(),at:0.5).kind,.detected)
-        XCTAssertEqual(update(&guide,reading(),at:1.2).text,"Composition aligned")
+        XCTAssertEqual(update(&guide,reading(),at:0.5).kind,.ready)
+        XCTAssertEqual(update(&guide,reading(),at:1.2).text,"Ready to shoot")
         XCTAssertEqual(update(&guide,CompositionReading(),at:1.3).kind,.searching)
     }
     func testPhysicalMotionPreventsReady() {
         var guide = AutomaticGuidance()
         _ = update(&guide,reading(),at:0,stable:false)
         _ = update(&guide,reading(),at:0.5,stable:false)
-        XCTAssertEqual(update(&guide,reading(),at:1.2,stable:false).text,"Hold steady")
+        XCTAssertEqual(update(&guide,reading(),at:1.2,stable:false).text,"Hold steady while the frame settles")
     }
     func testDirectionsAreDebouncedAndUseActualPosition() {
         var guide = AutomaticGuidance()
         _ = update(&guide,reading(x:0.7),at:0)
         _ = update(&guide,reading(x:0.7),at:0.5)
-        XCTAssertEqual(update(&guide,reading(x:0.7),at:1.2).text,"Move slightly right")
+        XCTAssertEqual(update(&guide,reading(x:0.7),at:1.2).text,"Move your phone right")
         // A single noisy opposite observation must not flip the instruction.
-        XCTAssertEqual(update(&guide,reading(x:0.3),at:1.4).text,"Move slightly right")
+        XCTAssertEqual(update(&guide,reading(x:0.3),at:1.4).action,.hold)
         _ = update(&guide,reading(x:0.3),at:1.6)
-        XCTAssertEqual(update(&guide,reading(x:0.3),at:2.3).text,"Move slightly left")
+        XCTAssertNotEqual(update(&guide,reading(x:0.3),at:2.3).action,.panLeft)
+        XCTAssertEqual(update(&guide,reading(x:0.3),at:3.3).text,"Move your phone left")
     }
     func testVerticalDirectionAccountsForAspectFill() {
         var guide = AutomaticGuidance()
         _ = update(&guide,reading(y:0.3),at:0)
         _ = update(&guide,reading(y:0.3),at:0.5)
-        XCTAssertEqual(update(&guide,reading(y:0.3),at:1.2).text,"Raise the camera")
+        XCTAssertEqual(update(&guide,reading(y:0.3),at:1.2).text,"Move your phone up")
     }
     func testRealZoomTransitionIsImmediateAndCompletionCanBecomeReady() {
         var guide = AutomaticGuidance()
         XCTAssertEqual(update(&guide,reading(),at:0,phase:.settling).text,"Subject detected")
-        XCTAssertEqual(update(&guide,reading(),at:0.6,phase:.settling).text,"Placement stable · preparing crop")
-        XCTAssertEqual(update(&guide,reading(),at:0.7,phase:.zooming).text,"Refining the crop…")
+        XCTAssertEqual(update(&guide,reading(),at:0.6,phase:.settling).text,"Hold steady")
+        XCTAssertEqual(update(&guide,reading(),at:0.7,phase:.zooming).text,"Refining the evaluated crop…")
         _ = update(&guide,reading(x:0.55),at:1.7,phase:.framed)
-        XCTAssertEqual(update(&guide,reading(x:0.55),at:2.4,phase:.framed).text,"Composition aligned")
+        XCTAssertEqual(update(&guide,reading(x:0.55),at:2.4,phase:.framed).text,"Ready to shoot")
     }
     func testSubjectBoxDropsLostSubjectAndResetsOnSceneCut() throws {
         var smoother = SubjectBoxSmoother()
@@ -101,7 +102,7 @@ final class AutomaticGuidanceTests: XCTestCase {
     func testSettlingCannotDescribeMovingPhoneAsCentered() {
         var guide = AutomaticGuidance()
         _ = update(&guide, reading(), at: 0, phase: .settling, stable: false)
-        XCTAssertEqual(update(&guide, reading(), at: 0.6, phase: .settling, stable: false).text, "Hold steady")
+        XCTAssertEqual(update(&guide, reading(), at: 0.6, phase: .settling, stable: false).text, "Hold steady while the frame settles")
     }
 
 }

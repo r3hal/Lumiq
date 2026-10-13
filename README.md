@@ -2,7 +2,9 @@
 
 A native SwiftUI camera with original charcoal/amber identity, optional Focal Intelligence, real AUTO/PRO controls, photography intents, live precision tools, captured-image Insights and read-only Compare. Existing capture/gallery/editor and Sony services are preserved. Apple frameworks only; no account, API key or backend. The app opens directly to the iPhone camera. AI and precision tools start off; the photographer controls automation.
 
-**Latest: Focal 2.1 / build 18.** Restores the Sony IP default, keeps preview advice readable, repairs repeated PRO lens switching, broadens object recognition and adds evaluated off-center automatic crops. See [the guidance refinement report and device checks](docs/GUIDANCE-REFINEMENT.md), [professional-upgrade report](docs/PROFESSIONAL-UPGRADE.md) and [pre-change feature audit](docs/PROFESSIONAL-AUDIT.md). Native builds/tests could not run in this Linux workspace; all 257 XCTest functions and hardware behavior remain pending. Codemagic `ios-sideload` runs native tests before building the IPA.
+**Latest: Focal 2.2 / build 19 — Focal Intelligence 2.0.** Guidance now compares against keeping the current frame, uses intent-specific measurements and action feasibility, and remembers recommendation outcomes. Unsupported isolation, pose and large-box Step back rules are removed from real guidance. See [the complete audit, implementation, test status and image-labeling tutorial](docs/intelligence/IMPLEMENTATION.md). All 294 native tests and physical behavior remain pending; no accuracy/performance improvements are fabricated. Existing Sony IP defaults, PRO lens switching and manual zoom priority remain.
+
+For private developer evaluation, run Codemagic **`ios-evaluation`**, install its IPA with AltStore, and open **Menu → Camera Settings → Developer Intelligence Lab**. Import and label your cat/object/landscape photos, compare the frozen build 18 guidance with the updated engine, and export self-contained JSON. Normal `ios-sideload` omits the developer lab from Release; both workflows run native tests before archiving.
 
 PRO exposes actual supported ISO/shutter, EV, WB, focus/loupe and discovered lenses, with an always-visible LENS menu and a return to Automatic lenses. Aperture stays informational. Menu → Focal Precision enables measured histogram/zebra/approximate peaking/AutoTune independently of AI. AI Settings selects intent. Gallery exposes Insights and two-image Compare. Focal Link prefills `192.168.122.1` unless a different valid camera host was saved. Discovery searches real camera descriptors on the joined Wi-Fi subnet; a genuine received frame is still required before reporting live view.
 
@@ -27,7 +29,7 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 257 XCTest functions covering controls, intent, pixel tools, composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
+- Privacy manifest, app icon, shared scheme, and 294 XCTest functions covering controls, intent, pixel tools, composition, preview geometry, Sony protocol/capture, editing, persistence, intelligence acceptance cases and evaluation metrics (native execution pending).
 
 ## Composition planning (1.12, build 15)
 

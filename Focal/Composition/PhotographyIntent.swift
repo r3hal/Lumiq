@@ -1,6 +1,6 @@
 import Foundation
 
-enum PhotographyIntent: String, CaseIterable, Identifiable, Sendable {
+enum PhotographyIntent: String, Codable, CaseIterable, Identifiable, Sendable {
     case auto = "Auto", portrait = "Portrait", pet = "Pet", product = "Product", architecture = "Architecture", landscape = "Landscape"
     var id: Self { self }
     func accepts(_ category: SubjectCategory) -> Bool {

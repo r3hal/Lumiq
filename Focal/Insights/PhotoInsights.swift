@@ -20,6 +20,9 @@ struct PhotoInsight: Sendable {
     let proposedComposition:String?
     let suggestions:[String]
     let aspectRatio:Double
+    var aestheticScore: Double? = nil
+    var utilityImage: Bool? = nil
+    var assessment: AssessmentMeasurements? = nil
     /// Defined technical index, never an objective aesthetic/RAW quality rating.
     var previewHeadroomIndex:Double { 100*max(0,1-measurements.highlightFraction-measurements.shadowFraction) }
 }
@@ -29,52 +32,36 @@ actor PhotoInsightService {
     private struct Key:Hashable { let path:String; let modification:Date?; let bytes:Int?; let intent:String }
     private var cache:[Key:PhotoInsight] = [:]
     private var order:[Key] = []
-    private let renderer = CIContext(options:[.cacheIntermediates:false,.priorityRequestLow:true])
-    func analyze(_ url:URL,intent:PhotographyIntent = .auto) throws -> PhotoInsight {
+    func analyze(_ url:URL,intent:PhotographyIntent = .auto) async throws -> PhotoInsight {
         try Task.checkCancellation()
         let attributes = try url.resourceValues(forKeys:[.contentModificationDateKey,.fileSizeKey])
         let key = Key(path:url.path,modification:attributes.contentModificationDate,bytes:attributes.fileSize,intent:intent.rawValue)
         if let cached = cache[key] { return cached }
-        let report = try autoreleasepool { try inspect(url,intent:intent) }
+        let report = try await inspect(url,intent:intent)
         try Task.checkCancellation()
         cache[key] = report; order.append(key)
         while order.count > 12 { cache.removeValue(forKey:order.removeFirst()) }
         return report
     }
-    private func inspect(_ url:URL,intent:PhotographyIntent) throws -> PhotoInsight {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL,[kCGImageSourceShouldCache:false] as CFDictionary),
-              let image = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:768] as CFDictionary) else { throw AnalysisError.invalidImage }
-        var created:CVPixelBuffer?
-        guard CVPixelBufferCreate(kCFAllocatorDefault,image.width,image.height,kCVPixelFormatType_32BGRA,[kCVPixelBufferIOSurfacePropertiesKey:[String:Any]()] as CFDictionary,&created) == kCVReturnSuccess,
-              let buffer = created else { throw AnalysisError.invalidImage }
-        renderer.render(CIImage(cgImage:image),to:buffer)
-        guard let measured = PhotoMeasurements.from(buffer:buffer) else { throw AnalysisError.invalidImage }
-        let tracker = SubjectTracker()
-        let config = SubjectSelectionConfiguration(intent:intent)
-        let candidates = tracker.inspectStillImage(buffer,intent:intent).sorted { ($0.score(configuration:config) ?? 0) > ($1.score(configuration:config) ?? 0) }
-        let candidate = candidates.first
-        let subject = candidate.map { c in InsightSubject(name:c.label,classificationScore:c.classificationConfidence,x:Double(c.bounds.minX),y:Double(1-c.bounds.maxY),width:Double(c.bounds.width),height:Double(c.bounds.height)) }
-        let aspect = Double(image.width)/Double(image.height)
-        let projection = PreviewProjection(imageAspect:aspect,previewAspect:aspect)
-        let evidence = SubjectImageEvidence.sample(buffer).flatMap { SceneCompositionEvidence(image:$0,projection:projection,timestamp:0) }
-        let proposed:String?
-        var suggestions = [String]()
-        if let advice = measured.lightingAdvice { suggestions.append(advice) }
-        if let candidate, let evidence {
-            let box = CGRect(x:candidate.bounds.minX,y:1-candidate.bounds.maxY,width:candidate.bounds.width,height:candidate.bounds.height)
-            let others = candidates.map { c in CompositionContextSubject(bounds:CGRect(x:c.bounds.minX,y:1-c.bounds.maxY,width:c.bounds.width,height:c.bounds.height),label:c.label,confidence:c.confidence) }
-            let layouts = SceneCompositionPlanner.compare(subject:box,evidence:evidence,others:others,maximumScale:1,intent:intent)
-            proposed = layouts.first?.technique.rawValue
-            if let best = layouts.first { suggestions.append("Explore \(best.technique.rawValue.lowercased()): \(best.explanation).") }
-            let regional = PhotoMeasurements.from(buffer:buffer,subject:box)
-            if let advice = regional?.clutterAdvice { suggestions.append(advice) }
-            if box.width*box.height < 0.03 { suggestions.append("The selected candidate occupies less than 3% of this image. Consider a tighter view if context is not important.") }
-        } else if let scene = tracker.scene, scene.isLandscape, let evidence, let line = evidence.horizontalBoundary() {
-            proposed = CompositionTechnique.horizon.rawValue
-            suggestions.append(String(format:"A candidate landscape boundary is %.0f%% down this image. Explore sky/foreground balance without forcing an object box.",(line.start.y+line.end.y)*50))
-        } else { proposed = nil }
-        if suggestions.isEmpty { suggestions.append("No strong clipping or isolated-subject issue was measured. Review the photograph's intent and context yourself.") }
-        return .init(measurements:measured,metadata:PhotoMetadata.read(url),subject:subject,proposedComposition:proposed,suggestions:suggestions,aspectRatio:aspect)
+    private func inspect(_ url:URL,intent:PhotographyIntent) async throws -> PhotoInsight {
+        let analyzed = try await SceneAnalyzer.shared.analyze(url,intent:intent,includeAesthetics:true)
+        let subject = analyzed.selected.map { c in InsightSubject(name:c.label,classificationScore:c.classificationConfidence,x:c.x,y:c.y,width:c.width,height:c.height) }
+        let context = analyzed.contextSubjects.map { CompositionContextSubject(bounds:$0.bounds,label:$0.label,confidence:$0.confidence) }
+        let measured = CompositionAssessment.evaluate(bounds:analyzed.selected?.bounds,confidence:analyzed.selected?.confidence ?? 0,
+            label:analyzed.selected?.label ?? "Subject",intent:intent,stable:true,exposure:analyzed.subjectMeasurements,
+            evidence:analyzed.evidence,others:context,anatomy:analyzed.anatomy)
+        let plan:SceneCompositionPlan?
+        if let selected = analyzed.selected, let evidence = analyzed.evidence {
+            let options = SceneCompositionPlanner.compare(subject:selected.bounds,evidence:evidence,others:context,enclosingFrames:analyzed.enclosingFrames,maximumScale:1,intent:intent,label:selected.label)
+            plan = options.first.map { SceneCompositionPlan(selected:$0,alternatives:Array(options.dropFirst().prefix(3)),subjectLabel:selected.label,timestamp:0) }
+        } else { plan = nil }
+        let reading = CompositionReading(state:.ready,subjectBounds:analyzed.selected?.bounds,subjectConfidence:Float(analyzed.selected?.confidence ?? 0),target:plan?.target ?? .init(x:0.5,y:0.5))
+        let decision = ActionFeasibility.recommend(assessment:measured,reading:reading,intent:intent,plan:plan,rollReliable:false,previewAspect:analyzed.aspect)
+        let scene = ActionFeasibility.sceneRecommendation(landscape:analyzed.landscape,stable:true,roll:0,rollReliable:false,measurements:analyzed.measurements,evidence:analyzed.evidence,timestamp:0,previewAspect:analyzed.aspect)
+        let advice = analyzed.selected != nil ? decision.text : scene?.text ?? "No reliable subject adjustment identified."
+        return .init(measurements:analyzed.measurements,metadata:PhotoMetadata.read(url),subject:subject,
+                     proposedComposition:plan.map { $0.selected.isCurrentFrame ? "Keep current framing" : $0.selected.technique.rawValue },suggestions:[advice],aspectRatio:analyzed.aspect,
+                     aestheticScore:analyzed.aestheticScore,utilityImage:analyzed.utilityImage,assessment:AssessmentMeasurements(measured))
     }
     enum AnalysisError:LocalizedError { case invalidImage; var errorDescription:String? { "This image could not be decoded for analysis. Its file remains unchanged." } }
 }

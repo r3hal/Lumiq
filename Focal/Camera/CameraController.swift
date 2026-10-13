@@ -88,6 +88,7 @@ final class CameraController: NSObject, ObservableObject {
     private var compositionPlanning = true
     private var photographyIntent: PhotographyIntent = .auto
     private var scenePlanner = SceneCompositionPlanner()
+    private var directZoomPlan: SceneCompositionPlan?
     private var compositionEvidence: SceneCompositionEvidence?
     private var lastCompositionEvidence: TimeInterval = -.infinity
     private var guidanceEnabled = false
@@ -406,7 +407,7 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
-                self.mode = mode; self.engine.reset(); self.scenePlanner.reset(); self.manualTargetLock = nil
+                self.mode = mode; self.engine.reset(); self.scenePlanner.reset(); self.directZoomPlan = nil; self.manualTargetLock = nil
                 self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
             }
@@ -417,7 +418,7 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
-                self.compositionPlanning = enabled; self.scenePlanner.reset(); self.engine.reset()
+                self.compositionPlanning = enabled; self.scenePlanner.reset(); self.directZoomPlan = nil; self.engine.reset()
                 self.compositionEvidence = nil; self.lastCompositionEvidence = -.infinity
                 self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
@@ -519,7 +520,7 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
-                self.preferredTarget = target; self.engine.reset(); self.scenePlanner.reset(); self.manualTargetLock = nil
+                self.preferredTarget = target; self.engine.reset(); self.scenePlanner.reset(); self.directZoomPlan = nil; self.manualTargetLock = nil
                 self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
             }
@@ -565,7 +566,7 @@ final class CameraController: NSObject, ObservableObject {
                 let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: self.previewAspect, mirrored: self.analysisFrontCamera)
                 self.tracker.select(at: projection.imagePoint(previewPoint))
                 self.engine.reset(); self.boxSmoother.reset(); self.automaticGuidance.reset()
-                self.scenePlanner.reset(); self.manualTargetLock = nil; self.previousMotionSubject = nil
+                self.scenePlanner.reset(); self.directZoomPlan = nil; self.manualTargetLock = nil; self.previousMotionSubject = nil
                 self.precisionLock.lock(); self.precisionContext.relativeSubjectMotion = nil; self.precisionContext.subjectMotionTimestamp = nil; self.precisionLock.unlock()
                 self.latestNativeBounds = nil
                 self.framing.reset(enabled: self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
@@ -626,7 +627,7 @@ final class CameraController: NSObject, ObservableObject {
         publishFraming()
         engine.reset()
         manualTargetLock = nil
-        scenePlanner.reset(); compositionEvidence = nil; lastCompositionEvidence = -.infinity
+        scenePlanner.reset(); directZoomPlan = nil; compositionEvidence = nil; lastCompositionEvidence = -.infinity
         tracker.reset()
         focusCandidate = nil
         focusCandidateSince = 0
@@ -1343,7 +1344,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                                      width: object.boundingBox.width, height: object.boundingBox.height)
             bounds = projection.visibleRect(topLeftRect)
             if analysisSource == .iPhone, confidence >= 0.6, !deviceMoving, !zooming, now >= manualInferenceResumeAfter {
-                updateAutomaticFocus(imagePoint, timestamp: now)
+                let anatomy = tracker.anatomy(for:object.boundingBox,projection:projection,at:now)
+                let focusPoint = anatomy?.face.map { head in projection.imagePoint(.init(x:head.midX,y:head.midY)) } ?? imagePoint
+                updateAutomaticFocus(focusPoint, timestamp: now)
             }
         }
         if imageBounds == nil {
@@ -1373,7 +1376,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         precisionLock.lock(); precisionContext.relativeSubjectMotion = relativeMotion; precisionContext.subjectMotionTimestamp = relativeMotion == nil ? nil : evaluatedAt; precisionLock.unlock()
         let planning = compositionPlanning && mode == .automatic
         let projection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect,mirrored:analysisFrontCamera)
-        if planning, !zooming, !rapidMovement, now >= manualInferenceResumeAfter, evaluatedAt-lastCompositionEvidence >= 0.8 {
+        if (planning || autoFrameEnabled || coachEnabled), !zooming, !rapidMovement, now >= manualInferenceResumeAfter, evaluatedAt-lastCompositionEvidence >= 0.8 {
             lastCompositionEvidence = evaluatedAt
             compositionEvidence = SubjectImageEvidence.sample(buffer).flatMap {
                 SceneCompositionEvidence(image:$0,projection:projection,timestamp:evaluatedAt)
@@ -1387,16 +1390,27 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             projection.visibleRect(CGRect(x:$0.minX,y:1-$0.maxY,width:$0.width,height:$0.height))
         }
         let availableScales = FramingPlanner.availableScales(currentZoom:analysisZoom,maximumZoom:automaticZoomLimit,detailZoomLimit:detailZoomLimit,nativeStops:nativeZoomStops,maximumScale:photographyIntent.maximumCropScale)
-        let plan = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
+        let plannedScene = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
             others:contextSubjects,enclosingFrames:frames,timestamp:evaluatedAt,
             maximumScale:analysisSource == .iPhone ? max(1,automaticZoomLimit/max(0.01,analysisZoom)) : 1,
             freeze:zooming || framing.phase == .settling || framing.phase == .framed,intent:photographyIntent,availableScales:availableScales) : nil
+        let plan: SceneCompositionPlan?
+        if planning { plan = plannedScene }
+        else if (framing.phase == .settling || framing.phase == .zooming || framing.phase == .framed),
+                directZoomPlan?.subjectLabel == tracker.label { plan = directZoomPlan }
+        else if !planning, autoFrameEnabled, mode != .thirds, analysisSource == .iPhone,
+           let bounds, let evidence = compositionEvidence, evidence.isFresh(at:evaluatedAt) {
+            plan = IntentCompositionSearch.zoomPlan(subject:bounds,label:tracker.label,intent:photographyIntent,evidence:evidence,
+                others:contextSubjects,frames:frames,scales:availableScales,forceCenter:mode == .centered)
+            directZoomPlan = plan
+        } else { plan = nil; directZoomPlan = nil }
         if subject == nil && !tracker.isRecovering { manualTargetLock = nil }
         let manualTarget = preferredTarget ?? manualTargetLock ?? subject.map { CompositionEngine.target(for:$0,mode:mode) } ?? UnitPoint2D(x:0.5,y:0.5)
         if mode == .thirds, subject != nil { manualTargetLock = manualTarget }
-        let allowPlannedZoom = photographyIntent.permitsZoom && (planning ? (plan?.permitsZoom ?? false) : mode != .thirds)
+        let allowPlannedZoom = photographyIntent.permitsZoom && mode != .thirds && (plan?.permitsZoom ?? false)
         let preparingZoom = autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing && !zooming && allowPlannedZoom
-        let layoutTarget = (preparingZoom ? plan?.zoomAlignmentTarget : plan?.target) ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
+        let keepUnplannedFrame = mode == .automatic && !planning && plan == nil
+        let layoutTarget = (preparingZoom ? plan?.zoomAlignmentTarget : plan?.target) ?? (keepUnplannedFrame ? subject : nil) ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
         if (!planning || plan != nil || bounds == nil), let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,
                                             detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:stable, holdDuration:holdDuration, previewAspect:previewAspect,
@@ -1405,7 +1419,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         let tolerance = autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing ? FramingPlanner.alignmentTolerance(plannedScale:plan?.selected.zoomScale,destination:preparingZoom ? plan?.target : nil) : 0.065
         var result = engine.update(subject: subject, rollDegrees: roll, mode: mode, timestamp: evaluatedAt,
-                                   preferredTarget: layoutTarget, previewAspect: previewAspect,alignmentTolerance:tolerance)
+                                   preferredTarget: layoutTarget, previewAspect: previewAspect,alignmentTolerance:tolerance,acceptCurrentFrame:plan?.selected.isCurrentFrame == true || keepUnplannedFrame)
         let analysisReadingBounds = bounds
         result.subjectBounds = boxSmoother.update(bounds)
         result.guidanceBounds = bounds
@@ -1429,56 +1443,25 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         } else { subjectMeasurements = nil; subjectMeasurementLabel = nil }
         if coachEnabled && !zooming && !deviceMoving && now >= manualInferenceResumeAfter && now - lastCoach >= 2 {
             lastCoach = now
-            let nativeRect = imageBounds.map { CGRect(x: $0.minX,y: 1 - $0.maxY,width: $0.width,height: $0.height) }
-            let measurements = PhotoMeasurements.from(buffer: buffer,subject: nativeRect)
-            var advice = [String]()
-            if let text = measurements?.lightingAdvice { advice.append(text) }
-            if let text = measurements?.clutterAdvice { advice.append(text) }
-            if let bounds {
-                if max(bounds.width,bounds.height) < 0.18 { advice.append("The subject is small in the frame. Move closer if it is safe.") }
-                if bounds.width > 0.85 || bounds.height > 0.85 { advice.append("The subject fills the edges. Move farther back to leave space.") }
-            }
-            if now-lastScene >= 8 {
-                lastScene = now
-                let scene = VNClassifyImageRequest()
-                do {
-                    guard guidanceSnapshot() == snapshot else { return }
-                    try tracker.performRequests([scene], canContinue: { self.guidanceSnapshot() == snapshot }) { try VNImageRequestHandler(cvPixelBuffer: buffer,orientation: .up).perform([scene]) }
-                    guard guidanceSnapshot() == snapshot else { return }
-                    let result = scene.results?.first
-                    let name = (result?.confidence ?? 0) >= 0.55 ? result?.identifier.replacingOccurrences(of: "_",with: " ") : nil
-                    publishAnalysis(snapshot) { self.sceneLabel = name }
-                } catch { publishAnalysis(snapshot) { self.sceneLabel = nil } }
-            }
-            if tracker.label == "Person" {
-                let pose = VNDetectHumanBodyPoseRequest()
-                do {
-                    guard guidanceSnapshot() == snapshot else { return }
-                    try tracker.performRequests([pose], canContinue: { self.guidanceSnapshot() == snapshot }) { try VNImageRequestHandler(cvPixelBuffer: buffer,orientation: .up).perform([pose]) }
-                    guard guidanceSnapshot() == snapshot else { return }
-                    let bodies = (pose.results ?? []).compactMap { try? $0.recognizedPoints(.all) }
-                    let target = imageBounds.map { CGPoint(x: $0.midX,y: $0.midY) }
-                    let candidates = bodies.filter { points in
-                        guard let target, let nose = points[.nose], nose.confidence > 0.4 else { return false }
-                        return hypot(nose.x-Double(target.x),nose.y-Double(target.y)) < 0.25
-                    }
-                    let points = candidates.min { lhs,rhs in
-                        guard let target,let a = lhs[.nose],let b = rhs[.nose] else { return false }
-                        return hypot(a.x-Double(target.x),a.y-Double(target.y)) < hypot(b.x-Double(target.x),b.y-Double(target.y))
-                    }
-                    if let points, let left = points[.leftShoulder], let right = points[.rightShoulder], left.confidence > 0.5, right.confidence > 0.5 {
-                        if abs(left.y-right.y) < 0.04 { advice.append("Nearly level shoulders detected. Try a slight three-quarter turn.") }
-                        if (points[.leftWrist]?.confidence ?? 0) < 0.3 || (points[.rightWrist]?.confidence ?? 0) < 0.3 { advice.append("Hands are not confidently detected. Check the crop if you want them included.") }
-                    }
-                } catch { /* No pose advice without observed joints. */ }
-            }
-            publishAnalysis(snapshot) { self.liveMeasurements = measurements; self.coachAdvice = advice }
+            let nativeRect = imageBounds.map { CGRect(x:$0.minX,y:1-$0.maxY,width:$0.width,height:$0.height) }
+            let measurements = nativeRect.flatMap { PhotoMeasurements.fromSubject(buffer:buffer,region:$0) } ?? PhotoMeasurements.from(buffer:buffer)
+            let assessment = CompositionAssessment.evaluate(bounds:bounds,confidence:Double(confidence),label:tracker.label,intent:photographyIntent,
+                stable:stable,exposure:measurements,evidence:compositionEvidence,others:contextSubjects,
+                anatomy:tracker.anatomy(for:imageBounds,projection:projection,at:evaluatedAt),timestamp:evaluatedAt)
+            var coachReading = result; coachReading.subjectBounds = bounds
+            let decision = ActionFeasibility.recommend(assessment:assessment,reading:coachReading,intent:photographyIntent,plan:plan,
+                rollReliable:reliable,previewAspect:previewAspect,manualComposition:mode != .automatic,
+                autoPreparing:autoFrameEnabled && framing.phase.isPreparing && plan?.permitsZoom == true)
+            let advice = decision.action.isAdjustment ? [decision.text] : []
+            let sceneName = tracker.scene?.label
+            publishAnalysis(snapshot) { self.liveMeasurements = measurements; self.coachAdvice = advice; self.sceneLabel = sceneName }
         }
         var measured = result; measured.subjectBounds = analysisReadingBounds
         let message = automaticGuidance.update(reading:measured,phase:framing.phase,stable:stable,
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
             zoomAvailable:allowPlannedZoom && automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering,
-            compositionPlan:plan,sceneEvidence:planning ? compositionEvidence : nil)
+            compositionPlan:plan,sceneEvidence:compositionEvidence,intent:photographyIntent,manualSubject:tracker.manual,
+            manualComposition:mode != .automatic,anatomy:tracker.anatomy(for:imageBounds,projection:projection,at:evaluatedAt),others:contextSubjects)
         let label = tracker.label
         let phase = framing.phase
         let progress = framing.holdProgress

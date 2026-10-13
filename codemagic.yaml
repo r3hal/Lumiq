@@ -52,3 +52,38 @@ workflows:
             CODE_SIGNING_ALLOWED=NO test
     artifacts:
       - build/FocalTests.xcresult
+
+
+  ios-evaluation:
+    name: Focal - developer intelligence evaluation IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: "16.4"
+    scripts:
+      - name: Build and run composition tests on a simulator
+        script: |
+          set -euo pipefail
+          SIMULATOR_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath build/FocalTests.xcresult \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG FOCAL_EVALUATION' CODE_SIGNING_ALLOWED=NO test
+      - name: Build native iPhone app without a distribution certificate
+        script: |
+          set -euo pipefail
+          xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/Focal.xcarchive \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=FOCAL_EVALUATION CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+      - name: Package unsigned app for AltStore Classic to sign
+        script: |
+          set -euo pipefail
+          test -d build/Focal.xcarchive/Products/Applications/Focal.app
+          mkdir -p build/sideload/Payload
+          ditto build/Focal.xcarchive/Products/Applications/Focal.app build/sideload/Payload/Focal.app
+          cd build/sideload
+          ditto -c -k --keepParent Payload ../Focal-unsigned.ipa
+    artifacts:
+      - build/Focal-unsigned.ipa
+      - build/FocalTests.xcresult

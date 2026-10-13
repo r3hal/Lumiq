@@ -13,6 +13,8 @@ struct CompositionOption {
     var score: Double // Relative heuristic ranking, not an aesthetic probability.
     var explanation: String
     var zoomScale: Double
+    var measuredImprovement: Double = 0
+    var isCurrentFrame = false
 }
 
 struct SceneCompositionPlan {
@@ -21,7 +23,7 @@ struct SceneCompositionPlan {
     var subjectLabel: String
     var timestamp: TimeInterval
     var target: UnitPoint2D { selected.target }
-    var permitsZoom: Bool { selected.zoomScale > 1.12 && [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast,.thirds,.goldenRatio].contains(selected.technique) }
+    var permitsZoom: Bool { !selected.isCurrentFrame && selected.measuredImprovement >= IntentCompositionSearch.minimumImprovement && selected.zoomScale > 1.12 && [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast,.thirds,.goldenRatio].contains(selected.technique) }
     var zoomAlignmentTarget: UnitPoint2D {
         guard permitsZoom, selected.zoomScale.isFinite else { return target }
         // Sensor zoom expands from the center. Pan to this pre-zoom point so
@@ -44,6 +46,13 @@ struct SceneCompositionPlanner {
     private var pendingSince: TimeInterval = 0
     private var previousBounds: CGRect?
     private var lastSeen: TimeInterval?
+    private var evaluatedEvidenceTime: TimeInterval = -.infinity
+    private var evaluatedBounds: CGRect?
+    private var evaluatedIntent: PhotographyIntent?
+    private var evaluatedScales: [Double]?
+    private var evaluatedMaximumScale: Double = 0
+    private var evaluatedContext: [CGRect] = []
+    private var cachedOptions: [CompositionOption] = []
     mutating func reset() { self = Self() }
 
     mutating func update(subject: CGRect?, confidence: Float, label: String, evidence: SceneCompositionEvidence?,
@@ -58,7 +67,7 @@ struct SceneCompositionPlanner {
         }
         if plan?.subjectLabel != label || previousBounds.map({ hypot(Double($0.midX-subject.midX),Double($0.midY-subject.midY)) > 0.3 }) == true { reset() }
         previousBounds = subject; lastSeen = timestamp
-        if freeze, var retained = plan {
+        if freeze, var retained = plan, !retained.selected.isCurrentFrame {
             retained.selected.target = Self.safeTarget(retained.target,subject:subject)
             plan = retained; return retained
         }
@@ -69,10 +78,26 @@ struct SceneCompositionPlanner {
             }
             return nil
         }
-        let options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent,availableScales:availableScales)
+        let context = others.map(\.bounds)+enclosingFrames
+        let sameGeometry = evaluatedBounds.map { abs($0.midX-subject.midX) < 0.015 && abs($0.midY-subject.midY) < 0.015 && abs($0.width-subject.width) < 0.015 && abs($0.height-subject.height) < 0.015 } ?? false
+        let options: [CompositionOption]
+        if evaluatedEvidenceTime == evidence.timestamp, evaluatedIntent == intent, evaluatedScales == availableScales, evaluatedMaximumScale == maximumScale,
+           sameGeometry, evaluatedContext == context, cachedOptions.first?.isCurrentFrame == true {
+            options = cachedOptions.map { option in
+                var updated = option
+                if updated.isCurrentFrame { updated.target = .init(x:subject.midX,y:subject.midY) }
+                return updated
+            }
+        } else {
+            options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent,availableScales:availableScales,label:label)
+            evaluatedEvidenceTime = evidence.timestamp; evaluatedIntent = intent; evaluatedScales = availableScales
+            evaluatedMaximumScale = maximumScale
+            evaluatedBounds = subject; evaluatedContext = context; cachedOptions = options
+        }
         guard let best = options.first else { reset(); return nil }
         let chosen: CompositionOption
-        if let old = plan,
+        if best.isCurrentFrame { chosen = best; pending = nil }
+        else if let old = plan,
            let stillSupported = options.first(where: { $0.technique == old.selected.technique }) {
             if best.technique != old.selected.technique && best.score > stillSupported.score+0.035 {
                 if pending != best.technique { pending = best.technique; pendingSince = timestamp }
@@ -88,13 +113,14 @@ struct SceneCompositionPlanner {
     }
     private func retainingTarget(_ option: CompositionOption, from old: SceneCompositionPlan, subject: CGRect) -> CompositionOption {
         var retained = option
+        if option.isCurrentFrame { return option }
         // Retain the chosen side/corner through ordinary panning. Adjust only
         // if a larger subject would cross an edge at that target.
         retained.target = Self.safeTarget(old.target,subject:subject)
         return retained
     }
     static func compare(subject: CGRect, evidence: SceneCompositionEvidence, others: [CompositionContextSubject] = [],
-                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil) -> [CompositionOption] {
+                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, label: String = "Subject") -> [CompositionOption] {
         guard intent != .landscape else { return [] }
         guard valid(subject), maximumScale.isFinite, maximumScale >= 1 else { return [] }
         let center = UnitPoint2D(x:subject.midX,y:subject.midY)
@@ -185,7 +211,31 @@ struct SceneCompositionPlanner {
             }
             if let best { ranked.append(best) }
         }
-        return ranked.sorted { $0.score == $1.score ? $0.technique.rawValue < $1.technique.rawValue : $0.score > $1.score }
+        let scales = availableScales ?? [1.0,1.15,1.35,1.6,2.0,2.5,3.0].filter { $0 <= maximumScale }
+        let measured = IntentCompositionSearch.candidates(subject:subject,label:label,intent:intent,evidence:evidence,
+            others:others,frames:enclosing,scales:scales)
+        let baseline = CompositionAssessment.evaluate(bounds:subject,confidence:1,label:label,intent:intent,stable:true,exposure:nil,evidence:evidence,others:others,timestamp:evidence.timestamp)
+        guard let currentFitness = baseline.fitness else { return [] }
+        for index in ranked.indices {
+            let option = ranked[index]
+            let cropGain = measured.first(where: { $0.crop == option.crop && $0.mapsToCameraZoom })?.improvement ?? 0
+            // A target shift is justified only by an observed position issue.
+            // Existing comfortable off-center placement incurs no penalty.
+            let targetGain = baseline.positionPenalty > 0 ? min(0.2,baseline.positionPenalty*0.2) : 0
+            ranked[index].measuredImprovement = max(cropGain,targetGain)
+            if cropGain >= IntentCompositionSearch.minimumImprovement && baseline.positionPenalty == 0 {
+                let relative = FramingPlanner.zoomedRect(subject,scale:option.zoomScale)
+                ranked[index].target = UnitPoint2D(x:relative.midX,y:relative.midY)
+                ranked[index].technique = .fillFrame
+                ranked[index].explanation = "improve subject scale while retaining the observed placement"
+            }
+            if ranked[index].measuredImprovement < IntentCompositionSearch.minimumImprovement { ranked[index].zoomScale = 1 }
+        }
+        let keep = CompositionOption(technique:.centered,target:center,crop:SceneCompositionEvidence.full,score:currentFitness,
+                                     explanation:"keep the current composition",zoomScale:1,measuredImprovement:0,isCurrentFrame:true)
+        let improvements = ranked.filter { $0.measuredImprovement >= IntentCompositionSearch.minimumImprovement }
+            .sorted { $0.measuredImprovement == $1.measuredImprovement ? $0.score > $1.score : $0.measuredImprovement > $1.measuredImprovement }
+        return improvements.isEmpty ? [keep]+ranked.sorted { $0.score > $1.score } : improvements+[keep]+ranked.filter { $0.measuredImprovement < IntentCompositionSearch.minimumImprovement }.sorted { $0.score > $1.score }
     }
     static func distinctSubjects(_ subjects: [CompositionContextSubject], selected: CGRect) -> [CompositionContextSubject] {
         var distinct = [CompositionContextSubject]()

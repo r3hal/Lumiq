@@ -28,6 +28,12 @@ final class SubjectTracker {
     private var selector = SubjectSelector()
     private var cropSchedule = SubjectCropSchedule()
     private var cropIdentities = SubjectCropIdentityCache()
+    private var facesForAssessment: [(box: CGRect, yaw: Double?, confidence: Float)] = []
+    private var posePoints: [[CGPoint]] = []
+    private var poseHeads: [CGRect?] = []
+    private var poseTime: TimeInterval = -.infinity
+    private var lastPoseAttempt: TimeInterval = -.infinity
+    private var faceTime: TimeInterval = -.infinity
     private var health = SubjectTrackingHealth()
     private var selectedPoint: CGPoint?
     private var lastDetection: TimeInterval = -.infinity
@@ -51,6 +57,25 @@ final class SubjectTracker {
     }
     private var petDetection: Bool { features.petDetection }
     private var trackingEnabled: Bool { features.subjectTracking }
+    var inspectedEnclosingFrames: [CGRect] { enclosingRectangles }
+    func anatomy(for selected: CGRect?, projection: PreviewProjection, at time: TimeInterval) -> SubjectAnatomy? {
+        guard let selected else { return nil }
+        let face = time >= faceTime && time-faceTime <= 1.5 ? facesForAssessment.filter {
+            $0.confidence >= 0.6 && selected.contains(CGPoint(x:$0.box.midX,y:$0.box.midY))
+        }.max(by: { $0.confidence < $1.confidence }) : nil
+        let poseIndex = time >= poseTime && time-poseTime <= 1.5 ? posePoints.firstIndex(where: { group in
+            group.count >= 3 && group.filter { selected.insetBy(dx:-0.03,dy:-0.03).contains($0) }.count*2 >= group.count
+        }) : nil
+        let points = poseIndex.map { posePoints[$0] } ?? []
+        guard face != nil || !points.isEmpty else { return nil }
+        let head = face?.box ?? poseIndex.flatMap { index in index < poseHeads.count ? poseHeads[index] : nil }
+        let visibleFace = head.map { box in projection.visibleRect(CGRect(x:box.minX,y:1-box.maxY,width:box.width,height:box.height)) }
+        let visiblePoints = points.map { point -> CGPoint in
+            let visible = projection.visiblePoint(.init(x:Double(point.x),y:1-Double(point.y)))
+            return CGPoint(x:visible.x,y:visible.y)
+        }
+        return SubjectAnatomy(face:visibleFace,headYaw:face?.yaw,joints:visiblePoints,timestamp:time)
+    }
 
     func configure(pets: Bool, tracking: Bool, smartSelection: Bool) {
         features = SubjectAnalysisFeatures(petDetection: pets, subjectTracking: tracking, smartSelection: smartSelection)
@@ -78,16 +103,18 @@ final class SubjectTracker {
     }
     /// Offline, single-image inspection reuses the live detectors. It does not
     /// synthesize repeated frames or pretend to have temporal tracking evidence.
-    func inspectStillImage(_ buffer:CVPixelBuffer,intent:PhotographyIntent) -> [SubjectCandidate] {
+    func inspectStillImage(_ buffer:CVPixelBuffer,intent:PhotographyIntent,selectedOnly:Bool = true) -> [SubjectCandidate] {
         selector.configuration.intent = intent
         let observed = detect(in:buffer,detailBuffer:buffer,timestamp:ProcessInfo.processInfo.systemUptime,
             visibleRegion:CGRect(x:0,y:0,width:1,height:1),canContinue:{ !Task.isCancelled })
-        return observed.map(\.candidate).filter { ($0.score(configuration:selector.configuration) ?? 0) >= selector.configuration.threshold }
+        let candidates = observed.map(\.candidate)
+        return selectedOnly ? candidates.filter { ($0.score(configuration:selector.configuration) ?? 0) >= selector.configuration.threshold } : candidates
     }
     func reset() {
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
         candidates = []; enclosingRectangles = []; selectedPoint = nil; selector.reset(); health.reset()
         cropSchedule.reset(); cropIdentities.reset()
+        facesForAssessment = []; posePoints = []; poseHeads = []; poseTime = -.infinity; lastPoseAttempt = -.infinity; faceTime = -.infinity
         lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
         manual = false; label = "Auto subject"; isRecovering = false
     }
@@ -193,6 +220,35 @@ final class SubjectTracker {
             for request in semanticRequests where canContinue() { _ = run([request]) }
         }
         guard canContinue() else { return [] }
+        faceTime = timestamp
+        facesForAssessment = (faces.results ?? []).map { ($0.boundingBox,$0.yaw?.doubleValue,$0.confidence) }
+        // Pose provides only confidently visible joints, never an assumption
+        // that missing joints are clipped. Unsupported requests remain optional.
+        if timestamp-lastPoseAttempt >= 2.5 {
+            lastPoseAttempt = timestamp
+            #if !targetEnvironment(simulator)
+            if petDetection && (animals.results ?? []).contains(where: { $0.confidence >= 0.6 }) {
+                let pose = VNDetectAnimalBodyPoseRequest()
+                if run([pose]) {
+                    let observations = pose.results ?? []
+                    posePoints = observations.map { observation in
+                        ((try? observation.recognizedPoints(.all)) ?? [:]).values.filter { $0.confidence >= 0.6 }.map { CGPoint(x:$0.x,y:$0.y) }
+                    }
+                    poseHeads = observations.map { self.animalHeadBounds($0) }
+                    poseTime = timestamp
+                }
+            } else if !(people.results ?? []).isEmpty {
+                let pose = VNDetectHumanBodyPoseRequest()
+                if run([pose]) {
+                    posePoints = (pose.results ?? []).compactMap { try? $0.recognizedPoints(.all) }.map {
+                        $0.values.filter { $0.confidence >= 0.6 }.map { CGPoint(x:$0.x,y:$0.y) }
+                    }
+                    poseHeads = []
+                    poseTime = timestamp
+                }
+            }
+            #endif
+        }
         if !run([objectness, attention, rectangles]), canContinue() {
             _ = run([objectness]); _ = run([attention]); _ = run([rectangles])
         }
@@ -310,6 +366,12 @@ final class SubjectTracker {
             detections[index].candidate.compositionPotential = c.isolation*0.4+min(1,c.detail/0.08)*0.2+size*0.25+c.centerPreference*0.15
         }
         return canContinue() ? detections : []
+    }
+    private func animalHeadBounds(_ observation: VNAnimalBodyPoseObservation) -> CGRect? {
+        let points = ((try? observation.recognizedPoints(.head)) ?? [:]).values.filter { $0.confidence >= 0.6 }
+        guard points.count >= 3, let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
+              let minY = points.map(\.y).min(), let maxY = points.map(\.y).max(), maxX > minX, maxY > minY else { return nil }
+        return CGRect(x:minX,y:minY,width:maxX-minX,height:maxY-minY)
     }
     private func printedDetections(in buffer: CVPixelBuffer, proposals: [VNDetectedObjectObservation], evidence: SubjectImageEvidence,
                                    visibleRegion: CGRect, canContinue: () -> Bool) -> [Detection] {

@@ -8,7 +8,7 @@ struct SubjectAnalysisFeatures: Equatable {
     func allowsAutomaticZoom(requested: Bool) -> Bool { requested && subjectTracking }
 }
 
-struct SubjectSelectionConfiguration {
+struct SubjectSelectionConfiguration: Sendable {
     var intent: PhotographyIntent = .auto
     var threshold: Double = 0.68
     var minimumConfidence: Double = 0.55
@@ -56,7 +56,7 @@ struct SubjectCropIdentityCache {
     }
 }
 
-enum SubjectCategory: Equatable {
+enum SubjectCategory: Equatable, Sendable {
     case person, face, pet, object, nature, architecture, background, landscape
     var priority: Double {
         switch self {
@@ -81,7 +81,7 @@ enum SubjectCategory: Equatable {
     }
 }
 
-struct SubjectCandidate {
+struct SubjectCandidate: Sendable {
     /// Native Vision coordinates: normalized, origin at bottom left.
     var bounds: CGRect
     var confidence: Double
@@ -137,7 +137,9 @@ struct SubjectCandidate {
         }
         let area = visibleArea
         let sizeQuality = min(1, area / 0.035) * max(0, min(1, (0.85 - area) / 0.25))
-        let texturePenalty = category == .nature ? 0.02 : textConfidence >= 0.65 ? 0.06 : 0.22
+        // Fur, clothing and bedding texture cannot outweigh a strong native
+        // person/pet recognition. Anonymous salient regions retain the penalty.
+        let texturePenalty = category.semantic ? 0.03 : category == .nature ? 0.02 : textConfidence >= 0.65 ? 0.06 : 0.22
         let score = 0.35 * confidence + 0.12 * category.priority + 0.15 * classificationConfidence
             + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.11 * centerPreference - texturePenalty * textureDensity
         // Small peripheral people should not eclipse an isolated foreground
@@ -230,8 +232,8 @@ struct SubjectScene {
 }
 
 /// A small image sample, not a depth model or an aesthetic/intention oracle.
-struct SubjectImageEvidence {
-    struct Pixel { var red: Double; var green: Double; var blue: Double
+struct SubjectImageEvidence: Sendable {
+    struct Pixel: Sendable { var red: Double; var green: Double; var blue: Double
         var luma: Double { 0.2126 * red + 0.7152 * green + 0.0722 * blue }
     }
     let pixels: [Pixel]

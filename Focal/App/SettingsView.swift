@@ -93,8 +93,12 @@ struct SettingsView: View {
                         Link(destination: URL(string: "https://github.com/r3hal/focal-private/issues/new")!) { navigationRow("Send Feedback") }
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
+                        #if DEBUG || FOCAL_EVALUATION
+                        separator
+                        NavigationLink { EvaluationLabView().toolbar(.visible,for:.navigationBar) } label: { navigationRow("Developer Intelligence Lab") }
+                        #endif
                     }
-                    Text("Focal 2.0 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 2.2 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)

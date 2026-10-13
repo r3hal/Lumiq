@@ -106,12 +106,13 @@ final class SceneCompositionPlannerTests: XCTestCase {
         XCTAssertNil(planner.update(subject:subject,confidence:1,label:"Tree",evidence:try evidence(at:0),timestamp:2))
         XCTAssertNil(planner.update(subject:subject,confidence:1,label:"Tree",evidence:try evidence(at:3),timestamp:2))
     }
-    func testTargetsRetainCornerWhilePanning() throws {
+    func testAcceptableCurrentFrameDoesNotLockAnArbitraryCorner() throws {
         var planner = SceneCompositionPlanner()
         let first = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Tree",evidence:try evidence(at:0),timestamp:0))
         let moved = CGRect(x:0.47,y:0.4,width:0.2,height:0.2)
         let second = try XCTUnwrap(planner.update(subject:moved,confidence:1,label:"Tree",evidence:try evidence(at:0.8),timestamp:0.8))
-        XCTAssertEqual(first.target,second.target)
+        XCTAssertTrue(first.selected.isCurrentFrame); XCTAssertTrue(second.selected.isCurrentFrame)
+        XCTAssertEqual(second.target,UnitPoint2D(x:moved.midX,y:moved.midY))
     }
     func testLossClearsPlanBeforeNextSubject() throws {
         var planner = SceneCompositionPlanner()
@@ -173,26 +174,26 @@ final class SceneCompositionPlannerTests: XCTestCase {
         XCTAssertGreaterThan(normal.image.pixels[0].red,0.23)
         XCTAssertLessThan(normal.image.pixels[47].red,0.76)
     }
-    func testStrongerLayoutMustPersistBeforeReplacingSupportedChoice() throws {
+    func testEnclosingContextDoesNotForceAChangeToAlreadyGoodFraming() throws {
         var planner = SceneCompositionPlanner()
         let first = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:0))
         let frames = [CGRect(x:0.05,y:0.05,width:0.9,height:0.9)]
         let transient = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(at:1),enclosingFrames:frames,timestamp:1))
         XCTAssertEqual(first.selected.technique,transient.selected.technique)
         let persistent = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(at:2.7),enclosingFrames:frames,timestamp:2.7))
-        XCTAssertEqual(persistent.selected.technique,.framing)
+        XCTAssertTrue(persistent.selected.isCurrentFrame)
+        XCTAssertTrue(persistent.selected.crop.contains(frames[0]))
     }
-    func testGuidanceUsesActualPlanTargetAndTechnique() throws {
+    func testKeepCurrentPlanDoesNotInventCameraMovement() throws {
         var planner = SceneCompositionPlanner(), guidance = AutomaticGuidance()
         let plan = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:0))
-        let reading = CompositionReading(state:.adjusting,subject:.init(x:0.5,y:0.5),subjectBounds:subject,subjectConfidence:1,target:plan.target)
+        let reading = CompositionReading(state:.ready,subject:.init(x:0.5,y:0.5),subjectBounds:subject,subjectConfidence:1,target:plan.target)
         var message = GuidanceMessage()
         for time in [0.0,1.0,2.0] {
             message = guidance.update(reading:reading,phase:.off,stable:true,rollReliable:true,autoEnabled:false,zoomAvailable:false,timestamp:time,subjectLabel:"Desk",compositionPlan:plan)
         }
-        XCTAssertEqual(message.kind,.adjustment)
-        XCTAssertTrue(message.text.contains("right"))
-        XCTAssertTrue(message.text.contains(plan.selected.technique.rawValue.lowercased()))
+        XCTAssertEqual(message.action,GuidanceAction.none)
+        XCTAssertFalse(message.showsDirection)
     }
     func testAutomaticEngineHonorsPlanWhileManualCenterOverridesIt() {
         let target = UnitPoint2D(x:1.0/3,y:0.5)
@@ -212,7 +213,7 @@ final class SceneCompositionPlannerTests: XCTestCase {
         let landscape = SubjectScene(label:"Mountain",confidence:0.9,timestamp:0)
         let message = guidance.update(reading:.init(),phase:.off,stable:true,rollReliable:false,autoEnabled:true,zoomAvailable:false,timestamp:0,scene:landscape,sceneEvidence:pixels)
         XCTAssertEqual(message.kind,.scene)
-        XCTAssertTrue(message.text.contains("camera"))
+        XCTAssertEqual(message.action,GuidanceAction.none)
         let nonLandscape = SubjectScene(label:"Desk",confidence:0.9,timestamp:0)
         let noHorizon = guidance.update(reading:.init(),phase:.off,stable:true,rollReliable:false,autoEnabled:true,zoomAvailable:false,timestamp:0,scene:nonLandscape,sceneEvidence:pixels)
         XCTAssertEqual(noHorizon.kind,.searching)

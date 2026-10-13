@@ -1,7 +1,7 @@
 import Foundation
 
 /// Unit coordinates use the top-left as the origin, matching the portrait preview.
-struct UnitPoint2D: Equatable {
+struct UnitPoint2D: Equatable, Sendable {
     var x: Double
     var y: Double
 
@@ -64,7 +64,7 @@ struct CompositionEngine {
 
     mutating func update(subject: UnitPoint2D?, rollDegrees: Double,
                          mode: CompositionMode, timestamp: TimeInterval,
-                         preferredTarget: UnitPoint2D? = nil, previewAspect: Double = 0.75, alignmentTolerance: Double = 0.065) -> CompositionReading {
+                         preferredTarget: UnitPoint2D? = nil, previewAspect: Double = 0.75, alignmentTolerance: Double = 0.065, acceptCurrentFrame: Bool = false) -> CompositionReading {
         if previousMode != mode { reset(); previousMode = mode }
         guard let subject, subject.x.isFinite, subject.y.isFinite,
               (0...1).contains(subject.x), (0...1).contains(subject.y) else {
@@ -96,7 +96,7 @@ struct CompositionEngine {
         let point = smoothedSubject ?? subject
         let target = mode == .centered ? UnitPoint2D(x: 0.5, y: 0.5)
             : preferredTarget ?? lockedTarget ?? Self.target(for: point, mode: mode)
-        if lockedTarget != target { alignedSince = nil }
+        if lockedTarget != target && !acceptCurrentFrame { alignedSince = nil }
         lockedTarget = target
         // Check both the raw observation and filtered position so smoothing cannot fake readiness.
         // Measure actual screen distance for the selected preview aspect ratio.

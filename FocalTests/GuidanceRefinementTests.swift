@@ -136,7 +136,7 @@ final class GuidanceRefinementTests: XCTestCase {
     }
     func testZoomPlanComputesRealPreZoomAlignmentPoint() {
         let target = UnitPoint2D(x:1.0/3,y:2.0/3)
-        let option = CompositionOption(technique:.thirds,target:target,crop:CGRect(x:0.1875,y:0.1875,width:0.625,height:0.625),score:0.8,explanation:"Keep the subject",zoomScale:1.6)
+        let option = CompositionOption(technique:.thirds,target:target,crop:CGRect(x:0.1875,y:0.1875,width:0.625,height:0.625),score:0.8,explanation:"Keep the subject",zoomScale:1.6,measuredImprovement:0.2)
         let plan = SceneCompositionPlan(selected:option,alternatives:[],subjectLabel:"Violin",timestamp:0)
         XCTAssertTrue(plan.permitsZoom)
         XCTAssertEqual((plan.zoomAlignmentTarget.x-0.5)*1.6+0.5,target.x,accuracy:0.0001)
@@ -150,8 +150,8 @@ final class GuidanceRefinementTests: XCTestCase {
         }
         let evidence = try XCTUnwrap(SceneCompositionEvidence(image:.init(pixels:pixels,width:48,height:48),projection:.init(imageAspect:1,previewAspect:1),timestamp:0))
         let subject = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
-        let options = SceneCompositionPlanner.compare(subject:subject,evidence:evidence,maximumScale:3,availableScales:[1,1.6])
-        let thirds = try XCTUnwrap(options.first { $0.technique == .thirds })
+        let options = SceneCompositionPlanner.compare(subject:subject,evidence:evidence,maximumScale:3,intent:.product,availableScales:[1,1.6],label:"Violin")
+        let thirds = try XCTUnwrap(options.first { $0.measuredImprovement >= IntentCompositionSearch.minimumImprovement })
         XCTAssertEqual(thirds.zoomScale,1.6)
         XCTAssertTrue(options.allSatisfy { $0.zoomScale == 1 || $0.zoomScale == 1.6 })
         let projected = CGRect(x:thirds.target.x-Double(subject.width)*thirds.zoomScale/2,y:thirds.target.y-Double(subject.height)*thirds.zoomScale/2,
@@ -179,7 +179,7 @@ final class GuidanceRefinementTests: XCTestCase {
         _ = step(0); _ = step(0.5)
         XCTAssertEqual(step(1.2).kind,.ready)
     }
-    func testSteadyHoldIsNotBlockedByOptionalLightingAdvice() {
+    func testSeverelyDarkSubjectKeepsSpecificLightWarning() {
         var guide = AutomaticGuidance()
         let dark = PhotoMeasurements(brightness:0.1,shadowFraction:0.8,highlightFraction:0,detail:0.04,backgroundEdges:0.5)
         func step(_ time: Double) -> GuidanceMessage {
@@ -187,7 +187,7 @@ final class GuidanceRefinementTests: XCTestCase {
                 zoomAvailable:true,timestamp:time,subjectLabel:"Violin",subjectMeasurements:dark)
         }
         _ = step(0)
-        XCTAssertEqual(step(0.6).kind,.steady)
+        XCTAssertEqual(step(0.6).action,.addLight)
     }
     func testDirectionUsesRawBoundaryAndSharedCropTolerance() throws {
         var value = reading(x:0.5)

@@ -54,10 +54,10 @@ final class SubjectIdentityTests: XCTestCase {
         var guide = AutomaticGuidance()
         let reading = CompositionReading(state: .adjusting, subject: .init(x: 0.75, y: 0.5), subjectBounds: CGRect(x: 0.65, y: 0.4, width: 0.2, height: 0.2), subjectConfidence: 0.9, target: .init(x: 0.5, y: 0.5))
         func step(_ time: Double) -> GuidanceMessage {
-            guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: time, previewAspect: 1.5, subjectLabel: "Keyboard")
+            guide.update(reading: reading, phase: .off, stable: true, rollReliable: false, autoEnabled: false, zoomAvailable: false, timestamp: time, previewAspect: 1.5, subjectLabel: "Keyboard",manualComposition:true)
         }
         XCTAssertEqual(step(0).text, "Keyboard detected")
         _ = step(0.5)
-        XCTAssertEqual(step(1.2).text, "Pan right · place the keyboard on the mark")
+        XCTAssertEqual(step(1.2).text, "Move your phone right")
     }
 }
