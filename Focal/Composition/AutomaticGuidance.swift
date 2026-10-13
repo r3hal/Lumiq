@@ -18,7 +18,7 @@ struct AutomaticGuidance {
 
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
-                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil) -> GuidanceMessage {
+                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil, subjectMeasurements: PhotoMeasurements? = nil) -> GuidanceMessage {
         guard let bounds = reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }) else {
@@ -29,6 +29,8 @@ struct AutomaticGuidance {
                 else if let advice = sceneMeasurements?.lightingAdvice { text = advice }
                 else { text = SubjectIdentity.name(scene.label).map { "\($0) scene · leave a clear foreground" } ?? "Leave a clear foreground in the scene" }
                 shown = GuidanceMessage(kind: .scene, text: text)
+            } else if let advice = sceneMeasurements?.lightingAdvice {
+                shown = GuidanceMessage(kind: .searching, text: advice)
             }
             return shown
         }
@@ -56,6 +58,8 @@ struct AutomaticGuidance {
                 desired = GuidanceMessage(kind:.adjustment,text:specific ?? text)
             } else if max(bounds.width,bounds.height) < 0.16 && (!autoEnabled || !zoomAvailable || phase == .framed) {
                 desired = GuidanceMessage(kind:.adjustment,text:name.map { "Move closer to the \($0.lowercased())" } ?? "Move closer")
+            } else if let measurements = subjectMeasurements, let advice = measuredAdvice(measurements, name: name) {
+                desired = GuidanceMessage(kind: .adjustment, text: advice)
             } else if stable && reading.state == .ready && !phase.isPreparing {
                 desired = GuidanceMessage(kind:.ready,text:name.map { "Great framing · \(SubjectIdentity.tip(for: $0))" } ?? "Great framing")
             } else { desired = GuidanceMessage(kind:.steady,text:"Hold steady") }
@@ -68,6 +72,14 @@ struct AutomaticGuidance {
             if desired == shown || timestamp-candidateSince >= 0.6 { shown = desired }
         }
         return shown
+    }
+    private func measuredAdvice(_ measurements: PhotoMeasurements, name: String?) -> String? {
+        let subject = name?.lowercased() ?? "subject"
+        if measurements.highlightFraction > 0.12 { return "Protect the \(subject) highlights · lower exposure" }
+        if measurements.brightness < 0.18 || measurements.shadowFraction > 0.65 { return "Add soft light to the \(subject); hold steady" }
+        if measurements.shadowFraction > 0.4 { return "Try softer light to reveal the \(subject)" }
+        if let edges = measurements.backgroundEdges, edges > 0.23 { return "Change your angle to separate the \(subject)" }
+        return nil
     }
 }
 

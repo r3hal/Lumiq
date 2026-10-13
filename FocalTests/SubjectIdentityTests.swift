@@ -13,7 +13,7 @@ final class SubjectIdentityTests: XCTestCase {
     func testAmbiguousCropDoesNotInventAnIdentity() {
         XCTAssertNil(SubjectIdentity.recognized([("Keyboard", 0.45), ("Desk", 0.4)]))
         XCTAssertNil(SubjectIdentity.recognized([("Keyboard", 0.65), ("Desk", 0.62)]))
-        XCTAssertEqual(SubjectIdentity.recognized([("Keyboard", 0.8), ("Desk", 0.1)])?.name, "Keyboard")
+        XCTAssertEqual(SubjectIdentity.recognized([("Keyboard", 0.8), ("Desk", 0.1)])?.name, "Computer keyboard")
     }
     func testIdentityMustPersistAlongWithTheBoundary() {
         var selector = SubjectSelector()

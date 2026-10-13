@@ -10,6 +10,7 @@ actor SonyAPIClient {
     init(endpoint:URL) {
         self.endpoint = endpoint
         let config = URLSessionConfiguration.ephemeral
+        config.allowsCellularAccess = false
         config.timeoutIntervalForRequest = 5; config.timeoutIntervalForResource = 35
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         session = URLSession(configuration:config,delegate:SonyLocalSessionDelegate(),delegateQueue:nil)
@@ -36,7 +37,8 @@ actor SonyAPIClient {
         let (data,response) = try await session.data(for:request)
         guard let response = response as? HTTPURLResponse,(200..<300).contains(response.statusCode),data.count <= 2*1024*1024 else { throw SonyRemoteError(message:"Sony control request failed.") }
         let object = try JSONSerialization.jsonObject(with:data) as? [String:Any]
-        if let error = object?["error"] as? [Any] { throw SonyRemoteError(message:"Sony: "+error.map { String(describing:$0) }.joined(separator:" · ")) }
+        if let object, let error = SonyAPIError.parse(object, method: method) { throw error }
+        if object?["error"] != nil { throw SonyRemoteError(message: "Sony returned an unreadable error for \(method).") }
         guard object?["result"] != nil else { throw SonyRemoteError(message:"Sony returned no result.") }
         return data
     }

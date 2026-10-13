@@ -1,8 +1,10 @@
-# Native acceptance checks — Focal 1.7
+Latest capture/disconnect/OCR checks: [1.8 retest](SONY-CAPTURE-RECOGNITION.md). The user supplies Sony 5/40400 screenshot feedback; it does not validate the new correction.
+
+# Native acceptance checks — Focal 1.8
 
 Latest Sony/named guidance checks: [Sony retest](SONY-SUBJECT-GUIDANCE.md). The user reports working A7 III live view in 1.6.1, with poor quality/lag and missing guidance. The new correction remains untested on hardware.
 
-None of these checks has been performed in this Linux workspace. Build ios-sideload on Codemagic: it runs 111 native XCTest tests before archive and IPA packaging. Install over the existing AltStore app to preserve the local library. Do not delete the app.
+None of these checks has been performed in this Linux workspace. Build ios-sideload on Codemagic: it runs 130 native XCTest tests before archive and IPA packaging. Install over the existing AltStore app to preserve the local library. Do not delete the app.
 
 1. Open an existing library from 1.1–1.3: images, favorites, paired RAW/scans and originals remain. Relaunch after new captures, collection assignment and recipe saving.
 2. On a fresh install, grant and deny Camera. Denial offers Settings; unavailable hardware offers demo/retry; checking shows progress. Test temporary interruptions and background/foreground return.

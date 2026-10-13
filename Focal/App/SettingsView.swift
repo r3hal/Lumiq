@@ -87,8 +87,8 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
                     if source == .sony { Text("Sony mode uses actual received frames and advertised controls. Lens zoom and exposure adjustment remain on the camera; iPhone capture options do not control Sony.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
-                    Text("Optional grid/level guides are off by default. AI Guidance starts off for iPhone and turns on when you select Sony. The yellow footer button turns it off/on. Specific subject names require repeated recognition; uncertain regions stay unlabelled. Pan in the arrow direction to place the subject on the target mark. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
-                    Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
+                    Text("Optional grid/level guides are off by default. AI Guidance starts off for iPhone and turns on when you select Sony. The yellow footer button turns it off/on. Subject recognition combines crop classification, readable text and measured boundaries; uncertain regions stay unlabelled. Pan in the arrow direction to place the subject on the target mark. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
+                    Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. Core guidance measures subject light and background clutter. The optional coach adds scene/pose checks. All analysis runs locally.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text(previewDiagnosticText)
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
@@ -110,7 +110,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.7 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.8 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)

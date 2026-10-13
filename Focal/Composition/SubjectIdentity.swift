@@ -5,24 +5,36 @@ import Foundation
 enum SubjectIdentity {
     private static let generic = Set(["object", "objects", "structure", "structures", "subject", "selected subject", "auto subject", "your subject", "thing", "unknown", "furniture", "room", "interior", "wall", "floor", "ceiling", "texture", "pattern", "indoor", "outdoor", "office", "living room", "bedroom", "bathroom", "corridor", "hallway", "equipment", "device", "technology", "artifact", "clothing", "building", "architecture", "landscape", "background"])
     static func name(_ identifier: String) -> String? {
-        let first = identifier.components(separatedBy: ",").first ?? identifier
+        let first = identifier.hasPrefix("“") ? identifier : identifier.components(separatedBy: ",").first ?? identifier
         let cleaned = first.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, cleaned.count <= 55, !generic.contains(cleaned.lowercased()),
               cleaned.rangeOfCharacter(from: .letters) != nil else { return nil }
         return cleaned.prefix(1).uppercased() + String(cleaned.dropFirst())
     }
     static func recognized(_ predictions: [(identifier: String, confidence: Double)]) -> (name: String, confidence: Double)? {
-        guard let best = predictions.first, best.confidence.isFinite, best.confidence >= 0.6,
-              let name = name(best.identifier) else { return nil }
-        if predictions.count > 1 {
-            let next = predictions[1]
-            // Synonyms do not create a false ambiguity penalty.
-            if self.name(next.identifier)?.lowercased() != name.lowercased(), best.confidence - next.confidence < 0.08 { return nil }
+        var grouped = [String: Double]()
+        for prediction in predictions {
+            guard prediction.confidence.isFinite, (0...1).contains(prediction.confidence), let specific = name(prediction.identifier) else { continue }
+            let canonical = canonicalName(specific)
+            grouped[canonical] = max(grouped[canonical] ?? 0, prediction.confidence)
         }
-        return (name, best.confidence)
+        let ranked = grouped.sorted { $0.value > $1.value }
+        guard let best = ranked.first, best.value >= 0.45 else { return nil }
+        if ranked.count > 1, best.value - ranked[1].value < (best.value >= 0.6 ? 0.08 : 0.15) { return nil }
+        return (best.key, best.value)
+    }
+    private static func canonicalName(_ name: String) -> String {
+        let value = name.lowercased()
+        if ["keyboard", "computer keyboard", "keypad", "typewriter keyboard"].contains(value) { return "Computer keyboard" }
+        if ["coffee cup", "coffee mug"].contains(value) { return "Coffee mug" }
+        if ["playing card", "playing cards", "card deck", "deck of cards"].contains(value) { return "Playing cards" }
+        if ["tv", "television", "television set"].contains(value) { return "Television" }
+        return name
     }
     static func tip(for name: String) -> String {
         let words = name.lowercased()
+        if words.contains("cards") { return "Keep the whole deck visible; show its printed face" }
+        if words.contains("print") { return "Square up to the printed face" }
         if words.contains("keyboard") { return "Isolate the keys; catch the light" }
         if words.contains("person") { return "Leave space above the head" }
         if words.contains("dog") || words.contains("cat") { return "Get down to eye level" }

@@ -1,16 +1,17 @@
-Focal 1.7, build 10
-PASS: Swift grammar parsed 49 source files (39 app, 10 test).
+Focal 1.8, build 11
+PASS: Swift grammar parsed 53 source files (41 app, 12 test).
 PASS: Xcode project parsed; all source/resource references present.
 PASS: Info/privacy plists, shared test scheme and purpose strings parsed.
 PASS: Asset catalogs and bundled caption font files present.
 PASS: Both cloud workflows parsed; native test step remains before IPA packaging; all shell scripts passed bash -n.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: 111 native XCTest functions registered (12 new Sony preview/identity/guidance functions; none executed here).
+PASS: 130 native XCTest functions registered (19 new Sony control/reconnect/printed guidance functions; none executed here).
 PASS: git diff --check.
 ATTEMPTED: Xcode build returned exit 127: xcodebuild: command not found.
-PENDING: Swift type checking, native build and all 111 XCTest executions in Codemagic.
-PENDING: A7 III native pixel delivery, frame rates, size negotiation, named subject accuracy/latency, direction mapping, crops and capture/source/lifecycle tests.
-PENDING: iPhone 16 Pro Max focus/zoom/native quality/RAW and shared guidance regression tests; A6100 remains separately unverified.
-The user confirms A7 III live view works in 1.6.1 but reports poor quality/lag and missing guidance. That feedback does not verify this 1.7 correction.
+PENDING: Swift type checking, native build and all 130 XCTest executions in Codemagic.
+PENDING: A7 III autofocus/half-press/release, mode readiness, pending capture, camera-card/transfer failure, reconnect and lifecycle tests.
+PENDING: Actual card-box OCR/classification, false labels, acquisition latency, subject lighting/clutter, quality/readiness and crop/guide mapping tests.
+PENDING: iPhone 16 Pro Max shared guidance and native zoom/focus/RAW regressions; A6100 remains separately unverified.
+The user confirms Sony 5/40400 occur on the shutter and reports an intermittent disconnect without exact wording. That feedback does not verify this 1.8 correction or identify a physical shooting-failure cause.
 No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks are not native compilation, model-accuracy or runtime/performance tests.
-See docs/SONY-SUBJECT-GUIDANCE.md.
+See docs/SONY-CAPTURE-RECOGNITION.md.

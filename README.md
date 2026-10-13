@@ -138,3 +138,12 @@ Sony now opens in its full Camera frame, requests the largest advertised wireles
 Selecting Sony enables automatic guidance with thirds targets. Specific recognized names replace generic saliency labels; repeated identity and measured boundaries are required. A target mark, camera-pan arrow and named footer instruction guide framing. Unknown regions stay unlabelled. The yellow button still disables guidance; Sony lens zoom stays on the camera. iPhone retains its opt-in guidance and native framing behavior.
 
 See [implementation, limits and device retest](docs/SONY-SUBJECT-GUIDANCE.md). There are 111 native tests, including 12 new preview/identity cases; none ran in this Linux workspace. Codemagic compilation and physical performance/recognition tests are pending.
+
+
+## Sony shutter recovery and richer recognition (1.8, build 11)
+
+Sony capture now refreshes actual state, prepares supported autofocus, waits for advertised still capture, follows pending photos without re-firing and reports meaningful method-aware errors. Interrupted live view gets bounded reconnect attempts; a stream ending during a photo no longer cancels its control/transfer operation. Ambiguous shutter/transfer failures require checking the camera card before another press.
+
+Guidance adds high-resolution crop classification, synonym consensus and local text/rectangle evidence for printed products. Subject-region exposure and background clutter now inform the footer, while searching/ready colors reflect actual guidance state. Unknown regions still do not receive invented names. These are offline recognition heuristics, not unlimited visual understanding.
+
+See [implementation, limits and hardware retest](docs/SONY-CAPTURE-RECOGNITION.md). There are 130 native tests (19 new); none executed in this Linux workspace. Rebuild latest main with Codemagic ios-sideload, then install over Focal in AltStore. Native compilation and device results remain pending.

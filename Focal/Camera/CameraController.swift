@@ -68,6 +68,9 @@ final class CameraController: NSObject, ObservableObject {
     private var guidanceEnabled = false
     private let guidanceLock = NSLock()
     private var activation = GuidanceActivation()
+    private var subjectMeasurements: PhotoMeasurements?
+    private var subjectMeasurementLabel: String?
+    private var lastSubjectMeasurement: TimeInterval = -.infinity
     private var sceneMeasurements: PhotoMeasurements?
     private var lastSceneMeasurement: TimeInterval = -.infinity
     private var autoFrameEnabled = true
@@ -497,6 +500,7 @@ final class CameraController: NSObject, ObservableObject {
         lastFocusedPoint = nil
         wantsScan = true
         lastCoach = -.infinity; lastScene = -.infinity
+        subjectMeasurements = nil; subjectMeasurementLabel = nil; lastSubjectMeasurement = -.infinity
         sceneMeasurements = nil; lastSceneMeasurement = -.infinity; manualInferenceResumeAfter = 0
         DispatchQueue.main.async {
             self.scanData = nil; self.reading = CompositionReading(); self.subjectLabel = "Auto subject"; self.guidance = GuidanceMessage()
@@ -913,7 +917,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let topLeft = visibleProjection.imagePoint(.init(x:0,y:0))
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
-        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, trackingOnly: zooming || deviceMoving || now < manualInferenceResumeAfter,
+        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || deviceMoving || now < manualInferenceResumeAfter,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
             imageBounds = object.boundingBox
             latestNativeBounds = object.boundingBox; latestBoundsZoom = analysisZoom
@@ -961,9 +965,16 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         if !stable && result.state == .ready { result.state = .settling }
         let scene = tracker.scene.flatMap { now - $0.timestamp <= 6 ? $0 : nil }
-        if imageBounds == nil, scene?.isLandscape == true, now - lastSceneMeasurement >= 2 {
+        if imageBounds == nil, now - lastSceneMeasurement >= 2 {
             lastSceneMeasurement = now; sceneMeasurements = PhotoMeasurements.from(buffer: buffer)
         }
+        if let imageBounds {
+            if subjectMeasurementLabel != tracker.label || now - lastSubjectMeasurement >= 1 {
+                lastSubjectMeasurement = now; subjectMeasurementLabel = tracker.label
+                let rect = CGRect(x: imageBounds.minX, y: 1 - imageBounds.maxY, width: imageBounds.width, height: imageBounds.height)
+                subjectMeasurements = PhotoMeasurements.fromSubject(buffer: buffer, region: rect)
+            }
+        } else { subjectMeasurements = nil; subjectMeasurementLabel = nil }
         if coachEnabled && !zooming && !deviceMoving && now >= manualInferenceResumeAfter && now - lastCoach >= 2 {
             lastCoach = now
             let nativeRect = imageBounds.map { CGRect(x: $0.minX,y: 1 - $0.maxY,width: $0.width,height: $0.height) }
@@ -1014,7 +1025,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var measured = result; measured.subjectBounds = analysisReadingBounds
         let message = automaticGuidance.update(reading:measured,phase:framing.phase,stable:stable,
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
-            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label)
+            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements)
         let label = tracker.label
         let phase = framing.phase
         publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.levelReliable = reliable; self.guidance = message }

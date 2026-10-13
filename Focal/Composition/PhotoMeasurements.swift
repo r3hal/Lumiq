@@ -61,6 +61,29 @@ struct PhotoMeasurements: Codable, Equatable {
         return from(luma: values, width: sampledWidth, height: sampledHeight, subject: subject)
     }
 
+    static func subjectOnly(luma: [Double], width: Int, height: Int, region: CGRect) -> Self? {
+        guard width > 1, height > 1, luma.count == width * height,
+              [region.minX, region.minY, region.width, region.height].allSatisfy(\.isFinite) else { return nil }
+        let clipped = region.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
+        let x0 = max(0, min(width - 1, Int(floor(clipped.minX * Double(width)))))
+        let y0 = max(0, min(height - 1, Int(floor(clipped.minY * Double(height)))))
+        let x1 = max(x0 + 1, min(width, Int(ceil(clipped.maxX * Double(width)))))
+        let y1 = max(y0 + 1, min(height, Int(ceil(clipped.maxY * Double(height)))))
+        var cropped = [Double]()
+        for y in y0..<y1 { cropped.append(contentsOf: luma[(y * width + x0)..<(y * width + x1)]) }
+        return from(luma: cropped, width: x1 - x0, height: y1 - y0)
+    }
+
+    static func fromSubject(buffer: CVPixelBuffer, region: CGRect) -> Self? {
+        guard let sample = SubjectImageEvidence.sample(buffer) else { return nil }
+        let luma = sample.pixels.map(\.luma)
+        guard let subject = subjectOnly(luma: luma, width: sample.width, height: sample.height, region: region) else { return nil }
+        let background = from(luma: luma, width: sample.width, height: sample.height, subject: region)
+        return Self(brightness: subject.brightness, shadowFraction: subject.shadowFraction, highlightFraction: subject.highlightFraction,
+                    detail: subject.detail, backgroundEdges: background?.backgroundEdges)
+    }
+
     static func from(data: Data) -> Self? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil), let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 128] as CFDictionary) else { return nil }
         var buffer: CVPixelBuffer?

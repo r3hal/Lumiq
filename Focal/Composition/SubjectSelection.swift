@@ -40,6 +40,7 @@ struct SubjectCandidate {
     var category: SubjectCategory
     var label: String
     var classificationConfidence: Double = 0
+    var textConfidence: Double = 0
     var prominence: Double = 0
     var isolation: Double = 0
     var detail: Double = 0
@@ -65,21 +66,25 @@ struct SubjectCandidate {
     }
     func score(configuration: SubjectSelectionConfiguration) -> Double? {
         guard validBoundary, confidence >= configuration.minimumConfidence,
-              [prominence, isolation, detail, textureDensity, classificationConfidence].allSatisfy(\.isFinite) else { return nil }
+              [prominence, isolation, detail, textureDensity, classificationConfidence, textConfidence].allSatisfy(\.isFinite) else { return nil }
         // Recognized people/pets should not need a high-contrast background.
         // A salient region needs a specific, confident name AND separation.
         if !category.semantic {
             guard category != .landscape, category != .background,
-                  SubjectIdentity.name(label) != nil, classificationConfidence >= 0.6 else { return nil }
+                  SubjectIdentity.name(label) != nil, classificationConfidence >= 0.45 else { return nil }
             let isolated = isolation >= 0.15 && prominence >= 0.35 && detail >= 0.005
+            let printed = textConfidence >= 0.65 && prominence >= 0.2 && detail >= 0.008
+            if classificationConfidence < 0.6 && !printed {
+                guard isolation >= 0.35, prominence >= 0.55, detail >= 0.01 else { return nil }
+            }
             let architecture = category == .architecture && classificationConfidence >= 0.65
                 && prominence >= 0.55 && centerPreference >= 0.6 && visibleArea >= 0.03 && visibleArea <= 0.75 && detail >= 0.01
-            guard isolated || architecture else { return nil }
+            guard isolated || architecture || printed else { return nil }
         }
         let area = visibleArea
         let sizeQuality = min(1, area / 0.035) * max(0, min(1, (0.85 - area) / 0.25))
         let score = 0.35 * confidence + 0.2 * category.priority + 0.15 * classificationConfidence
-            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.03 * centerPreference - 0.22 * textureDensity
+            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.03 * centerPreference - (textConfidence >= 0.65 ? 0.06 : 0.22) * textureDensity
         return max(0, min(1, score))
     }
     var manuallySelectable: Bool {

@@ -20,6 +20,7 @@ struct CompositionOverlay: View {
     var showLevel = false
     var subjectLabel = "Subject"
     var framingPhase: FramingPhase = .off
+    var guidanceReady = true
     var body: some View {
         GeometryReader { geometry in
             if showGrid { ThirdsGrid().stroke(.white.opacity(0.22), lineWidth: 0.6) }
@@ -31,7 +32,7 @@ struct CompositionOverlay: View {
                     .frame(width: 2, height: 16).position(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
             if guideEnabled, reading.subjectConfidence >= 0.4, let actual = reading.subjectBounds {
-                FramingDirectionOverlay(reading: reading, phase: framingPhase)
+                FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady)
                 let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
                 if !rect.isNull && rect.width > 0 && rect.height > 0 {
                     RoundedRectangle(cornerRadius:6).stroke(Palette.yellow,lineWidth:1.3)
@@ -56,11 +57,12 @@ struct CompositionOverlay: View {
 private struct FramingDirectionOverlay: View {
     let reading: CompositionReading
     let phase: FramingPhase
+    let guidanceReady: Bool
     var body: some View {
         GeometryReader { geometry in
             let aspect = Double(geometry.size.width / max(1, geometry.size.height))
             if let cue = CompositionCue(reading: reading, previewAspect: aspect) {
-                let ready = cue.aligned && reading.state == .ready && !phase.isPreparing
+                let ready = guidanceReady && cue.aligned && reading.state == .ready && !phase.isPreparing
                 let color = ready ? Palette.mint : Palette.yellow
                 if !cue.aligned && phase != .zooming {
                     CameraPanLine(subject: cue.subject, target: cue.target)

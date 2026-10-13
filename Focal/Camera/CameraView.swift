@@ -69,6 +69,12 @@ struct CameraView: View {
             .onDisappear { visible = false; pauseActiveSource() }
             .onChange(of: scenePhase) { _, phase in handleScenePhase(phase) }
             .onChange(of: source) { _, value in changeSource(to: value) }
+            .onChange(of: sony.hasFrame) { _, value in
+                if source == .sony && !value { camera.setAnalysisSource(.sony) }
+            }
+            .onChange(of: sony.isCapturing) { _, value in
+                if source == .sony && value { camera.setAnalysisSource(.sony) }
+            }
     }
 
     private var preferenceCamera: some View {
@@ -360,7 +366,7 @@ struct CameraView: View {
             CompositionOverlay(
                 reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
                 showLevel: settings.level && camera.levelReliable && source == .iPhone,
-                subjectLabel: subjectName, framingPhase: camera.framingPhase)
+                subjectLabel: subjectName, framingPhase: camera.framingPhase, guidanceReady: camera.guidance.kind == .ready)
         }
     }
 
@@ -514,11 +520,12 @@ struct CameraView: View {
     }
 
     private var guidanceColor: Color {
-        if !settings.guide { return Color.secondary }
-        if camera.framingPhase.isPreparing || (camera.framingPhase == .off && reading.state == .adjusting) {
-            return Palette.yellow
+        guard settings.guide else { return Color.secondary }
+        switch camera.guidance.kind {
+        case .searching, .scene: return Color.secondary
+        case .ready: return Palette.mint
+        default: return Palette.yellow
         }
-        return Palette.mint
     }
 
     private var guidanceText: some View {
@@ -598,7 +605,7 @@ struct CameraView: View {
         if !seriesProgress.isEmpty { return seriesProgress }
         if saved { return "Saved to your library." }
         if demo { return "Demo scene. Enable AI Guidance to return to the camera." }
-        if source == .sony && sony.state != .streaming { return sony.state == .connecting ? "Connecting to Sony…" : "Connect a Sony camera for guidance" }
+        if source == .sony && sony.state != .streaming { return (sony.state == .connecting || sony.state == .reconnecting) ? (sony.message ?? "Connecting to Sony…") : "Connect a Sony camera for guidance" }
         if !settings.guide { return "Tap to enable AI Guidance" }
         if camera.guidance.kind == .ready,settings.coach,let advice = camera.coachAdvice.first { return camera.guidance.text+" · "+advice }
         return camera.guidance.text
