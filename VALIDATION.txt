@@ -1,16 +1,16 @@
-Focal 1.6.1, build 9
-PASS: Swift grammar parsed 45 source files (37 app, 8 test).
+Focal 1.7, build 10
+PASS: Swift grammar parsed 49 source files (39 app, 10 test).
 PASS: Xcode project parsed; all source/resource references present.
 PASS: Info/privacy plists, shared test scheme and purpose strings parsed.
-PASS: Asset catalogs, bundled caption font files and local-network declarations.
-PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
+PASS: Asset catalogs and bundled caption font files present.
+PASS: Both cloud workflows parsed; native test step remains before IPA packaging; all shell scripts passed bash -n.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: 99 native XCTest functions registered (12 new framing/preview-policy functions; none executed here).
+PASS: 111 native XCTest functions registered (12 new Sony preview/identity/guidance functions; none executed here).
 PASS: git diff --check.
 ATTEMPTED: Xcode build returned exit 127: xcodebuild: command not found.
-PENDING: Swift type checking, native build and all 99 XCTest executions in Codemagic.
-PENDING: iPhone 16 Pro Max motion/low-light/zoom cadence, native buffer retention, AF/AE, capture/RAW and performance/lifecycle tests.
-PENDING: A7 III actual stream bytes/decoded view, decoder recovery and source/capture tests; A6100 remains separately unverified.
-The user has supplied device feedback: good stationary iPhone preview, poor motion/zoom, and A7 III invalid JPEG/no view on the previous build. It is not hardware verification of these corrections.
-No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks are not native compilation or runtime tests.
-See docs/PREVIEW-SONY-FIX.md.
+PENDING: Swift type checking, native build and all 111 XCTest executions in Codemagic.
+PENDING: A7 III native pixel delivery, frame rates, size negotiation, named subject accuracy/latency, direction mapping, crops and capture/source/lifecycle tests.
+PENDING: iPhone 16 Pro Max focus/zoom/native quality/RAW and shared guidance regression tests; A6100 remains separately unverified.
+The user confirms A7 III live view works in 1.6.1 but reports poor quality/lag and missing guidance. That feedback does not verify this 1.7 correction.
+No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks are not native compilation, model-accuracy or runtime/performance tests.
+See docs/SONY-SUBJECT-GUIDANCE.md.

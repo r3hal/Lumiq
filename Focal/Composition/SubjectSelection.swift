@@ -16,7 +16,7 @@ enum SubjectCategory: Equatable {
         case .person, .pet: return 0.95
         case .face: return 0.9
         case .architecture: return 0.65
-        case .object: return 0.45
+        case .object: return 0.75
         case .landscape: return 0.25
         case .background: return 0.15
         }
@@ -28,7 +28,7 @@ enum SubjectCategory: Equatable {
         if !words.isDisjoint(with: ["cat", "dog"]) { return .pet }
         if !words.isDisjoint(with: ["mountain", "landscape", "lake", "ocean", "beach", "seashore", "forest", "valley", "sunset", "river", "waterfall", "canyon", "meadow", "desert", "coast"]) { return .landscape }
         if !words.isDisjoint(with: ["building", "architecture", "castle", "cathedral", "tower", "bridge", "monument", "skyscraper", "church", "temple", "mosque", "palace", "house", "stadium", "landmark", "sculpture", "statue"]) { return .architecture }
-        if !words.isDisjoint(with: ["wall", "floor", "ceiling", "door", "doorframe", "furniture", "sofa", "couch", "room", "bedroom", "interior", "corridor", "hallway", "cabinet", "desk", "chair", "table", "bookcase", "wardrobe", "shelf", "texture", "pattern"]) { return .background }
+        if !words.isDisjoint(with: ["wall", "floor", "ceiling", "door", "doorframe", "room", "bedroom", "interior", "corridor", "hallway", "texture", "pattern"]) { return .background }
         return .object
     }
 }
@@ -66,23 +66,20 @@ struct SubjectCandidate {
     func score(configuration: SubjectSelectionConfiguration) -> Double? {
         guard validBoundary, confidence >= configuration.minimumConfidence,
               [prominence, isolation, detail, textureDensity, classificationConfidence].allSatisfy(\.isFinite) else { return nil }
-        // A saliency blob is not an object detector. Demand measured separation,
-        // or a confidently classified, prominent architectural framing intent.
+        // Recognized people/pets should not need a high-contrast background.
+        // A salient region needs a specific, confident name AND separation.
         if !category.semantic {
-            if category == .landscape { return nil }
-            let recognition = classificationConfidence >= 0.6 || (isolation >= 0.85 && prominence >= 0.85 && detail >= 0.03 && visibleArea <= 0.35 && textureDensity <= 0.15)
-            guard recognition else { return nil }
-            let isolated = isolation >= 0.45 && prominence >= 0.45 && detail >= 0.018
+            guard category != .landscape, category != .background,
+                  SubjectIdentity.name(label) != nil, classificationConfidence >= 0.6 else { return nil }
+            let isolated = isolation >= 0.15 && prominence >= 0.35 && detail >= 0.005
             let architecture = category == .architecture && classificationConfidence >= 0.65
-                && prominence >= 0.65 && centerPreference >= 0.7 && visibleArea >= 0.03 && visibleArea <= 0.75 && detail >= 0.025
+                && prominence >= 0.55 && centerPreference >= 0.6 && visibleArea >= 0.03 && visibleArea <= 0.75 && detail >= 0.01
             guard isolated || architecture else { return nil }
         }
         let area = visibleArea
         let sizeQuality = min(1, area / 0.035) * max(0, min(1, (0.85 - area) / 0.25))
-        let backgroundPenalty = category == .background ? 0.16 * classificationConfidence : 0
-        let score = 0.28 * confidence + 0.22 * category.priority + 0.16 * isolation
-            + 0.14 * prominence + 0.08 * sizeQuality + 0.05 * centerPreference
-            + 0.07 * classificationConfidence - backgroundPenalty - 0.15 * textureDensity
+        let score = 0.35 * confidence + 0.2 * category.priority + 0.15 * classificationConfidence
+            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.03 * centerPreference - 0.22 * textureDensity
         return max(0, min(1, score))
     }
     var manuallySelectable: Bool {
@@ -113,7 +110,7 @@ struct SubjectSelector {
             return candidates.indices.filter { candidates[$0].manuallySelectable && candidates[$0].bounds.insetBy(dx: -0.015, dy: -0.015).contains(manualPoint) }
                 .min { candidates[$0].visibleArea < candidates[$1].visibleArea }
         }
-        if let lastUpdate, timestamp < lastUpdate || timestamp - lastUpdate > (current == nil ? 2 : 4) { reset() }
+        if let lastUpdate, timestamp < lastUpdate || timestamp - lastUpdate > 4 { reset() }
         lastUpdate = timestamp
         let scored: [(index: Int, score: Double)] = candidates.indices.compactMap { index in
             guard let score = candidates[index].score(configuration: configuration), score >= configuration.threshold else { return nil }
@@ -126,7 +123,7 @@ struct SubjectSelector {
             let currentScore = current.score(configuration: configuration) ?? configuration.threshold
             guard best.score >= currentScore + configuration.switchMargin else { pending = nil; pendingSamples = 0; return nil }
         }
-        if let pending, pending.matches(candidate) { pendingSamples += 1 }
+        if let pending, pending.matches(candidate), pending.label.lowercased() == candidate.label.lowercased() { pendingSamples += 1 }
         else { pendingSince = timestamp; pendingSamples = 1 }
         pending = candidate
         let dwell = current != nil ? configuration.switchDwell : candidate.category.semantic ? configuration.semanticDwell : configuration.objectDwell

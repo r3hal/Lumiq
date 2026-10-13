@@ -7,7 +7,11 @@ import ImageIO
 final class SonyRemoteCamera: ObservableObject {
     enum State: Equatable { case disconnected, connecting, streaming, failed }
     @Published private(set) var state: State = .disconnected
-    @Published private(set) var frame: UIImage?
+    @Published private(set) var hasFrame = false
+    @Published private(set) var imageAspect = 3.0 / 2
+    @Published private(set) var streamFPS: Double?
+    @Published private(set) var qualityStatus = "Camera default"
+    let previewFeed = SonyPreviewFeed()
     @Published private(set) var model = "Sony camera"
     @Published private(set) var telemetry = CameraTelemetry()
     @Published private(set) var methods = Set<String>()
@@ -17,7 +21,9 @@ final class SonyRemoteCamera: ObservableObject {
     @Published private(set) var isCapturing = false
     @Published private(set) var message: String?
     @Published var host = "192.168.122.1"
-    var onJPEG: ((Data)->Void)?
+    var onImage: ((CGImage)->Void)?
+    private var deliveredFrames = 0
+    private var lastFramePublication: TimeInterval = -.infinity
     private var client: SonyAPIClient?
     private var receiver: SonyStreamReceiver?
     private var streamSession: URLSession?
@@ -35,7 +41,8 @@ final class SonyRemoteCamera: ObservableObject {
         guard SonyEndpoint.validHost(selectedHost) else { state = .failed; message = "Enter the camera’s private IPv4 address after joining its DIRECT Wi-Fi."; return }
         close(preserveRequest:false)
         wantsConnection = true; host = selectedHost
-        state = .connecting; message = nil; frameCount = 0; streamDiagnostics = "Waiting for camera data"
+        state = .connecting; message = nil; frameCount = 0; deliveredFrames = 0; streamFPS = nil
+        qualityStatus = "Camera default"; lastFramePublication = -.infinity; streamDiagnostics = "Waiting for camera data"
         let current = generation
         let previousCleanup = cleanupTask
         connectionTask = Task {
@@ -64,6 +71,24 @@ final class SonyRemoteCamera: ObservableObject {
                     _ = try await api.call("startRecMode")
                     try await Task.sleep(for:.milliseconds(350))
                     supported = try await Self.available(api)
+                }
+                // Negotiate only a size the camera actually advertises. Older
+                // firmware without this API keeps its working default stream.
+                if supported.contains("setLiveviewSize") {
+                    let query = supported.contains("getAvailableLiveviewSize") ? "getAvailableLiveviewSize" : "getSupportedLiveviewSize"
+                    if supported.contains(query) {
+                        do {
+                            let sizes = try SonyAPIClient.result(await api.call(query))
+                            if let size = SonyLiveViewSize.largest(in: sizes) {
+                                _ = try await api.call("setLiveviewSize", params: [size])
+                                guard current == generation, !Task.isCancelled else { return }
+                                qualityStatus = "Sony size \(size) requested"
+                            }
+                        } catch {
+                            guard current == generation, !Task.isCancelled else { return }
+                            qualityStatus = "Camera default (size change unavailable)"
+                        }
+                    }
                 }
                 var liveURL = descriptor.liveURL
                 if supported.contains("startLiveview") {
@@ -108,32 +133,32 @@ final class SonyRemoteCamera: ObservableObject {
     }
     private func openStream(_ url:URL,generation current:UUID) {
         lastFrame = ProcessInfo.processInfo.systemUptime
-        let delegate = SonyStreamReceiver(onFrame:{ [weak self] data in
-            guard let source = CGImageSourceCreateWithData(data as CFData,nil), let dimensions = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
-                  let width = dimensions[kCGImagePropertyPixelWidth] as? Int,let height = dimensions[kCGImagePropertyPixelHeight] as? Int,
-                  width > 0,height > 0,Int64(width)*Int64(height) <= 16_000_000,
-                  let cg = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2400] as CFDictionary),
-                  CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete else { return false }
-            let image = UIImage(cgImage:cg)
-            Task { @MainActor in
-                guard let self,current == self.generation else { return }
-                self.frame = image; self.state = .streaming; self.frameCount += 1
-                self.lastFrame = ProcessInfo.processInfo.systemUptime
-                self.resolution = "\(width) × \(height)"
-                self.onJPEG?(data)
+        let delegate = SonyStreamReceiver(onFrame: { [weak self] decoded in
+            // The receiver coalesces its main-thread handoff as well as decode.
+            guard let self, current == self.generation else { return }
+            self.previewFeed.display(decoded.image)
+            if !self.hasFrame { self.hasFrame = true; self.state = .streaming }
+            if abs(self.imageAspect - decoded.aspect) > 0.001 { self.imageAspect = decoded.aspect }
+            self.lastFrame = ProcessInfo.processInfo.systemUptime
+            self.deliveredFrames += 1
+            if self.lastFrame - self.lastFramePublication >= 1 {
+                self.lastFramePublication = self.lastFrame; self.frameCount = self.deliveredFrames
+                self.resolution = "\(decoded.image.width) × \(decoded.image.height)"
             }
-            return true
-        }, onDiagnostics: { [weak self] detail in
+            // Reuse already-decoded native pixels. Analysis has independent
+            // one-in-flight admission and cannot delay the preview surface.
+            self.onImage?(decoded.image)
+        }, onDiagnostics: { [weak self] detail, fps in
             Task { @MainActor in
                 guard let self, current == self.generation else { return }
-                self.streamDiagnostics = detail
+                self.streamDiagnostics = detail; self.streamFPS = fps
             }
-        },onEnd:{ [weak self] error in
-            Task { @MainActor in self?.fail(error?.localizedDescription ?? "Sony ended the live-view stream.",generation:current) }
+        }, onEnd: { [weak self] error in
+            Task { @MainActor in self?.fail(error?.localizedDescription ?? "Sony ended the live-view stream.", generation: current) }
         })
         receiver = delegate
         let config = URLSessionConfiguration.ephemeral; config.timeoutIntervalForRequest = 10; config.timeoutIntervalForResource = 3600
-        let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
+        let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1; queue.qualityOfService = .userInitiated
         let session = URLSession(configuration:config,delegate:delegate,delegateQueue:queue)
         streamSession = session
         session.dataTask(with:url).resume()
@@ -172,7 +197,7 @@ final class SonyRemoteCamera: ObservableObject {
     private func close(preserveRequest:Bool) {
         generation = UUID(); connectionTask?.cancel(); monitorTask?.cancel()
         connectionTask = nil; monitorTask = nil
-        streamSession?.invalidateAndCancel(); streamSession = nil; receiver = nil
+        receiver?.close(); streamSession?.invalidateAndCancel(); streamSession = nil; receiver = nil
         if let api = client {
             let canStop = methods.contains("stopLiveview")
             cleanupTask = Task {
@@ -183,49 +208,82 @@ final class SonyRemoteCamera: ObservableObject {
         }
         client = nil
         if !preserveRequest { wantsConnection = false }
-        frame = nil; telemetry = CameraTelemetry(); methods = []; isCapturing = false; state = .disconnected
+        previewFeed.display(nil); hasFrame = false; telemetry = CameraTelemetry(); methods = []; isCapturing = false; state = .disconnected
     }
 }
 
-private final class SonyStreamReceiver: NSObject,URLSessionDataDelegate {
-    private var parser = SonyLiveViewParser()
-    private var lastDelivery: TimeInterval = -.infinity
-    private let onFrame: (Data) -> Bool
-    private let onDiagnostics: (String) -> Void
+private final class SonyStreamReceiver: NSObject, URLSessionDataDelegate {
+    private struct Batch { var frames: [Data]; var receivedAt: TimeInterval }
+    private var parser = SonyLiveViewParser() // Serial network delegate only.
+    private let decodeQueue = DispatchQueue(label: "app.focal.sony.decode", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    private let incoming = LatestFrameMailbox<Batch>()
+    private let presentation = LatestFrameMailbox<SonyDecodedFrame>()
+    private let onFrame: @MainActor (SonyDecodedFrame) -> Void
+    private let onDiagnostics: (String, Double?) -> Void
     private let onEnd: (Error?) -> Void
-    private var receivedBytes = 0
+    private let statsLock = NSLock()
+    private var decodedCount = 0
     private var decoderRejections = 0
-    private var lastDiagnostics: TimeInterval = -.infinity
-    init(onFrame: @escaping (Data) -> Bool, onDiagnostics: @escaping (String) -> Void, onEnd: @escaping (Error?) -> Void) {
+    private var receivedBytes = 0
+    private var lastDiagnostics: TimeInterval?
+    private var previousDecoded = 0
+    private var previousReceived = 0
+    init(onFrame: @escaping @MainActor (SonyDecodedFrame) -> Void,
+         onDiagnostics: @escaping (String, Double?) -> Void, onEnd: @escaping (Error?) -> Void) {
         self.onFrame = onFrame; self.onDiagnostics = onDiagnostics; self.onEnd = onEnd
     }
-    func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive response:URLResponse,completionHandler:@escaping(URLSession.ResponseDisposition)->Void) {
-        guard let http = response as? HTTPURLResponse,(200..<300).contains(http.statusCode) else {
-            completionHandler(.cancel); onEnd(SonyRemoteError(message:"Sony live-view HTTP request was rejected.")); return
+    func close() { incoming.close(); presentation.close() }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            completionHandler(.cancel); onEnd(SonyRemoteError(message: "Sony live-view HTTP request was rejected.")); return
         }
         completionHandler(.allow)
     }
-    func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive data:Data) {
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         do {
             receivedBytes += data.count
             let frames = try parser.append(data)
             let now = ProcessInfo.processInfo.systemUptime
-            if now - lastDelivery >= 0.1 {
-                for frame in frames.reversed() {
-                    if onFrame(frame) { lastDelivery = now; break }
-                    decoderRejections += 1
+            if !frames.isEmpty, incoming.offer(Batch(frames: Array(frames.suffix(2)), receivedAt: now)) {
+                decodeQueue.async { self.decodeWaitingFrames() }
+            }
+            if lastDiagnostics == nil { lastDiagnostics = now }
+            if let lastDiagnostics, now - lastDiagnostics >= 1 {
+                statsLock.lock(); let decoded = decodedCount, rejected = decoderRejections; statsLock.unlock()
+                let elapsed = now - lastDiagnostics
+                let sourceRate = Double(parser.imageFrames - previousReceived) / elapsed
+                let decodeRate = Double(decoded - previousDecoded) / elapsed
+                self.lastDiagnostics = now; previousReceived = parser.imageFrames; previousDecoded = decoded
+                let rates = String(format: "%.0f incoming / %.0f decoded fps", sourceRate, decodeRate)
+                onDiagnostics("\(receivedBytes / 1024) KiB · \(rates) · \(parser.framing) · \(parser.discardedFrames + rejected) rejected", decodeRate)
+            }
+        } catch { close(); session.invalidateAndCancel(); onEnd(error) }
+    }
+    private func decodeWaitingFrames() {
+        while let batch = incoming.take() {
+            autoreleasepool {
+                // A stalled decoder must skip stale work, not replay it later.
+                guard ProcessInfo.processInfo.systemUptime - batch.receivedAt < 0.5 else { return }
+                for data in batch.frames.reversed() {
+                    guard let decoded = SonyDecodedFrame.decode(data, receivedAt: batch.receivedAt) else {
+                        statsLock.lock(); decoderRejections += 1; statsLock.unlock(); continue
+                    }
+                    statsLock.lock(); decodedCount += 1; statsLock.unlock()
+                    if presentation.offer(decoded) {
+                        Task { @MainActor in
+                            while let latest = self.presentation.take() {
+                                guard ProcessInfo.processInfo.systemUptime - latest.receivedAt < 0.5 else { continue }
+                                self.onFrame(latest)
+                            }
+                        }
+                    }
+                    break
                 }
             }
-            if now - lastDiagnostics >= 1 {
-                lastDiagnostics = now
-                let discarded = parser.discardedFrames + decoderRejections
-                onDiagnostics("\(receivedBytes / 1024) KiB received · \(parser.framing) · \(parser.imageFrames) JPEGs · \(discarded) rejected")
-            }
         }
-        catch { session.invalidateAndCancel(); onEnd(error) }
     }
-    func urlSession(_ session:URLSession,task:URLSessionTask,didCompleteWithError error:Error?) { onEnd(error) }
-    func urlSession(_ session:URLSession,task:URLSessionTask,willPerformHTTPRedirection response:HTTPURLResponse,
-                    newRequest request:URLRequest,completionHandler:@escaping(URLRequest?)->Void) { completionHandler(nil) }
-
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) { close(); onEnd(error) }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 }

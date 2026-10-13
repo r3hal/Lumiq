@@ -80,7 +80,8 @@ final class CameraController: NSObject, ObservableObject {
     private var latestBoundsZoom: Double = 1
     private var lastTelemetry: TimeInterval = 0
     private let externalLock = NSLock()
-    private var externalFramePending = false // Analysis queue only.
+    private var externalScheduler = PreviewAnalysisScheduler() // Protected by externalLock.
+    private var externalAnalysisBuffer: CVPixelBuffer? // Analysis queue only.
     private var analysisZoom: Double = 1
     private var automaticZoomLimit: Double = 1
     private var detailZoomLimit: Double = 1
@@ -262,22 +263,28 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     /// Admission control drops frames while the shared Vision queue is busy.
-    func analyzeExternalFrame(_ data: Data) {
+    func analyzeExternalFrame(_ image: CGImage) {
         let snapshot = guidanceSnapshot()
         guard snapshot.enabled, snapshot.source == .sony else { return }
         externalLock.lock()
-        guard !externalFramePending else { externalLock.unlock(); return }
-        externalFramePending = true; externalLock.unlock()
+        guard externalScheduler.admit(at: ProcessInfo.processInfo.systemUptime, enabled: true) else { externalLock.unlock(); return }
+        externalLock.unlock()
         analysisQueue.async {
-            defer { self.externalLock.lock(); self.externalFramePending = false; self.externalLock.unlock() }
-            guard self.guidanceSnapshot() == snapshot, self.guidanceEnabled, self.analysisSource == .sony, let source = CIImage(data:data,options:[.applyOrientationProperty:true]) else { return }
+            defer { self.externalLock.lock(); self.externalScheduler.finish(); self.externalLock.unlock() }
+            guard self.guidanceSnapshot() == snapshot, self.guidanceEnabled, self.analysisSource == .sony else { return }
+            let source = CIImage(cgImage: image)
             let scale = min(1,1280/max(source.extent.width,source.extent.height))
-            let image = source.transformed(by:CGAffineTransform(scaleX:scale,y:scale))
-            var buffer: CVPixelBuffer?
-            let attributes: [CFString:Any] = [kCVPixelBufferIOSurfacePropertiesKey:[String:Any]()]
-            guard CVPixelBufferCreate(kCFAllocatorDefault,Int(image.extent.width),Int(image.extent.height),kCVPixelFormatType_32BGRA,attributes as CFDictionary,&buffer) == kCVReturnSuccess,let buffer else { return }
-            self.imageContext.render(image,to:buffer)
-            self.processFrame(buffer)
+            let scaled = source.transformed(by:CGAffineTransform(scaleX:scale,y:scale))
+            let width = max(1, Int(scaled.extent.width)), height = max(1, Int(scaled.extent.height))
+            if self.externalAnalysisBuffer == nil || CVPixelBufferGetWidth(self.externalAnalysisBuffer!) != width || CVPixelBufferGetHeight(self.externalAnalysisBuffer!) != height {
+                var created: CVPixelBuffer?
+                let attributes: [CFString:Any] = [kCVPixelBufferIOSurfacePropertiesKey:[String:Any]()]
+                guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &created) == kCVReturnSuccess else { return }
+                self.externalAnalysisBuffer = created
+            }
+            guard let buffer = self.externalAnalysisBuffer else { return }
+            self.imageContext.render(scaled,to:buffer)
+            self.processFrame(buffer, sourceAspect: Double(image.width) / Double(image.height))
         }
     }
 
@@ -1007,7 +1014,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var measured = result; measured.subjectBounds = analysisReadingBounds
         let message = automaticGuidance.update(reading:measured,phase:framing.phase,stable:stable,
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
-            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements)
+            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label)
         let label = tracker.label
         let phase = framing.phase
         publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.levelReliable = reliable; self.guidance = message }

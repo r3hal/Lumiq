@@ -1,5 +1,6 @@
 import Vision
 import CoreVideo
+import CoreImage
 import Foundation
 
 /// Real detectors propose regions; relevance and temporal evidence select one.
@@ -78,7 +79,7 @@ final class SubjectTracker {
         // During a lens ramp, only verify the chosen subject. No new acquisition
         // or semantic switching can silently redirect an automatic zoom.
         if trackingOnly { return retained }
-        let interval: TimeInterval = retained == nil ? 0.75 : 2.5
+        let interval: TimeInterval = retained == nil ? 0.65 : 2.5
         guard timestamp - lastDetection >= interval, !manual || retained == nil else { return retained }
         lastDetection = timestamp
         let detected = detect(in: buffer, timestamp: timestamp, visibleRegion: visibleRegion, canContinue: canContinue)
@@ -95,10 +96,10 @@ final class SubjectTracker {
         let faces = VNDetectFaceRectanglesRequest()
         let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
         let animals = VNRecognizeAnimalsRequest()
-        let saliency = VNGenerateAttentionBasedSaliencyImageRequest()
+        let saliency = VNGenerateObjectnessBasedSaliencyImageRequest()
         do {
-            try performRequests([faces, people, animals, saliency], canContinue: canContinue) {
-                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, people, animals, saliency])
+            try performRequests([faces, people, animals], canContinue: canContinue) {
+                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, people, animals])
             }
             guard canContinue() else { return [] }
             guard let evidence = SubjectImageEvidence.sample(buffer) else { return [] }
@@ -119,6 +120,18 @@ final class SubjectTracker {
                 guard let recognized = animal.labels.first, recognized.confidence >= 0.55 else { continue }
                 append(animal, category: .pet, label: recognized.identifier.capitalized, semanticConfidence: Double(recognized.confidence))
             }
+            // A confidently detected person/pet needs no product classifiers.
+            // This keeps acquisition cheap for the most common subjects.
+            if detections.contains(where: { ($0.candidate.score(configuration: selector.configuration) ?? 0) >= selector.configuration.threshold }) { return detections }
+            try performRequests([saliency], canContinue: canContinue) {
+                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([saliency])
+            }
+            guard canContinue() else { return [] }
+            for index in detections.indices {
+                let candidate = detections[index].candidate
+                let features = evidence.features(for: candidate.bounds, saliencyProminence: SubjectSaliencyEvidence.prominence(candidate.bounds, buffer: saliency.results?.first?.pixelBuffer))
+                detections[index].candidate.prominence = features.prominence
+            }
             let objects = (saliency.results?.first?.salientObjects ?? []).filter {
                 valid($0.boundingBox) && visibleRegion.contains(CGPoint(x: $0.boundingBox.midX, y: $0.boundingBox.midY))
             }.sorted { left, right in
@@ -128,22 +141,26 @@ final class SubjectTracker {
             }
             // Bound classification cost. Saliency confidence alone never declares
             // that a wall, room structure or piece of furniture is a subject.
-            for (index, object) in objects.prefix(4).enumerated() {
+            for object in objects.prefix(3) {
                 guard canContinue() else { return [] }
-                var category: SubjectCategory = .object, label = "Subject", confidence = 0.0
-                if index < 2 {
-                    let request = VNClassifyImageRequest(); request.regionOfInterest = object.boundingBox
-                    if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request]) }) != nil,
-                       let result = request.results?.first, result.confidence >= 0.6 {
-                        label = result.identifier.components(separatedBy: ",").first?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Subject"
-                        let classified = SubjectCategory.classified(result.identifier)
-                        // A crop label cannot turn a saliency blob into a true
-                        // human/animal boundary. Those need semantic detectors.
-                        category = classified.semantic ? .object : classified
-                        confidence = Double(result.confidence)
-                    }
-                }
-                append(object, category: category, label: label, semanticConfidence: confidence)
+                // Face/person/pet detectors already provide semantic boundaries.
+                guard !detections.contains(where: { $0.candidate.category.semantic && $0.candidate.bounds.intersects(object.boundingBox) }) else { continue }
+                let request = VNClassifyImageRequest()
+                // Classify actual crop pixels, with a little context, rather
+                // than interpreting a whole-room label as the small subject.
+                let native = object.boundingBox.insetBy(dx: -0.025, dy: -0.025).intersection(visibleRegion)
+                let full = CIImage(cvPixelBuffer: buffer)
+                let rect = CGRect(x: native.minX * full.extent.width, y: native.minY * full.extent.height,
+                                  width: native.width * full.extent.width, height: native.height * full.extent.height).integral.intersection(full.extent)
+                guard rect.width > 8, rect.height > 8 else { continue }
+                let crop = full.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+                guard (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request]) }) != nil,
+                      let identity = SubjectIdentity.recognized((request.results ?? []).prefix(2).map { ($0.identifier, Double($0.confidence)) }) else { continue }
+                let classified = SubjectCategory.classified(identity.name)
+                // Classifier predictions of humans/pets never substitute for
+                // a missing semantic detector boundary.
+                guard !classified.semantic else { continue }
+                append(object, category: classified, label: identity.name, semanticConfidence: identity.confidence)
             }
             if canContinue(), retainedSceneNeeded(detections), timestamp - lastScene >= 3 {
                 lastScene = timestamp
@@ -157,7 +174,7 @@ final class SubjectTracker {
         } catch { return [] }
     }
     private func retainedSceneNeeded(_ detections: [Detection]) -> Bool {
-        !detections.contains { $0.candidate.category.semantic }
+        !detections.contains { $0.candidate.score(configuration: selector.configuration) != nil }
     }
     private func start(_ detection: Detection) {
         sequence = VNSequenceRequestHandler(); health.reset()

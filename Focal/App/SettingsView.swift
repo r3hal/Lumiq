@@ -7,6 +7,7 @@ struct SettingsView: View {
     var source: CameraSource = .iPhone
     var sonyResolution = "—"
     var sonyModel = "Model not reported"
+    var sonyPreviewInfo = ""
     @Environment(\.dismiss) private var dismiss
     @State private var showPrivacy = false
     @State private var showGuide = false
@@ -86,7 +87,7 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
                     if source == .sony { Text("Sony mode uses actual received frames and advertised controls. Lens zoom and exposure adjustment remain on the camera; iPhone capture options do not control Sony.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
-                    Text("Optional grid/level guides are off by default. AI Guidance starts off and is toggled with the yellow footer button. Subject boxes require sustained relevance evidence; plain rooms may have no selected subject. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
+                    Text("Optional grid/level guides are off by default. AI Guidance starts off for iPhone and turns on when you select Sony. The yellow footer button turns it off/on. Specific subject names require repeated recognition; uncertain regions stay unlabelled. Pan in the arrow direction to place the subject on the target mark. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text(previewDiagnosticText)
@@ -109,7 +110,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.6.1 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.7 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -138,7 +139,7 @@ struct SettingsView: View {
     }
     private var previewDiagnosticText: String {
         if source == .sony {
-            return "Sony last received live view: \(sonyModel) · \(sonyResolution). Stream quality is set by the camera; lens zoom stays on the camera."
+            return "Sony live view: \(sonyModel) · \(sonyResolution)\n\(sonyPreviewInfo)\nCamera frame shows the full received image. Stream quality is set by Sony; lens zoom stays on the camera."
         }
         let cadence = camera.previewFPS.map { String(format: "%.0f fps last observed", $0) } ?? "measuring cadence"
         let limit = String(format: "%.1f×", camera.qualityZoomLimit)

@@ -18,7 +18,7 @@ struct AutomaticGuidance {
 
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
-                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil) -> GuidanceMessage {
+                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil) -> GuidanceMessage {
         guard let bounds = reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }) else {
@@ -27,7 +27,7 @@ struct AutomaticGuidance {
                 let text: String
                 if rollReliable && abs(reading.rollDegrees) > 5 { text = "Keep the camera level" }
                 else if let advice = sceneMeasurements?.lightingAdvice { text = advice }
-                else { text = "Take in the scene; tap a subject" }
+                else { text = SubjectIdentity.name(scene.label).map { "\($0) scene · leave a clear foreground" } ?? "Leave a clear foreground in the scene" }
                 shown = GuidanceMessage(kind: .scene, text: text)
             }
             return shown
@@ -38,12 +38,13 @@ struct AutomaticGuidance {
         } else { speed = 0 }
         previousBounds = bounds; previousTime = timestamp
         if detectedSince == nil { detectedSince = timestamp }
+        let name = subjectLabel.flatMap(SubjectIdentity.name)
         let desired: GuidanceMessage
         if phase == .zooming { desired = GuidanceMessage(kind:.framing,text:"Adjusting framing…") }
-        else if timestamp-(detectedSince ?? timestamp) < 0.45 { desired = GuidanceMessage(kind:.detected,text:"Subject detected") }
+        else if timestamp-(detectedSince ?? timestamp) < 0.45 { desired = GuidanceMessage(kind:.detected,text:name.map { "\($0) detected" } ?? "Subject detected") }
         else if speed > 0.25 { desired = GuidanceMessage(kind:.steady,text:"Keep the subject in view") }
         else if bounds.width > 0.85 || bounds.height > 0.85 || bounds.minX < -0.02 || bounds.maxX > 1.02 || bounds.minY < -0.02 || bounds.maxY > 1.02 {
-            desired = GuidanceMessage(kind:.adjustment,text:"Move farther back")
+            desired = GuidanceMessage(kind:.adjustment,text:name.map { "Step back · leave room around the \($0.lowercased())" } ?? "Move farther back")
         } else if rollReliable && abs(reading.rollDegrees) > 5 { desired = GuidanceMessage(kind:.adjustment,text:"Keep the camera level") }
         else {
             let point = UnitPoint2D(x:bounds.midX,y:bounds.midY)
@@ -51,11 +52,12 @@ struct AutomaticGuidance {
             let tolerance = autoEnabled && phase.isPreparing ? 0.04 : 0.065
             if hypot(dx,dy/max(0.1,previewAspect)) > tolerance {
                 let text = abs(dx) > abs(dy)/max(0.1,previewAspect) ? (dx > 0 ? "Move slightly right" : "Move slightly left") : (dy > 0 ? "Lower the camera" : "Raise the camera")
-                desired = GuidanceMessage(kind:.adjustment,text:text)
+                let specific = name.flatMap { label in CompositionCue(reading: reading, previewAspect: previewAspect)?.instruction(subjectName: label) }
+                desired = GuidanceMessage(kind:.adjustment,text:specific ?? text)
             } else if max(bounds.width,bounds.height) < 0.16 && (!autoEnabled || !zoomAvailable || phase == .framed) {
-                desired = GuidanceMessage(kind:.adjustment,text:"Move closer")
+                desired = GuidanceMessage(kind:.adjustment,text:name.map { "Move closer to the \($0.lowercased())" } ?? "Move closer")
             } else if stable && reading.state == .ready && !phase.isPreparing {
-                desired = GuidanceMessage(kind:.ready,text:"Great framing")
+                desired = GuidanceMessage(kind:.ready,text:name.map { "Great framing · \(SubjectIdentity.tip(for: $0))" } ?? "Great framing")
             } else { desired = GuidanceMessage(kind:.steady,text:"Hold steady") }
         }
         // Loss and actual zoom transitions are immediate; movement text must persist.

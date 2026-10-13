@@ -9,6 +9,7 @@ struct SonyConnectionView: View {
             Text(camera.state == .connecting ? "Connecting to Sony…" : "Sony wireless camera").font(.headline)
             if camera.state == .connecting {
                 ProgressView().tint(Palette.yellow)
+                Text(camera.qualityStatus).font(.caption2).foregroundStyle(.secondary)
                 Text(camera.streamDiagnostics).font(.caption2).foregroundStyle(.secondary)
             }
             Text("On the camera, enable Ctrl w/ Smartphone. In iPhone Settings → Wi-Fi, join the camera’s DIRECT network. Return here and connect.")
@@ -17,7 +18,7 @@ struct SonyConnectionView: View {
                 .padding(10).background(Palette.panel,in:RoundedRectangle(cornerRadius:8))
             Button("Connect") { camera.connect() }.buttonStyle(.borderedProminent).tint(Palette.yellow).disabled(camera.state == .connecting)
             if let message = camera.message { Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center) }
-            Text("Experimental, capability-discovered live view. A7 III firmware/mode compatibility requires a real camera test. No phone preview is used here.")
+            Text("Sony supplies the wireless preview; its resolution depends on camera firmware and remote mode. Focal requests the largest size the camera advertises.")
                 .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("Return to iPhone camera",action:returnToPhone).font(.caption).foregroundStyle(Palette.yellow)
         }.padding(24)

@@ -4,6 +4,7 @@ struct CameraView: View {
     @StateObject private var camera = CameraController()
     @StateObject private var sony = SonyRemoteCamera()
     @State private var source: CameraSource = .iPhone
+    @State private var sonyFullFrame = true
     @EnvironmentObject private var library: PhotoLibrary
     @EnvironmentObject private var settings: CameraSettings
     @Environment(\.scenePhase) private var scenePhase
@@ -28,7 +29,10 @@ struct CameraView: View {
     @State private var saved = false
     private var reading: CompositionReading { camera.reading }
     private var canShoot: Bool { (source == .sony ? sony.canCapture : (demo || camera.isRunning)) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming }
-    private var subjectName: String { ["Auto subject", "Your subject"].contains(camera.subjectLabel) ? "Subject" : camera.subjectLabel }
+    private var subjectName: String { SubjectIdentity.name(camera.subjectLabel) ?? "Selected subject" }
+    private var viewfinderAspect: Double { source == .sony && sonyFullFrame ? sony.imageAspect : settings.aspect.ratio }
+    private var sonyPreviewInfo: String { sony.qualityStatus + " · " + sony.streamDiagnostics }
+    private var aspectTitle: String { source == .sony && sonyFullFrame ? "Camera" : settings.aspect.rawValue }
     private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
 
     // Opaque view boundaries keep SwiftUI's constraint solver from checking the
@@ -45,13 +49,13 @@ struct CameraView: View {
 
     private var cameraLayout: some View {
         GeometryReader { geometry in
-            let aspect: CGFloat = CGFloat(settings.aspect.ratio)
+            let aspect: CGFloat = CGFloat(viewfinderAspect)
             let availableHeight: CGFloat = max(160, geometry.size.height - 208)
             let width: CGFloat = min(geometry.size.width, availableHeight * aspect)
             VStack(spacing: 0) {
                 toolbar.frame(height: 44)
                 ZStack { viewfinder.frame(width: width, height: width / aspect) }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).zIndex(1)
                 footer.frame(height: 164)
             }
         }
@@ -80,7 +84,7 @@ struct CameraView: View {
         preferenceCamera
             .onChange(of: settings.guide) { _, value in changeGuidance(to: value) }
             .onChange(of: settings.autoFrame) { _, value in smartGate.reset(); camera.setAutoFraming(value) }
-            .onChange(of: settings.aspect) { _, value in smartGate.reset(); camera.setPreviewAspect(value.ratio) }
+            .onChange(of: viewfinderAspect) { _, value in smartGate.reset(); camera.setPreviewAspect(value) }
             .onChange(of: corner) { _, value in changeCorner(to: value) }
             .onChange(of: reading.state) { old, new in
                 if old != .ready && new == .ready && settings.guide {
@@ -92,7 +96,7 @@ struct CameraView: View {
     private var presentedCamera: some View {
         compositionCamera
             .fullScreenCover(isPresented: $showSettings, onDismiss: resume) {
-                SettingsView(camera: camera, source: source, sonyResolution: sony.resolution, sonyModel: sony.model)
+                SettingsView(camera: camera, source: source, sonyResolution: sony.resolution, sonyModel: sony.model, sonyPreviewInfo: sonyPreviewInfo)
             }
             .sheet(isPresented: $showLibrary, onDismiss: resume) { LibraryView() }
             .sheet(isPresented: $showReference, onDismiss: resume) {
@@ -109,7 +113,7 @@ struct CameraView: View {
         visible = true
         camera.setPreviewPixelWidth(Double(UIScreen.main.bounds.width * UIScreen.main.scale))
         let analyzer = camera
-        sony.onJPEG = { [weak analyzer] in analyzer?.analyzeExternalFrame($0) }
+        sony.onImage = { [weak analyzer] in analyzer?.analyzeExternalFrame($0) }
         camera.setAnalysisSource(source)
         camera.setSubjectThreshold(settings.subjectThreshold)
         camera.setHoldDuration(settings.holdDuration)
@@ -117,7 +121,7 @@ struct CameraView: View {
         camera.setMode(mode)
         camera.setAutoFraming(settings.autoFrame)
         camera.setGuidance(settings.guide)
-        camera.setPreviewAspect(settings.aspect.ratio)
+        camera.setPreviewAspect(viewfinderAspect)
         resume()
     }
 
@@ -138,6 +142,7 @@ struct CameraView: View {
         camera.stop(); sony.disconnect(); demo = false; showExposure = false
         smartGate.reset(); camera.setAnalysisSource(value)
         if value == .iPhone { camera.start() }
+        else { sonyFullFrame = true; mode = .thirds; settings.guide = true }
     }
 
     private func changeCorner(to value: Int?) {
@@ -176,9 +181,9 @@ struct CameraView: View {
     private var aspectButton: some View {
         Button { showAspect.toggle() } label: {
             HStack(spacing: 7) {
-                Image(systemName: aspectSymbol(settings.aspect)).font(.system(size: 17))
+                Image(systemName: source == .sony && sonyFullFrame ? "rectangle" : aspectSymbol(settings.aspect)).font(.system(size: 17))
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(settings.aspect.rawValue).font(.system(size: 13, weight: .semibold))
+                    Text(aspectTitle).font(.system(size: 13, weight: .semibold))
                     if settings.raw && camera.supportsRAW && source == .iPhone {
                         Text("RAW").font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(Palette.yellow)
                     }
@@ -269,9 +274,9 @@ struct CameraView: View {
             referenceOverlay
             subjectOverlay
             coachOverlay
-            aspectOverlay
         }
         .clipped()
+        .overlay(alignment: .topLeading) { aspectOverlay }
         .overlay(alignment: .bottom) {
             if showExposure {
                 exposureStrip.padding(.horizontal, 10).padding(.bottom, 8)
@@ -298,14 +303,13 @@ struct CameraView: View {
     }
 
     @ViewBuilder private var sonyPreview: some View {
-        if let frame = sony.frame {
+        if sony.hasFrame {
             GeometryReader { geometry in
-                Image(uiImage: frame).resizable().scaledToFill()
+                SonyPreviewSurface(feed: sony.previewFeed)
                     .frame(width: geometry.size.width, height: geometry.size.height).clipped()
-                    .contentShape(Rectangle())
-                    .onTapGesture(coordinateSpace: .local) { (point: CGPoint) in
-                        selectSonySubject(at: point, size: geometry.size, frame: frame)
-                    }
+                    .overlay(Color.clear.contentShape(Rectangle()).onTapGesture(coordinateSpace: .local) { (point: CGPoint) in
+                        selectSonySubject(at: point, size: geometry.size)
+                    })
             }
         } else {
             SonyConnectionView(camera: sony) { source = .iPhone }
@@ -313,12 +317,11 @@ struct CameraView: View {
         }
     }
 
-    private func selectSonySubject(at point: CGPoint, size: CGSize, frame: UIImage) {
-        guard size.width > 0, size.height > 0, frame.size.height > 0 else { return }
+    private func selectSonySubject(at point: CGPoint, size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
         let visible = UnitPoint2D(x: Double(point.x / size.width), y: Double(point.y / size.height))
         camera.selectSubject(at: visible)
-        let imageAspect: Double = Double(frame.size.width / frame.size.height)
-        let projection = PreviewProjection(imageAspect: imageAspect, previewAspect: settings.aspect.ratio)
+        let projection = PreviewProjection(imageAspect: sony.imageAspect, previewAspect: viewfinderAspect)
         sony.focus(at: projection.imagePoint(visible))
     }
 
@@ -348,7 +351,7 @@ struct CameraView: View {
     }
 
     private var hasLivePreview: Bool {
-        if source == .sony { return sony.frame != nil }
+        if source == .sony { return sony.hasFrame }
         return !demo && camera.access == .available
     }
 
@@ -362,13 +365,13 @@ struct CameraView: View {
     }
 
     @ViewBuilder private var coachOverlay: some View {
-        if settings.guide && settings.coach && !showExposure && !showAspect && (source == .iPhone ? camera.isRunning : sony.frame != nil) {
+        if settings.guide && settings.coach && !showExposure && !showAspect && (source == .iPhone ? camera.isRunning : sony.hasFrame) {
             VStack(alignment: .leading, spacing: 3) {
                 if let scene = camera.sceneLabel { Text("Frame label: \(scene)") }
                 if let measured = camera.liveMeasurements {
                     Text(String(format: "Technical measure %.0f/100", measured.technicalScore))
                 }
-                if let alignment = reading.alignmentPercent(previewAspect: settings.aspect.ratio) {
+                if let alignment = reading.alignmentPercent(previewAspect: viewfinderAspect) {
                     Text(String(format: "Guide alignment %.0f%%", alignment))
                 }
             }
@@ -453,6 +456,7 @@ struct CameraView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Aspect ratio").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.secondary)
                 .padding(.horizontal, 14).padding(.top, 13).padding(.bottom, 5)
+            if source == .sony { sonyFrameOption }
             ForEach(PhotoAspect.allCases) { aspect in aspectOption(aspect) }.padding(.horizontal, 6)
             Divider().overlay(Color.white.opacity(0.1)).padding(.horizontal, 12).padding(.vertical, 9)
             rawToggle
@@ -464,10 +468,10 @@ struct CameraView: View {
     }
 
     private func aspectOption(_ aspect: PhotoAspect) -> some View {
-        let selected: Bool = settings.aspect == aspect
+        let selected: Bool = settings.aspect == aspect && !(source == .sony && sonyFullFrame)
         let foreground: Color = selected ? Color.white : Color.secondary
         let background: Color = selected ? Color.white.opacity(0.07) : Color.clear
-        return Button { settings.aspect = aspect; showAspect = false } label: {
+        return Button { sonyFullFrame = false; settings.aspect = aspect; showAspect = false } label: {
             HStack(spacing: 10) {
                 Image(systemName: aspectSymbol(aspect)).font(.system(size: 14))
                 Text(aspect.rawValue).font(.system(size: 16))
@@ -477,6 +481,17 @@ struct CameraView: View {
             .padding(.horizontal, 12).frame(height: 34).foregroundStyle(foreground)
             .background(background, in: RoundedRectangle(cornerRadius: 10))
         }
+    }
+
+    private var sonyFrameOption: some View {
+        Button { sonyFullFrame = true; showAspect = false } label: {
+            HStack {
+                Image(systemName: "rectangle")
+                Text("Camera frame").font(.system(size: 13))
+                Spacer()
+                if sonyFullFrame { Image(systemName: "checkmark").foregroundStyle(Palette.yellow) }
+            }.padding(.horizontal, 14).frame(height: 34)
+        }.foregroundStyle(.white)
     }
 
     private var rawToggle: some View {
@@ -625,6 +640,8 @@ struct CameraView: View {
         let count = capturedDemo || source == .sony ? 1 : settings.burstCount
         let burst = count > 1 ? UUID() : nil
         let aspect = settings.aspect, caption = settings.caption
+        let preserveSonyFrame = source == .sony && sonyFullFrame
+        let savedAspect = preserveSonyFrame ? "Camera frame" : aspect.rawValue
         let keepRAW = settings.keepRAW, autoSave = settings.autoSaveToPhotos
         let scan = settings.saveScan && settings.guide && !demo ? camera.scanData : nil
         let label: String? = settings.guide && !demo && reading.subjectBounds != nil ? subjectName : nil
@@ -649,13 +666,13 @@ struct CameraView: View {
                     }
                     try Task.checkCancellation()
                     let rendered = try await Task.detached(priority: .userInitiated) {
-                        let processed = try PhotoRenderer.crop(capture.processed,to: aspect)
+                        let processed = preserveSonyFrame ? capture.processed : try PhotoRenderer.crop(capture.processed,to: aspect)
                         return (processed, index == 0 ? scan.flatMap { PhotoRenderer.captionedScan($0,style: caption) } : nil)
                     }.value
                     try Task.checkCancellation()
                     let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: capturedDemo,
                         rawData: keepRAW ? capture.raw : nil,originalData: rendered.0 == capture.processed ? nil : capture.processed,
-                        scanData: rendered.1,aspect: aspect.rawValue,subject: label,challenge: challenge,burstID: burst)
+                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst)
                     added.append(photo)
                     if index+1 < count { try await Task.sleep(for: .milliseconds(180)) }
                 }
