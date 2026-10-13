@@ -91,11 +91,12 @@ struct CameraPreview: UIViewRepresentable {
     }
     private func rotate(_ view: PreviewSurface) {
         if let connection = view.previewLayer.connection, connection.isVideoMirroringSupported {
-            connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = mirrored
+            if connection.automaticallyAdjustsVideoMirroring { connection.automaticallyAdjustsVideoMirroring = false }
+            if connection.isVideoMirrored != mirrored { connection.isVideoMirrored = mirrored }
         }
-        if view.previewLayer.connection?.isVideoRotationAngleSupported(90) == true {
-            view.previewLayer.connection?.videoRotationAngle = 90
+        if let connection = view.previewLayer.connection,
+           connection.isVideoRotationAngleSupported(90), connection.videoRotationAngle != 90 {
+            connection.videoRotationAngle = 90
         }
     }
 }

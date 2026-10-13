@@ -23,7 +23,7 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 87 XCTest regression tests covering composition, preview geometry, crops, scan captions, persistence and settings.
+- Privacy manifest, app icon, shared scheme, and 99 XCTest regression tests covering composition, preview geometry, crops, scan captions, persistence and settings.
 
 ## Validation status
 
@@ -110,7 +110,7 @@ See [audit](docs/AUTO-FRAMING-AUDIT.md), [implementation and acceptance report](
 - Top aperture button expands real mode/shutter/ISO/EV at the preview bottom. ISO/shutter are read-only, EV is adjustable on iPhone and aperture is fixed. Camera Source lives in **…**, while the yellow footer button remains Scan.
 - Experimental, capability-discovered Sony wireless adapter with real received JPEG live view, shared Vision analysis, supported touch AF/capture and reported telemetry. It never substitutes iPhone video or sends Sony lens zoom commands. A7 III/A6100 firmware compatibility and transfer quality require independent physical testing.
 
-Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 87 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
+Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 99 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
 
 ## Compilation correction (1.5.1, build 7)
 
@@ -123,3 +123,9 @@ The existing bottom-right button is now **AI Guidance**: dark with a yellow outl
 Detection proposals are ranked using actual confidence/category, saliency/local contrast, measured isolation, visible size/location, texture density and classification evidence. Configurable selectivity defaults to 0.68. Acquisition needs repeated observations; ordinary saliency regions require strong isolation or supported architectural context. Background categories carry a soft penalty rather than a permanent exclusion. Manual taps bypass automatic relevance but still need real reliable boundaries. Healthy tracking is retained; substantially stronger challengers require sustained evidence. Scene-classified landscapes can receive measured scene guidance without a box, readiness claim or automatic zoom.
 
 See [audit](docs/SUBJECT-SELECTION-AUDIT.md) and [implementation/device checklist](docs/SUBJECT-SELECTION-REPORT.md). These are measured heuristics around native models, not a model of artistic value or a guarantee of user intent. Actual detector behavior and default thresholds need testing on the iPhone 16 Pro Max and independently on Sony live view. There are 87 registered XCTest functions; none have run here. Structural checks pass, but Xcode/Codemagic build and physical verification remain pending.
+
+## Preview motion and Sony JPEG recovery (1.6.1, build 9)
+
+The native preview connection is now reconfigured only when rotation/mirroring actually changes. A separate video callback admits one bounded analysis copy at a time, immediately releases the camera's full-resolution buffer, and drops inference backlog. Native analysis is capped at four admitted frames per second; selected-subject tracking remains active during pans/zoom while expensive discovery/coaching waits. Pinch requests coalesce to the latest target rather than accumulating camera configurations. Preview format selection retains the highest supported photo-dimension budget, prefers 60 fps at that budget when available, and fixes cadence to 60/30 rather than allowing 15 fps low-light behavior. Smooth slow focus and automatic low-light boost are disabled; automatic subject focus no longer changes exposure metering. Settings shows the chosen target and last observed buffer-delivery cadence. This may need higher ISO in low light; optical lens transitions, motion blur and digital magnification cannot be certified here.
+
+Sony decoding now separates binary wrappers/padding from JPEG content, supports marker-framed streams, handles incremental segments/entropy/EXIF thumbnails, and resynchronizes after malformed frames. Images are displayed only after ImageIO validates and decodes them. Connection diagnostics report received bytes, framing, image and rejection counts if no view appears. A single rejected JPEG no longer immediately ends the connection. See [fix details and device retest](docs/PREVIEW-SONY-FIX.md). All 99 native tests still need Codemagic execution; motion quality and the A7 III connection need a physical retest.

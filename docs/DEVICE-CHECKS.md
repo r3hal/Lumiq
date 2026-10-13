@@ -1,6 +1,6 @@
-# Native acceptance checks — Focal 1.6
+# Native acceptance checks — Focal 1.6.1
 
-None of these checks has been performed in this Linux workspace. Build ios-sideload on Codemagic: it runs 87 native XCTest tests before archive and IPA packaging. Install over the existing AltStore app to preserve the local library. Do not delete the app.
+None of these checks has been performed in this Linux workspace. Build ios-sideload on Codemagic: it runs 99 native XCTest tests before archive and IPA packaging. Install over the existing AltStore app to preserve the local library. Do not delete the app.
 
 1. Open an existing library from 1.1–1.3: images, favorites, paired RAW/scans and originals remain. Relaunch after new captures, collection assignment and recipe saving.
 2. On a fresh install, grant and deny Camera. Denial offers Settings; unavailable hardware offers demo/retry; checking shows progress. Test temporary interruptions and background/foreground return.
@@ -23,3 +23,5 @@ None of these checks has been performed in this Linux workspace. Build ios-sidel
 For the 1.5 clean preview, measured automatic framing, exposure strip and independent Sony checks, use [AUTO-FRAMING-REPORT.md](AUTO-FRAMING-REPORT.md) and [SONY-INTEGRATION.md](SONY-INTEGRATION.md).
 
 For the current AI toggle and all 14 requested subject-selection scenarios, follow [SUBJECT-SELECTION-REPORT.md](SUBJECT-SELECTION-REPORT.md), starting with the physical iPhone 16 Pro Max.
+
+The reported motion/zoom and Sony invalid-JPEG failures require the targeted retest in [PREVIEW-SONY-FIX.md](PREVIEW-SONY-FIX.md).

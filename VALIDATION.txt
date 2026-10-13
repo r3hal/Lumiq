@@ -1,18 +1,16 @@
-Focal 1.6, build 8
-PASS: Swift grammar parsed 43 source files (36 app, 7 test).
+Focal 1.6.1, build 9
+PASS: Swift grammar parsed 45 source files (37 app, 8 test).
 PASS: Xcode project parsed; all source/resource references present.
 PASS: Info/privacy plists, shared test scheme and purpose strings parsed.
-PASS: Local HTTP private-range exceptions; no global arbitrary-load exception.
-PASS: Asset catalogs and bundled caption font files exist.
+PASS: Asset catalogs, bundled caption font files and local-network declarations.
 PASS: Both free cloud workflows parsed; all shell scripts passed bash -n.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: 87 native XCTest functions registered (18 new policy/guidance/settings functions; none executed here).
-PASS: Sony transport/control source files preserved.
+PASS: 99 native XCTest functions registered (12 new framing/preview-policy functions; none executed here).
 PASS: git diff --check.
-ATTEMPTED: Native build command returned exit 127: xcodebuild: command not found.
-NOT EXECUTED: Docker-based pure-logic test attempt was cancelled before startup.
-PENDING: Swift type checking, native build and all 87 XCTest executions in Codemagic.
-PENDING: iPhone 16 Pro Max detector relevance/empty-scene/model accuracy, toggle/inference/AF independence, geometry, selection hysteresis, manual targeting, zoom-loss/cancellation, battery/performance and existing capture/library/export checks.
-PENDING: Independent physical Sony A7 III/A6100 live-view, shared selection, focus/capture/capability and failure/recovery checks. Integration remains experimental.
-No Swift compiler, Apple SDK, Xcode, simulator or physical devices were used. Grammar/project checks are not native compilation or runtime tests.
-See docs/SUBJECT-SELECTION-AUDIT.md and docs/SUBJECT-SELECTION-REPORT.md.
+ATTEMPTED: Xcode build returned exit 127: xcodebuild: command not found.
+PENDING: Swift type checking, native build and all 99 XCTest executions in Codemagic.
+PENDING: iPhone 16 Pro Max motion/low-light/zoom cadence, native buffer retention, AF/AE, capture/RAW and performance/lifecycle tests.
+PENDING: A7 III actual stream bytes/decoded view, decoder recovery and source/capture tests; A6100 remains separately unverified.
+The user has supplied device feedback: good stationary iPhone preview, poor motion/zoom, and A7 III invalid JPEG/no view on the previous build. It is not hardware verification of these corrections.
+No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks are not native compilation or runtime tests.
+See docs/PREVIEW-SONY-FIX.md.

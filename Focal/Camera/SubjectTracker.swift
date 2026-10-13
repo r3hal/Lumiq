@@ -21,11 +21,12 @@ final class SubjectTracker {
     private(set) var label = "Auto subject"
     private(set) var scene: SubjectScene?
 
-    func cancelInference() {
+    func cancelInference(includeTracking: Bool = true) {
         requestLock.lock(); let requests = activeRequests; requestLock.unlock()
-        requests.forEach { $0.cancel() }
+        requests.filter { includeTracking || !($0 is VNTrackObjectRequest) }.forEach { $0.cancel() }
     }
     func performRequests(_ requests: [VNRequest], canContinue: () -> Bool = { true }, work: () throws -> Void) throws {
+        requests.forEach { $0.preferBackgroundProcessing = true }
         requestLock.lock(); activeRequests = requests; requestLock.unlock()
         defer { requestLock.lock(); activeRequests = []; requestLock.unlock() }
         guard canContinue() else { throw CancellationError() }

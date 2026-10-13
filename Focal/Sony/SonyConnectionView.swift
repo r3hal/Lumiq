@@ -7,7 +7,10 @@ struct SonyConnectionView: View {
         VStack(spacing:16) {
             Image(systemName:"camera").font(.system(size:32,weight:.light)).foregroundStyle(Palette.yellow)
             Text(camera.state == .connecting ? "Connecting to Sony…" : "Sony wireless camera").font(.headline)
-            if camera.state == .connecting { ProgressView().tint(Palette.yellow) }
+            if camera.state == .connecting {
+                ProgressView().tint(Palette.yellow)
+                Text(camera.streamDiagnostics).font(.caption2).foregroundStyle(.secondary)
+            }
             Text("On the camera, enable Ctrl w/ Smartphone. In iPhone Settings → Wi-Fi, join the camera’s DIRECT network. Return here and connect.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             TextField("Camera IP address",text:$camera.host).keyboardType(.decimalPad).textInputAutocapitalization(.never).autocorrectionDisabled()

@@ -185,6 +185,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "535DCFAD032310B3C8AE5B4E";
 		};
+		"FF156683D5CC8BD7F3CFC99F" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Composition/PreviewFramePolicy.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"D01DF8DDA53C7DD6EBA0813F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FF156683D5CC8BD7F3CFC99F";
+		};
 		"2F1ADB32C379B37967582641" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -415,6 +425,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "9F5036EBFA1C8C5D9E47EE12";
 		};
+		"9B9DBB7512D28FE5B8D95D11" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/PreviewFramePolicyTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"EA07C1DB3E62D1ABF10D9958" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9B9DBB7512D28FE5B8D95D11";
+		};
 		"242DF3E0A9F1F6F3BB9ED4C8" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -515,6 +535,7 @@
 				"FD37C76EF9CE840E81963971",
 				"F6B45CBABD2940697E419928",
 				"535DCFAD032310B3C8AE5B4E",
+				"FF156683D5CC8BD7F3CFC99F",
 				"2F1ADB32C379B37967582641",
 				"2C654AB864BD558781B88CC1",
 				"86B8E54C27CB20969E77C895",
@@ -556,6 +577,7 @@
 				"EEFCE77D5F23C2EC45C8B7B1",
 				"8324D6A7CE9CC4869FAFC59D",
 				"9F5036EBFA1C8C5D9E47EE12",
+				"9B9DBB7512D28FE5B8D95D11",
 				"242DF3E0A9F1F6F3BB9ED4C8",
 				"10543D808552C0FCFFF69CF1",
 			);
@@ -582,8 +604,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "8";
-				"MARKETING_VERSION" = "1.6";
+				"CURRENT_PROJECT_VERSION" = "9";
+				"MARKETING_VERSION" = "1.6.1";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -605,8 +627,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "8";
-				"MARKETING_VERSION" = "1.6";
+				"CURRENT_PROJECT_VERSION" = "9";
+				"MARKETING_VERSION" = "1.6.1";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -649,6 +671,7 @@
 				"07566F72E315C53805A9A166",
 				"23F2E3F4C147C1257AB0482D",
 				"45E2673DFABB12C735A40FD4",
+				"D01DF8DDA53C7DD6EBA0813F",
 				"CAB6F98E6FAA5EFD98AB1B11",
 				"FBF14F6CDC303AE866EC1A62",
 				"878AEDE2488CE66A9418690F",
@@ -770,6 +793,7 @@
 				"787FF8FAE389531F79179B70",
 				"A28AFF7E2E2C652907EAA52C",
 				"220AB2911A116948FB1E5960",
+				"EA07C1DB3E62D1ABF10D9958",
 				"51F9F50945A826860F384807",
 				"FFAC673909E87EC27977B254",
 			);

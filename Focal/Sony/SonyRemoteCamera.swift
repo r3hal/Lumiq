@@ -12,6 +12,7 @@ final class SonyRemoteCamera: ObservableObject {
     @Published private(set) var telemetry = CameraTelemetry()
     @Published private(set) var methods = Set<String>()
     @Published private(set) var frameCount = 0
+    @Published private(set) var streamDiagnostics = "Waiting for camera data"
     @Published private(set) var resolution = "—"
     @Published private(set) var isCapturing = false
     @Published private(set) var message: String?
@@ -34,7 +35,7 @@ final class SonyRemoteCamera: ObservableObject {
         guard SonyEndpoint.validHost(selectedHost) else { state = .failed; message = "Enter the camera’s private IPv4 address after joining its DIRECT Wi-Fi."; return }
         close(preserveRequest:false)
         wantsConnection = true; host = selectedHost
-        state = .connecting; message = nil; frameCount = 0
+        state = .connecting; message = nil; frameCount = 0; streamDiagnostics = "Waiting for camera data"
         let current = generation
         let previousCleanup = cleanupTask
         connectionTask = Task {
@@ -80,7 +81,10 @@ final class SonyRemoteCamera: ObservableObject {
                         try? await Task.sleep(for:.seconds(1))
                         guard !Task.isCancelled,current == generation else { return }
                         let now = ProcessInfo.processInfo.systemUptime
-                        if !isCapturing && now-lastFrame > 8 { fail("Sony live view stopped. Check Wi-Fi and reconnect.",generation:current); return }
+                        if !isCapturing && now-lastFrame > 8 {
+                            let problem = frameCount == 0 ? "Sony sent no decodable live-view image." : "Sony live view stopped."
+                            fail(problem + " " + streamDiagnostics + " Check camera remote mode/Wi-Fi and reconnect.", generation: current); return
+                        }
                         if supported.contains("getEvent"), !isCapturing,now-lastEvent >= 2 {
                             lastEvent = now
                             do {
@@ -105,10 +109,11 @@ final class SonyRemoteCamera: ObservableObject {
     private func openStream(_ url:URL,generation current:UUID) {
         lastFrame = ProcessInfo.processInfo.systemUptime
         let delegate = SonyStreamReceiver(onFrame:{ [weak self] data in
-            guard let source = CGImageSourceCreateWithData(data as CFData,nil),let dimensions = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
+            guard let source = CGImageSourceCreateWithData(data as CFData,nil), let dimensions = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
                   let width = dimensions[kCGImagePropertyPixelWidth] as? Int,let height = dimensions[kCGImagePropertyPixelHeight] as? Int,
                   width > 0,height > 0,Int64(width)*Int64(height) <= 16_000_000,
-                  let cg = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2400] as CFDictionary) else { return }
+                  let cg = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2400] as CFDictionary),
+                  CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete else { return false }
             let image = UIImage(cgImage:cg)
             Task { @MainActor in
                 guard let self,current == self.generation else { return }
@@ -116,6 +121,12 @@ final class SonyRemoteCamera: ObservableObject {
                 self.lastFrame = ProcessInfo.processInfo.systemUptime
                 self.resolution = "\(width) × \(height)"
                 self.onJPEG?(data)
+            }
+            return true
+        }, onDiagnostics: { [weak self] detail in
+            Task { @MainActor in
+                guard let self, current == self.generation else { return }
+                self.streamDiagnostics = detail
             }
         },onEnd:{ [weak self] error in
             Task { @MainActor in self?.fail(error?.localizedDescription ?? "Sony ended the live-view stream.",generation:current) }
@@ -179,9 +190,15 @@ final class SonyRemoteCamera: ObservableObject {
 private final class SonyStreamReceiver: NSObject,URLSessionDataDelegate {
     private var parser = SonyLiveViewParser()
     private var lastDelivery: TimeInterval = -.infinity
-    private let onFrame:(Data)->Void
-    private let onEnd:(Error?)->Void
-    init(onFrame:@escaping(Data)->Void,onEnd:@escaping(Error?)->Void) { self.onFrame = onFrame; self.onEnd = onEnd }
+    private let onFrame: (Data) -> Bool
+    private let onDiagnostics: (String) -> Void
+    private let onEnd: (Error?) -> Void
+    private var receivedBytes = 0
+    private var decoderRejections = 0
+    private var lastDiagnostics: TimeInterval = -.infinity
+    init(onFrame: @escaping (Data) -> Bool, onDiagnostics: @escaping (String) -> Void, onEnd: @escaping (Error?) -> Void) {
+        self.onFrame = onFrame; self.onDiagnostics = onDiagnostics; self.onEnd = onEnd
+    }
     func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive response:URLResponse,completionHandler:@escaping(URLSession.ResponseDisposition)->Void) {
         guard let http = response as? HTTPURLResponse,(200..<300).contains(http.statusCode) else {
             completionHandler(.cancel); onEnd(SonyRemoteError(message:"Sony live-view HTTP request was rejected.")); return
@@ -190,9 +207,20 @@ private final class SonyStreamReceiver: NSObject,URLSessionDataDelegate {
     }
     func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive data:Data) {
         do {
+            receivedBytes += data.count
             let frames = try parser.append(data)
             let now = ProcessInfo.processInfo.systemUptime
-            if now-lastDelivery >= 0.1,let latest = frames.last { lastDelivery = now; onFrame(latest) }
+            if now - lastDelivery >= 0.1 {
+                for frame in frames.reversed() {
+                    if onFrame(frame) { lastDelivery = now; break }
+                    decoderRejections += 1
+                }
+            }
+            if now - lastDiagnostics >= 1 {
+                lastDiagnostics = now
+                let discarded = parser.discardedFrames + decoderRejections
+                onDiagnostics("\(receivedBytes / 1024) KiB received · \(parser.framing) · \(parser.imageFrames) JPEGs · \(discarded) rejected")
+            }
         }
         catch { session.invalidateAndCancel(); onEnd(error) }
     }

@@ -25,6 +25,7 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var framingPhase: FramingPhase = .off
     @Published private(set) var guidance = GuidanceMessage()
     @Published private(set) var telemetry = CameraTelemetry()
+    @Published private(set) var previewFPS: Double?
     @Published private(set) var previewResolution = "Configuring…"
     @Published private(set) var qualityZoomLimit: Double = 1
     @Published private(set) var isFrontCamera = false
@@ -40,7 +41,17 @@ final class CameraController: NSObject, ObservableObject {
 
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "app.focal.camera", qos: .userInitiated)
-    private let analysisQueue = DispatchQueue(label: "app.focal.vision", qos: .userInitiated)
+    private let analysisQueue = DispatchQueue(label: "app.focal.vision", qos: .utility, autoreleaseFrequency: .workItem)
+    private let videoQueue = DispatchQueue(label: "app.focal.video", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    private var previewScheduler = PreviewAnalysisScheduler() // Video queue only.
+    private var previewCadence = PreviewFrameCadence() // Video queue only.
+    private var videoAnalysisBuffer: CVPixelBuffer? // Video queue; no overwrite until Vision finishes.
+    private var lastAnalysisLevelUpdate: TimeInterval = -.infinity // Video queue only.
+    private let previewCopyContext = CIContext(options: [.cacheIntermediates: false, .priorityRequestLow: true])
+    private var lastVideoTelemetry: TimeInterval = -.infinity
+    private var configuredPreviewRate = 30
+    private let zoomRequestLock = NSLock()
+    private var zoomRequests = ZoomRequestCoalescer()
     private let motion = CMMotionManager()
     private let output = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -86,6 +97,7 @@ final class CameraController: NSObject, ObservableObject {
     private var wantsScan = true
     private var preferredTarget: UnitPoint2D?
     private var analysisPaused = false
+    private var manualInferenceResumeAfter: TimeInterval = 0 // Analysis queue only.
     private var ignoreFramesUntil: TimeInterval = 0
     private var focusCandidate: UnitPoint2D?
     private var focusCandidateSince: TimeInterval = 0
@@ -144,6 +156,8 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func stop() {
+        zoomRequestLock.lock(); zoomRequests.clear(); zoomRequestLock.unlock()
+        videoQueue.async { self.previewCadence = PreviewFrameCadence() }
         queue.async { [weak self] in
             guard let self else { return }
             self.wantsToRun = false
@@ -268,6 +282,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func beginManualZoom(completion: @escaping (Double) -> Void) {
+        tracker.cancelInference(includeTracking: false)
         queue.async {
             guard self.captureCompletion == nil else { return }
             self.cancelZoomRamp()
@@ -278,6 +293,7 @@ final class CameraController: NSObject, ObservableObject {
                 }
                 self.boxSmoother.reset(); self.engine.reset(); self.automaticGuidance.reset()
                 self.framing.reset(enabled:false); self.ignoreFramesUntil = 0
+                self.manualInferenceResumeAfter = ProcessInfo.processInfo.systemUptime + 0.5
                 self.publishFraming()
             }
             DispatchQueue.main.async { completion(actual) }
@@ -423,14 +439,25 @@ final class CameraController: NSObject, ObservableObject {
 
     func setZoom(_ displayedZoom: Double) {
         guard !isCapturing else { return }
+        zoomRequestLock.lock(); let schedule = zoomRequests.enqueue(displayedZoom); zoomRequestLock.unlock()
+        guard schedule else { return }
+        tracker.cancelInference(includeTracking: false)
         queue.async {
-            guard self.captureCompletion == nil else { return }
-            guard let device = self.device else { return }
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.framing.reset(enabled: false); self.ignoreFramesUntil = 0
+                self.manualInferenceResumeAfter = ProcessInfo.processInfo.systemUptime + 0.5
+                self.publishFraming()
+            }
+        }
+        queue.asyncAfter(deadline: .now() + 1.0 / 30.0) {
+            self.zoomRequestLock.lock(); let requested = self.zoomRequests.take(); self.zoomRequestLock.unlock()
+            guard let requested, self.wantsToRun, self.captureCompletion == nil, let device = self.device else { return }
             self.cancelZoomRamp()
             self.analysisQueue.async { self.ignoreFramesUntil = 0; self.framing.reset(enabled: false); self.publishFraming() }
             let upper = min(device.maxAvailableVideoZoomFactor, self.zoomMultiplier * 6)
             let factor = max(device.minAvailableVideoZoomFactor,
-                             min(upper, CGFloat(displayedZoom) * self.zoomMultiplier))
+                             min(upper, CGFloat(requested) * self.zoomMultiplier))
             guard abs(device.videoZoomFactor - factor) > 0.015 else { return }
             do {
                 try device.lockForConfiguration()
@@ -444,7 +471,8 @@ final class CameraController: NSObject, ObservableObject {
                     }
                     self.boxSmoother.reset(); self.automaticGuidance.reset(); self.engine.reset()
                     self.analysisZoom = value
-                    self.ignoreFramesUntil = ProcessInfo.processInfo.systemUptime + 0.25
+                    self.ignoreFramesUntil = ProcessInfo.processInfo.systemUptime + 0.08
+                    self.manualInferenceResumeAfter = ProcessInfo.processInfo.systemUptime + 0.5
                 }
                 DispatchQueue.main.async { self.zoom = value; self.reading = CompositionReading() }
             } catch { DispatchQueue.main.async { self.errorMessage = "Zoom could not be changed. Please try again." } }
@@ -462,25 +490,28 @@ final class CameraController: NSObject, ObservableObject {
         lastFocusedPoint = nil
         wantsScan = true
         lastCoach = -.infinity; lastScene = -.infinity
-        sceneMeasurements = nil; lastSceneMeasurement = -.infinity
+        sceneMeasurements = nil; lastSceneMeasurement = -.infinity; manualInferenceResumeAfter = 0
         DispatchQueue.main.async {
             self.scanData = nil; self.reading = CompositionReading(); self.subjectLabel = "Auto subject"; self.guidance = GuidanceMessage()
             self.coachAdvice = []; self.liveMeasurements = nil; self.sceneLabel = nil; self.levelReliable = false
         }
     }
 
-    func focus(at point: CGPoint, continuous: Bool = false) {
+    func focus(at point: CGPoint, continuous: Bool = false, meterExposure: Bool = true) {
         queue.async { [weak self] in
             guard let self, self.captureCompletion == nil, let device = self.device else { return }
             do {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
+                if continuous && (!self.guidanceSnapshot().enabled || self.guidanceSnapshot().source != .iPhone || device.isAdjustingFocus) { return }
                 if device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = point
-                    let focusMode: AVCaptureDevice.FocusMode = continuous ? .continuousAutoFocus : .autoFocus
+                    // Tap selects the focus location, not a permanently locked
+                    // lens distance. Continue refocusing as the camera moves.
+                    let focusMode: AVCaptureDevice.FocusMode = device.isFocusModeSupported(.continuousAutoFocus) ? .continuousAutoFocus : .autoFocus
                     if device.isFocusModeSupported(focusMode) { device.focusMode = focusMode }
                 }
-                if device.isExposurePointOfInterestSupported {
+                if meterExposure && device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = point
                     if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
@@ -582,7 +613,7 @@ final class CameraController: NSObject, ObservableObject {
                 let pixelFormat: OSType = videoOutput.availableVideoPixelFormatTypes.contains(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
                     ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_32BGRA
                 videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
-                videoOutput.setSampleBufferDelegate(self, queue: analysisQueue)
+                videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
                 for connection in [videoOutput.connection(with: .video), output.connection(with: .video)] {
                     if connection?.isVideoRotationAngleSupported(90) == true { connection?.videoRotationAngle = 90 }
                     if connection?.isVideoMirroringSupported == true {
@@ -595,8 +626,8 @@ final class CameraController: NSObject, ObservableObject {
                 if camera.isFocusModeSupported(.continuousAutoFocus) { camera.focusMode = .continuousAutoFocus }
                 if camera.isExposureModeSupported(.continuousAutoExposure) { camera.exposureMode = .continuousAutoExposure }
                 if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { camera.whiteBalanceMode = .continuousAutoWhiteBalance }
-                if camera.isLowLightBoostSupported { camera.automaticallyEnablesLowLightBoostWhenAvailable = true }
-                if camera.isSmoothAutoFocusSupported { camera.isSmoothAutoFocusEnabled = true }
+                if camera.isLowLightBoostSupported { camera.automaticallyEnablesLowLightBoostWhenAvailable = false }
+                if camera.isSmoothAutoFocusSupported { camera.isSmoothAutoFocusEnabled = false }
                 let hasUltraWide = camera.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
                 zoomMultiplier = hasUltraWide ? CGFloat(camera.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue ?? 2) : 1
                 camera.videoZoomFactor = min(camera.maxAvailableVideoZoomFactor, max(camera.minAvailableVideoZoomFactor, zoomMultiplier))
@@ -621,11 +652,11 @@ final class CameraController: NSObject, ObservableObject {
                     self.nativeZoomStops = [1] + camera.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue / Double(self.zoomMultiplier) }
                 }
                 DispatchQueue.main.async {
-                    self.isFrontCamera = camera.position == .front
+                    self.isFrontCamera = camera.position == .front; self.previewFPS = nil
                     self.exposureBias = camera.exposureTargetBias
                     self.exposureRange = max(-3, camera.minExposureTargetBias)...min(3, camera.maxExposureTargetBias)
                     self.motionAvailable = self.motion.isDeviceMotionAvailable
-                    self.previewResolution = "\(dimensions.height) × \(dimensions.width)"
+                    self.previewResolution = "\(dimensions.height) × \(dimensions.width) · \(self.configuredPreviewRate) fps target"
                     self.qualityZoomLimit = autoLimit
                     self.minimumZoom = lower
                     self.maximumZoom = upper
@@ -673,16 +704,26 @@ final class CameraController: NSObject, ObservableObject {
                 let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
                 return photoPixels * 100 + Int64(size.width) * Int64(size.height)
             }
+            let leftPhotos = left.supportedMaxPhotoDimensions.map { Int64($0.width) * Int64($0.height) }.max() ?? 0
+            let rightPhotos = right.supportedMaxPhotoDimensions.map { Int64($0.width) * Int64($0.height) }.max() ?? 0
+            if leftPhotos != rightPhotos { return leftPhotos < rightPhotos }
+            let leftFast = left.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 60 && $0.maxFrameRate >= 60 }
+            let rightFast = right.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 60 && $0.maxFrameRate >= 60 }
+            if leftFast != rightFast { return !leftFast && rightFast }
             return score(left) < score(right)
         }
         try camera.lockForConfiguration()
         defer { camera.unlockForConfiguration() }
         if let best { camera.activeFormat = best }
-        if camera.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }) {
-            camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-            let allowsLowLightRate = camera.activeFormat.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 15 && $0.maxFrameRate >= 30 }
-            camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: allowsLowLightRate ? 15 : 30)
+        let supports60 = camera.activeFormat.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 60 && $0.maxFrameRate >= 60 }
+        configuredPreviewRate = supports60 ? 60 : 30
+        let rate = Double(configuredPreviewRate)
+        if camera.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= rate && $0.maxFrameRate >= rate }) {
+            let duration = CMTime(value: 1, timescale: Int32(configuredPreviewRate))
+            camera.activeVideoMinFrameDuration = duration
+            camera.activeVideoMaxFrameDuration = duration
         }
+
     }
 
     private func performAutomaticZoom(to target: Double, generation: Int) {
@@ -760,12 +801,66 @@ final class CameraController: NSObject, ObservableObject {
 extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        guard analysisSource == .iPhone, let fullBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        publishTelemetry()
-        processFrame(fullBuffer)
+        let snapshot = guidanceSnapshot()
+        guard snapshot.source == .iPhone else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let timestamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        if let rate = previewCadence.observe(timestamp) {
+            DispatchQueue.main.async { self.previewFPS = rate }
+        }
+        if now - lastVideoTelemetry >= 0.3 { lastVideoTelemetry = now; publishTelemetry() }
+        guard snapshot.enabled else {
+            if now - lastAnalysisLevelUpdate >= 0.2 {
+                lastAnalysisLevelUpdate = now
+                publishManualLevel(snapshot)
+            }
+            return
+        }
+        guard previewScheduler.admit(at: now, enabled: true) else { return }
+        guard let native = CMSampleBufferGetImageBuffer(sampleBuffer), let copy = previewAnalysisCopy(native) else {
+            previewScheduler.finish(); return
+        }
+        let aspect = Double(CVPixelBufferGetWidth(native)) / Double(CVPixelBufferGetHeight(native))
+        analysisQueue.async {
+            defer { self.videoQueue.async { self.previewScheduler.finish() } }
+            guard self.guidanceSnapshot() == snapshot, self.analysisSource == .iPhone else { return }
+            self.processFrame(copy, sourceAspect: aspect)
+        }
+        // No CMSampleBuffer/native pixel buffer is retained by the async closure.
     }
 
-    private func processFrame(_ fullBuffer: CVPixelBuffer) {
+    private func publishManualLevel(_ snapshot: GuidanceActivation.Snapshot) {
+        let gravity = motion.deviceMotion?.gravity
+        let reliable = gravity.map { hypot($0.x, $0.y) > 0.2 } ?? false
+        let roll = gravity.map { reliable ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
+        let result = CompositionReading(rollDegrees: roll)
+        DispatchQueue.main.async {
+            guard !snapshot.enabled, self.guidanceSnapshot() == snapshot else { return }
+            self.reading = result; self.levelReliable = reliable
+        }
+    }
+
+    /// Copy once at admission, then release the capture pool's native buffer.
+    /// The bounded copy preserves the existing 1600px scan references. Vision
+    /// receives its own 640px buffer below; neither affects preview/photo pixels.
+    private func previewAnalysisCopy(_ source: CVPixelBuffer) -> CVPixelBuffer? {
+        let w = CVPixelBufferGetWidth(source), h = CVPixelBufferGetHeight(source)
+        guard w > 0, h > 0 else { return nil }
+        let scale = min(1, 1600.0 / Double(max(w, h)))
+        let width = max(1, Int(Double(w) * scale)), height = max(1, Int(Double(h) * scale))
+        if videoAnalysisBuffer == nil || CVPixelBufferGetWidth(videoAnalysisBuffer!) != width || CVPixelBufferGetHeight(videoAnalysisBuffer!) != height {
+            var created: CVPixelBuffer?
+            let attributes: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()]
+            guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &created) == kCVReturnSuccess else { return nil }
+            videoAnalysisBuffer = created
+        }
+        guard let copy = videoAnalysisBuffer else { return nil }
+        let image = CIImage(cvPixelBuffer: source).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        previewCopyContext.render(image, to: copy, bounds: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)), colorSpace: CGColorSpaceCreateDeviceRGB())
+        return copy
+    }
+
+    private func processFrame(_ fullBuffer: CVPixelBuffer, sourceAspect: Double? = nil) {
         guard !analysisPaused else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard now >= ignoreFramesUntil,now-lastAnalysis > 0.2 else { return }
@@ -784,7 +879,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             return
         }
         guard let buffer = smallAnalysisBuffer(from: fullBuffer) else { return }
+        if let sourceAspect { imageAspect = sourceAspect }
         let zooming = framing.phase == .zooming
+        let deviceMoving = analysisSource == .iPhone && motion.deviceMotion.map {
+            !CameraStability.isStable(rotation: ($0.rotationRate.x, $0.rotationRate.y, $0.rotationRate.z),
+                                      acceleration: ($0.userAcceleration.x, $0.userAcceleration.y, $0.userAcceleration.z))
+        } == true
         if zooming, let native = latestNativeBounds, abs(analysisZoom - latestBoundsZoom) > 0.015 {
             tracker.reseed(bounds: FramingPlanner.zoomedRect(native, scale: analysisZoom / latestBoundsZoom), label: tracker.label, manual: tracker.manual)
         }
@@ -806,7 +906,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let topLeft = visibleProjection.imagePoint(.init(x:0,y:0))
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
-        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, trackingOnly: zooming,
+        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, trackingOnly: zooming || deviceMoving || now < manualInferenceResumeAfter,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
             imageBounds = object.boundingBox
             latestNativeBounds = object.boundingBox; latestBoundsZoom = analysisZoom
@@ -817,7 +917,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             let topLeftRect = CGRect(x: object.boundingBox.minX, y: 1 - object.boundingBox.maxY,
                                      width: object.boundingBox.width, height: object.boundingBox.height)
             bounds = projection.visibleRect(topLeftRect)
-            if analysisSource == .iPhone { updateAutomaticFocus(imagePoint, timestamp: now) }
+            if analysisSource == .iPhone, confidence >= 0.6, !deviceMoving, !zooming, now >= manualInferenceResumeAfter {
+                updateAutomaticFocus(imagePoint, timestamp: now)
+            }
         }
         if imageBounds == nil {
             latestNativeBounds = nil
@@ -855,7 +957,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         if imageBounds == nil, scene?.isLandscape == true, now - lastSceneMeasurement >= 2 {
             lastSceneMeasurement = now; sceneMeasurements = PhotoMeasurements.from(buffer: buffer)
         }
-        if coachEnabled && !zooming && now - lastCoach >= 2 {
+        if coachEnabled && !zooming && !deviceMoving && now >= manualInferenceResumeAfter && now - lastCoach >= 2 {
             lastCoach = now
             let nativeRect = imageBounds.map { CGRect(x: $0.minX,y: 1 - $0.maxY,width: $0.width,height: $0.height) }
             let measurements = PhotoMeasurements.from(buffer: buffer,subject: nativeRect)
@@ -944,7 +1046,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         lastAutomaticFocus = timestamp
         lastFocusedPoint = point
         // Convert physically rotated portrait buffer coordinates to the sensor's landscape axes.
-        focus(at: CGPoint(x: point.y, y: 1 - point.x), continuous: true)
+        focus(at: CGPoint(x: point.y, y: 1 - point.x), continuous: true, meterExposure: false)
     }
 }
 

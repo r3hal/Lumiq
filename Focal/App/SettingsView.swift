@@ -89,7 +89,7 @@ struct SettingsView: View {
                     Text("Optional grid/level guides are off by default. AI Guidance starts off and is toggled with the yellow footer button. Subject boxes require sustained relevance evidence; plain rooms may have no selected subject. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. The coach uses measured pixels and detected joints, not a generative AI service.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
-                    Text(source == .sony ? "Sony last received live view: \(sonyModel) · \(sonyResolution). Stream quality is set by the camera; lens zoom stays on the camera." : "Preview: \(camera.previewResolution) · Auto zoom limit: \(String(format: "%.1f×", camera.qualityZoomLimit))\nAutomatic framing zooms once after centering. Pinch zoom takes control; AI Guidance off/on or Automatic subject selection in the menu starts a new frame.")
+                    Text(previewDiagnosticText)
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     section("LIBRARY") {
                         settingToggle("Also Save to Photos", value: $settings.autoSaveToPhotos)
@@ -109,7 +109,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.6 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.6.1 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -136,6 +136,15 @@ struct SettingsView: View {
         HStack { Text(title); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary) }
             .padding(.horizontal, 15).frame(height: 44).foregroundStyle(.white)
     }
+    private var previewDiagnosticText: String {
+        if source == .sony {
+            return "Sony last received live view: \(sonyModel) · \(sonyResolution). Stream quality is set by the camera; lens zoom stays on the camera."
+        }
+        let cadence = camera.previewFPS.map { String(format: "%.0f fps last observed", $0) } ?? "measuring cadence"
+        let limit = String(format: "%.1f×", camera.qualityZoomLimit)
+        return "Preview: \(camera.previewResolution) · \(cadence) · Auto zoom limit: \(limit)\nMotion preview uses a fixed cadence. Low light can require higher ISO. Pinch takes control; restart AI Guidance or use Automatic subject selection to rearm."
+    }
+
     private var subjectSelectivity: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Subject selectivity").font(.subheadline)

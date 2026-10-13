@@ -65,38 +65,130 @@ struct SonyDescriptor {
     }
 }
 
-/// Sony live-view common header (8), payload header (128), JPEG and padding.
+/// A bounded, incremental JPEG reader. Segment lengths skip APP/EXIF data
+/// (which can contain a thumbnail's own SOI/EOI); entropy stuffing/restarts and
+/// progressive scans are handled before accepting the outer EOI.
+struct SonyJPEGFrameScanner {
+    enum Result { case incomplete, complete(Int), invalid(Int) }
+    private var cursor = 2
+    private var entropy = false
+    mutating func reset() { cursor = 2; entropy = false }
+    mutating func scan(_ bytes: Data) -> Result {
+        guard bytes.count >= 2, bytes[0] == 0xff, bytes[1] == 0xd8 else { return .invalid(1) }
+        while cursor < bytes.count {
+            if entropy {
+                while cursor < bytes.count && bytes[cursor] != 0xff { cursor += 1 }
+                if cursor == bytes.count { return .incomplete }
+            }
+            guard bytes[cursor] == 0xff else { return .invalid(cursor + 1) }
+            let start = cursor
+            var markerIndex = cursor + 1
+            while markerIndex < bytes.count && bytes[markerIndex] == 0xff { markerIndex += 1 }
+            guard markerIndex < bytes.count else { return .incomplete }
+            let marker = bytes[markerIndex]
+            if marker == 0xd9 { return .complete(markerIndex + 1) }
+            if marker == 0xd8 { return .invalid(start) } // A newer frame can recover a truncated one.
+            if entropy && (marker == 0 || (0xd0...0xd7).contains(marker)) {
+                cursor = markerIndex + 1; continue
+            }
+            if marker == 0 { return .invalid(markerIndex + 1) }
+            if marker == 1 || (0xd0...0xd7).contains(marker) { cursor = markerIndex + 1; continue }
+            guard markerIndex + 2 < bytes.count else { return .incomplete }
+            let length = Int(bytes[markerIndex + 1]) << 8 | Int(bytes[markerIndex + 2])
+            guard length >= 2 else { return .invalid(markerIndex + 3) }
+            let end = markerIndex + 1 + length
+            guard end <= bytes.count else { return .incomplete }
+            cursor = end
+            entropy = marker == 0xda || (entropy && marker == 0xdc)
+        }
+        return .incomplete
+    }
+}
+
+/// Scalar packets and marker-framed JPEG streams share the same decoder.
+/// Binary camera wrappers/padding are not assumed to be JPEG image bytes.
 struct SonyLiveViewParser {
     private var buffer = Data()
+    private var scanner = SonyJPEGFrameScanner()
+    private var payloadRemaining: Int?
+    private var packetPadding = 0
+    private var skipTrailer = 0
+    private(set) var discardedFrames = 0
+    private(set) var metadataPackets = 0
+    private(set) var imageFrames = 0
+    private(set) var framing = "detecting"
+    private let maximumFrame = 4 * 1024 * 1024
+    private let soi = Data([0xff, 0xd8])
+
     mutating func append(_ chunk: Data) throws -> [Data] {
         buffer.append(chunk)
-        guard buffer.count <= 8*1024*1024 else { throw SonyRemoteError(message:"Sony live-view data exceeded the buffer limit.") }
+        guard buffer.count <= 8 * 1024 * 1024 else { throw SonyRemoteError(message: "Sony live-view data exceeded the buffer limit.") }
         var frames = [Data]()
-        while buffer.count >= 136 {
-            if buffer[0] != 0xff || ![1,2].contains(buffer[1]) || Array(buffer[8..<12]) != [0x24,0x35,0x68,0x79] {
-                var next: Int?
-                if buffer.count > 136 {
-                    for i in 1...(buffer.count-136) {
-                        if buffer[i] == 0xff && [1,2].contains(buffer[i+1]) && Array(buffer[i+8..<i+12]) == [0x24,0x35,0x68,0x79] { next = i; break }
-                    }
-                }
-                if let next { buffer = Data(buffer.dropFirst(next)); continue }
-                buffer = Data(buffer.suffix(135)); break
+        while !buffer.isEmpty {
+            if skipTrailer > 0 {
+                let count = min(skipTrailer, buffer.count)
+                skipTrailer -= count; discard(count)
+                continue
             }
-            let size = Int(buffer[12])<<16 | Int(buffer[13])<<8 | Int(buffer[14])
-            let padding = Int(buffer[15]), total = 136+size+padding
-            guard size <= 4*1024*1024 else { throw SonyRemoteError(message:"Sony live-view frame is too large.") }
-            guard buffer.count >= total else { break }
-            if buffer[1] == 1 {
-                let jpeg = Data(buffer[136..<136+size])
-                guard jpeg.count >= 4,jpeg.prefix(2) == Data([0xff,0xd8]),jpeg.suffix(2) == Data([0xff,0xd9]) else {
-                    throw SonyRemoteError(message:"Sony sent an invalid live-view JPEG.")
+            if isPacket(at: 0) {
+                guard buffer.count >= 136 else { break }
+                let size = Int(buffer[12]) << 16 | Int(buffer[13]) << 8 | Int(buffer[14])
+                let bufferHeaderPadding = buffer[15]
+                guard size <= maximumFrame else { throw SonyRemoteError(message: "Sony live-view frame is too large.") }
+                framing = "Sony packets"
+                if buffer[1] == 2 {
+                    let total = 136 + size + Int(buffer[15])
+                    guard buffer.count >= total else { break }
+                    payloadRemaining = nil; packetPadding = 0
+                    discard(total); metadataPackets += 1; continue
                 }
-                frames.append(jpeg)
+                // JPEG itself determines its end. A packet may include wrapper
+                // bytes, alignment, or a misleading declared payload length.
+                discard(136); payloadRemaining = size; packetPadding = Int(bufferHeaderPadding)
+                continue
             }
-            buffer = Data(buffer.dropFirst(total))
+            let imageStart = buffer.range(of: soi)?.lowerBound
+            let packetStart = nextPacket(before: imageStart)
+            if let packetStart { discard(packetStart); continue }
+            guard let imageStart else {
+                // Preserve enough bytes for a split 12-byte packet signature or SOI.
+                if buffer.count > 11 { discard(buffer.count - 11) }
+                break
+            }
+            if imageStart > 0 { discard(imageStart); continue }
+            if framing == "detecting" { framing = "JPEG markers" }
+            switch scanner.scan(buffer) {
+            case .incomplete:
+                guard buffer.count <= maximumFrame else { throw SonyRemoteError(message: "Sony JPEG exceeded the frame limit before completing.") }
+                return frames
+            case .complete(let end):
+                guard end <= maximumFrame else { throw SonyRemoteError(message: "Sony JPEG exceeded the frame limit.") }
+                frames.append(Data(buffer.prefix(end))); imageFrames += 1; discard(end)
+                if let remaining = payloadRemaining, remaining >= 0 { skipTrailer = remaining + packetPadding }
+                payloadRemaining = nil; packetPadding = 0
+            case .invalid(let offset):
+                discardedFrames += 1; payloadRemaining = nil; packetPadding = 0
+                discard(max(2, offset))
+            }
         }
         return frames
+    }
+    private func isPacket(at index: Int) -> Bool {
+        guard index >= 0, index + 12 <= buffer.count else { return false }
+        return buffer[index] == 0xff && (buffer[index + 1] == 1 || buffer[index + 1] == 2)
+            && buffer[index + 8] == 0x24 && buffer[index + 9] == 0x35
+            && buffer[index + 10] == 0x68 && buffer[index + 11] == 0x79
+    }
+    private func nextPacket(before imageStart: Int?) -> Int? {
+        let end = min(imageStart ?? buffer.count, max(0, buffer.count - 11))
+        guard end > 0 else { return nil }
+        for index in 0..<end { if isPacket(at: index) { return index } }
+        return nil
+    }
+    private mutating func discard(_ count: Int) {
+        let removed = min(count, buffer.count)
+        if let remaining = payloadRemaining { payloadRemaining = remaining - removed }
+        buffer = Data(buffer.dropFirst(removed)); scanner.reset()
     }
 }
 

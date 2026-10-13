@@ -1,9 +1,11 @@
 import XCTest
+import UIKit
 @testable import Focal
 
 final class SonyProtocolTests: XCTestCase {
     private let host = "192.168.122.1"
-    private let jpeg = Data([0xff,0xd8,0x10,0x20,0xff,0xd9])
+    // A structurally framed stream fixture; the real ImageIO test below uses an encoded image.
+    private let jpeg = Data([0xff,0xd8,0xff,0xda,0,8,1,1,0,0,63,0,0x10,0x20,0xff,0xd9])
     private func packet(_ payload:Data,type:UInt8 = 1,padding:Int = 0) -> Data {
         var bytes = [UInt8](repeating:0,count:136)
         bytes[0] = 0xff; bytes[1] = type
@@ -57,10 +59,8 @@ final class SonyProtocolTests: XCTestCase {
         var parser = SonyLiveViewParser()
         XCTAssertEqual(try parser.append(Data(repeating:0,count:251)+packet(jpeg)),[jpeg])
     }
-    func testOversizedOrInvalidJPEGFailsExplicitly() {
+    func testOversizedPacketFailsExplicitly() {
         var parser = SonyLiveViewParser()
-        XCTAssertThrowsError(try parser.append(packet(Data([0,1,2,3]))))
-        parser = SonyLiveViewParser()
         var header = packet(jpeg); header[12] = 0x7f
         XCTAssertThrowsError(try parser.append(header))
     }
@@ -79,4 +79,65 @@ final class SonyProtocolTests: XCTestCase {
         XCTAssertEqual(CameraTelemetry.shutterLabel(seconds:2),"2.0 s")
         XCTAssertEqual(CameraTelemetry().evLabel,"—")
     }
+    func testSonyWrapperAndTrailerDoNotInvalidateJPEG() throws {
+        var parser = SonyLiveViewParser()
+        let wrapped = Data([0x01,0x02,0x03]) + jpeg + Data([0,0,0,0])
+        XCTAssertEqual(try parser.append(packet(wrapped, padding: 5)), [jpeg])
+    }
+    func testMarkerOnlyAndSplitSOIStreamsDecode() throws {
+        var parser = SonyLiveViewParser()
+        XCTAssertTrue(try parser.append(Data([0x11,0x22,0xff])).isEmpty)
+        XCTAssertEqual(try parser.append(Data(jpeg.dropFirst()) + jpeg), [jpeg,jpeg])
+    }
+    func testMalformedFrameRecoversToNextCameraFrame() throws {
+        var parser = SonyLiveViewParser()
+        let malformed = Data([0xff,0xd8,0x10,0x20,0xff,0xd9])
+        XCTAssertEqual(try parser.append(packet(malformed) + packet(jpeg)), [jpeg])
+        XCTAssertGreaterThan(parser.discardedFrames, 0)
+    }
+    func testEXIFThumbnailEOIDoesNotEndOuterJPEG() throws {
+        var parser = SonyLiveViewParser()
+        let embedded = jpeg
+        let segmentLength = embedded.count + 2
+        let app = Data([0xff,0xe1,UInt8(segmentLength >> 8),UInt8(segmentLength & 0xff)]) + embedded
+        let outer = Data([0xff,0xd8]) + app + Data(jpeg.dropFirst(2))
+        XCTAssertEqual(try parser.append(packet(outer)), [outer])
+    }
+    func testStuffedBytesRestartsAndProgressiveScansArePreserved() throws {
+        var parser = SonyLiveViewParser()
+        let scanHeader = Data([0xff,0xda,0,8,1,1,0,0,63,0])
+        let image = Data([0xff,0xd8]) + scanHeader + Data([0x20,0xff,0,0x30,0xff,0xd0,0x40])
+            + scanHeader + Data([0x50,0xff,0xd9])
+        var frames = [Data]()
+        for byte in image { frames.append(contentsOf: try parser.append(Data([byte]))) }
+        XCTAssertEqual(frames, [image])
+    }
+    func testMetadataAndPaddingContainingMarkersDoNotCreateImages() throws {
+        var parser = SonyLiveViewParser()
+        var imagePacket = packet(jpeg, padding: 8)
+        let offset = 136 + jpeg.count
+        imagePacket.replaceSubrange(offset..<offset+8, with: [0xff,0xd8,0x10,0x20,0xff,0xd9,0,0])
+        XCTAssertEqual(try parser.append(packet(jpeg, type: 2) + imagePacket), [jpeg])
+        XCTAssertEqual(parser.metadataPackets, 1)
+    }
+    func testTruncatedEntropyFrameCanRecoverAtNewSOI() throws {
+        var parser = SonyLiveViewParser()
+        XCTAssertTrue(try parser.append(Data(jpeg.dropLast(2))).isEmpty)
+        XCTAssertEqual(try parser.append(jpeg), [jpeg])
+    }
+    @MainActor func testRealEncodedJPEGSurvivesWrappedFragmentedStream() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 320, height: 240), format: format).image { _ in
+            UIColor.red.setFill(); UIRectFill(CGRect(x: 0,y: 0,width: 320,height: 240))
+        }
+        let encoded = try XCTUnwrap(image.jpegData(compressionQuality: 0.8))
+        let stream = packet(Data([0,1]) + encoded + Data([0,0]), padding: 7)
+        var parser = SonyLiveViewParser(), result = [Data]()
+        for offset in stride(from: 0, to: stream.count, by: 17) {
+            result.append(contentsOf: try parser.append(Data(stream[offset..<min(stream.count,offset+17)])))
+        }
+        XCTAssertEqual(result, [encoded])
+        XCTAssertEqual(try XCTUnwrap(UIImage(data: XCTUnwrap(result.first))).size, CGSize(width: 320,height: 240))
+    }
+
 }
