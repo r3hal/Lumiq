@@ -112,7 +112,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.9 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.10 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)

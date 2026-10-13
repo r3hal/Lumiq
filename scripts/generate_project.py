@@ -52,7 +52,7 @@ common = dict(SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="17.0", SWIFT_VERSI
 app = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.example.focal",
            INFOPLIST_FILE="Focal/Resources/Info.plist", GENERATE_INFOPLIST_FILE="NO",
            ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", TARGETED_DEVICE_FAMILY="1",
-           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="12", MARKETING_VERSION="1.9", VERSIONING_SYSTEM="apple-generic",
+           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="13", MARKETING_VERSION="1.10", VERSIONING_SYSTEM="apple-generic",
            SUPPORTED_PLATFORMS="iphoneos iphonesimulator", SUPPORTS_MACCATALYST="NO",
            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"],
            ENABLE_PREVIEWS="YES")

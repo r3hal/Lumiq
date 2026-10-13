@@ -5,18 +5,18 @@ struct SubjectSelectionConfiguration {
     var minimumConfidence: Double = 0.55
     var semanticDwell: TimeInterval = 0.35
     var objectDwell: TimeInterval = 1.2
-    var switchMargin: Double = 0.14
+    var switchMargin: Double = 0.12
     var switchDwell: TimeInterval = 1.5
 }
 
 enum SubjectCategory: Equatable {
-    case person, face, pet, object, architecture, background, landscape
+    case person, face, pet, object, nature, architecture, background, landscape
     var priority: Double {
         switch self {
         case .person, .pet: return 0.95
         case .face: return 0.9
         case .architecture: return 0.65
-        case .object: return 0.75
+        case .object, .nature: return 0.75
         case .landscape: return 0.25
         case .background: return 0.15
         }
@@ -26,6 +26,7 @@ enum SubjectCategory: Equatable {
         let words = Set(label.lowercased().split { !$0.isLetter }.map(String.init))
         if !words.isDisjoint(with: ["person", "human", "man", "woman", "boy", "girl"]) { return .person }
         if !words.isDisjoint(with: ["cat", "dog"]) { return .pet }
+        if !words.isDisjoint(with: ["tree", "trees", "palm", "bonsai", "oak", "pine", "maple", "birch", "willow", "fir", "plant", "flower", "flowers", "rose", "sunflower", "orchid"]) { return .nature }
         if !words.isDisjoint(with: ["mountain", "landscape", "lake", "ocean", "beach", "seashore", "forest", "valley", "sunset", "river", "waterfall", "canyon", "meadow", "desert", "coast"]) { return .landscape }
         if !words.isDisjoint(with: ["building", "architecture", "castle", "cathedral", "tower", "bridge", "monument", "skyscraper", "church", "temple", "mosque", "palace", "house", "stadium", "landmark", "sculpture", "statue"]) { return .architecture }
         if !words.isDisjoint(with: ["wall", "floor", "ceiling", "door", "doorframe", "room", "bedroom", "interior", "corridor", "hallway", "texture", "pattern"]) { return .background }
@@ -45,6 +46,7 @@ struct SubjectCandidate {
     var isolation: Double = 0
     var detail: Double = 0
     var textureDensity: Double = 0
+    var localizedProposal = false
     var visibleRegion = CGRect(x: 0, y: 0, width: 1, height: 1)
 
     var visibleArea: Double {
@@ -71,20 +73,24 @@ struct SubjectCandidate {
         // A salient region needs a specific, confident name AND separation.
         if !category.semantic {
             guard category != .landscape, category != .background,
-                  SubjectIdentity.name(label) != nil, classificationConfidence >= 0.45 else { return nil }
+                  SubjectIdentity.name(label) != nil, classificationConfidence >= 0.25 else { return nil }
             let isolated = isolation >= 0.15 && prominence >= 0.35 && detail >= 0.005
             let printed = textConfidence >= 0.65 && prominence >= 0.2 && detail >= 0.008
-            if classificationConfidence < 0.6 && !printed {
+            let localized = localizedProposal && confidence >= 0.75 && prominence >= 0.55 && centerPreference >= 0.4
+                && visibleArea >= 0.02 && visibleArea <= 0.85 && detail >= 0.003
+                && SubjectIdentity.isCommonPhotographicSubject(label)
+            if classificationConfidence < 0.6 && !printed && !localized {
                 guard isolation >= 0.35, prominence >= 0.55, detail >= 0.01 else { return nil }
             }
             let architecture = category == .architecture && classificationConfidence >= 0.65
                 && prominence >= 0.55 && centerPreference >= 0.6 && visibleArea >= 0.03 && visibleArea <= 0.75 && detail >= 0.01
-            guard isolated || architecture || printed else { return nil }
+            guard isolated || architecture || printed || localized else { return nil }
         }
         let area = visibleArea
         let sizeQuality = min(1, area / 0.035) * max(0, min(1, (0.85 - area) / 0.25))
-        let score = 0.35 * confidence + 0.2 * category.priority + 0.15 * classificationConfidence
-            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.03 * centerPreference - (textConfidence >= 0.65 ? 0.06 : 0.22) * textureDensity
+        let texturePenalty = category == .nature ? 0.02 : textConfidence >= 0.65 ? 0.06 : 0.22
+        let score = 0.35 * confidence + 0.12 * category.priority + 0.15 * classificationConfidence
+            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.11 * centerPreference - texturePenalty * textureDensity
         // Small peripheral people should not eclipse an isolated foreground
         // product. A central portrait keeps its normal semantic priority.
         let peripheralPenalty = category.semantic && area < 0.035 ? (1 - centerPreference) * 0.12 : 0
@@ -98,6 +104,16 @@ struct SubjectCandidate {
         guard !overlap.isNull else { return false }
         let area = bounds.width * bounds.height + other.bounds.width * other.bounds.height - overlap.width * overlap.height
         return area > 0 && overlap.width * overlap.height / area >= 0.4
+    }
+    func continuesIdentity(_ other: Self) -> Bool {
+        guard label.lowercased() == other.label.lowercased(), validBoundary, other.validBoundary else { return false }
+        if matches(other) { return true }
+        let overlap = bounds.intersection(other.bounds)
+        let union = bounds.width * bounds.height + other.bounds.width * other.bounds.height - overlap.width * overlap.height
+        guard !overlap.isNull, union > 0, overlap.width * overlap.height / union >= 0.2 else { return false }
+        let centerDistance = hypot(Double(bounds.midX - other.bounds.midX), Double(bounds.midY - other.bounds.midY))
+        let sizeRatio = Double(bounds.width * bounds.height / (other.bounds.width * other.bounds.height))
+        return centerDistance < 0.06 && (0.5...2).contains(sizeRatio)
     }
 }
 
@@ -129,9 +145,13 @@ struct SubjectSelector {
         if let current {
             if candidate.matches(current) { pending = nil; pendingSamples = 0; return nil }
             let currentScore = current.score(configuration: configuration) ?? configuration.threshold
-            guard best.score >= currentScore + configuration.switchMargin else { pending = nil; pendingSamples = 0; return nil }
+            let foregroundChallenger = !candidate.category.semantic && candidate.localizedProposal && candidate.classificationConfidence >= 0.25
+                && candidate.centerPreference > current.centerPreference + 0.35 && candidate.visibleArea >= 0.03
+                && candidate.prominence >= 0.65
+            let margin = foregroundChallenger ? min(configuration.switchMargin, 0.04) : configuration.switchMargin
+            guard best.score >= currentScore + margin else { pending = nil; pendingSamples = 0; return nil }
         }
-        if let pending, pending.matches(candidate), pending.label.lowercased() == candidate.label.lowercased() { pendingSamples += 1 }
+        if let pending, pending.continuesIdentity(candidate) { pendingSamples += 1 }
         else { pendingSince = timestamp; pendingSamples = 1 }
         pending = candidate
         let dwell = current != nil ? configuration.switchDwell : candidate.category.semantic ? configuration.semanticDwell : configuration.objectDwell

@@ -23,7 +23,7 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 150 XCTest functions covering composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
+- Privacy manifest, app icon, shared scheme, and 163 XCTest functions covering composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
 
 ## Validation status
 
@@ -110,7 +110,7 @@ See [audit](docs/AUTO-FRAMING-AUDIT.md), [implementation and acceptance report](
 - Top aperture button expands real mode/shutter/ISO/EV at the preview bottom. ISO/shutter are read-only, EV is adjustable on iPhone and aperture is fixed. Camera Source lives in **…**, while the yellow footer button remains Scan.
 - Experimental, capability-discovered Sony wireless adapter with real received JPEG live view, shared Vision analysis, supported touch AF/capture and reported telemetry. It never substitutes iPhone video or sends Sony lens zoom commands. A7 III/A6100 firmware compatibility and transfer quality require independent physical testing.
 
-Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 150 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
+Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 163 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
 
 ## Compilation correction (1.5.1, build 7)
 
@@ -155,3 +155,9 @@ Phone guidance now follows search → confirmed subject → combined movement di
 Single iPhone captures open a black Looks / Adjust / Effects / Frames review screen with thumbnail looks, grouped HSL/grading/calibration, parameter rulers, grain/motion/light leak/scratches/halation/dust/glow/fringe/vignette, bordered frames and date stamp, undo/redo, Delete and Save. Retained supported RAW is actually developed; camera originals remain intact. Disable Review single shots in Settings to save directly. New editing is restricted to known iPhone captures and demo images, including when reopening library photos; Sony photos retain their existing capture and guidance flow.
 
 See [reference features, limits and retest steps](docs/REFERENCE-VIDEO-UPDATE.md). All 150 native tests need Codemagic execution. Build latest main with ios-sideload and install over Focal using AltStore Classic.
+
+## Phone acquisition and broader subject guidance (1.10, build 13)
+
+Fixed the strict phone motion gate that prevented new acquisition during normal handheld movement. The stable-hold gate still controls automatic zoom/readiness. Phone and Sony now evaluate attention/objectness and rectangle proposals alongside people, with crop recognition for desks, tables, chairs, plants, trees and other supported subjects. Low-contrast furniture and natural foliage texture no longer require the same isolation test as anonymous background patterns. Nearby matching boundaries accumulate evidence; short tracking misses show a recovery instruction without stale boxes or ready claims.
+
+See [causes, changes and retest](docs/BROAD-SUBJECT-GUIDANCE.md). Recognition is still probabilistic and cannot identify every item in every view. Native compilation and all 163 tests require Codemagic. Build latest main with ios-sideload and install over the existing AltStore app.

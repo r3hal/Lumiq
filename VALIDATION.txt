@@ -1,17 +1,17 @@
-Focal 1.9, build 12
-PASS: Both user-supplied reference recordings inspected frame by frame.
-PASS: Lexical delimiter balance in 59 Swift files (46 app, 13 test). This is not a Swift grammar or type check.
-PASS: All app/test sources registered; generated Xcode source/resource paths exist.
-PASS: Info/privacy plists, shared test scheme, asset images and caption font inspected.
+Focal 1.10, build 13
+PASS: Reviewed phone acquisition/steady-hold coupling, object classification gates, person short-circuit, stage failure isolation and tracker recovery.
+PASS: Lexical delimiter balance in 60 Swift files (46 app, 14 test). This is not a Swift grammar or type check.
+PASS: All sources/resources registered; Info/privacy plists, shared test scheme, asset images and caption font inspected.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: Both cloud workflows parsed; shell scripts passed bash -n; native test step still precedes unsigned IPA packaging.
-PASS: 150 native XCTest functions registered (20 new); none executed here.
+PASS: Both cloud workflows and shell syntax checked; native test step still precedes archive and unsigned IPA packaging.
+PASS: 163 native XCTest functions registered (13 new); none executed here.
+PASS: Numerical scoring spot checks for low-contrast desk, natural tree texture, existing challenger margin and anonymous texture rejection. These are calculations, not Swift executions.
 PASS: git diff --check.
 ATTEMPTED: xcodebuild -list -project Focal.xcodeproj returned exit 127: xcodebuild: command not found.
-PENDING: Swift syntax/type checking, native build and all 150 XCTest executions in Codemagic.
-PENDING: iPhone guidance/acquisition/centering/real zoom/manual cancel/rescan and lifecycle tests.
-PENDING: JPEG/RAW development, native effect/frame/color rendering, saved-original retention, no cumulative re-editing, review Delete/Save/Photos denial and performance tests.
-PENDING: Sony capture/reconnect regressions and proof that phone-only editing remains inaccessible for Sony photos; A6100 remains separately unverified.
-LIMITS: Independent tonal recipes and border layouts; not proprietary Framed LUTs, frame assets or generative scene model. Curve is S-curve strength; grading/calibration use grouped parameter rulers. Unknown older camera origins remain disabled unless metadata identifies an iPhone. RAW development falls back to the camera JPEG if unsupported.
-No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks do not verify native compilation, model accuracy, rendering or runtime performance.
-See docs/REFERENCE-VIDEO-UPDATE.md and previous Sony/device reports.
+PENDING: Swift syntax/type checking, native build and all 163 XCTest executions in Codemagic.
+PENDING: Actual Vision crop labels/boundaries for furniture/trees/products, phone handheld acquisition, steady focus/zoom, source changes, tracking recovery and false-positive checks.
+PENDING: Inference latency, preview cadence, device heat, fast-OCR title accuracy, stage failure/retry and soft-budget behavior on actual hardware.
+PENDING: Sony live view/shutter/reconnect regressions and phone RAW/editor regressions. A7 III/A6100 behavior requires hardware retesting.
+LIMITS: Apple Vision cannot identify every item in every view. Object names require real local proposals and repeated evidence; scene labels do not fabricate object boxes. The soft classification budget does not cancel an already-running Vision request. Unknown names/lost boundaries may still produce search rather than guidance.
+No Swift compiler, Apple SDK, Xcode, simulator or physical devices were used here. Structural checks do not verify native compilation, model accuracy, rendering or runtime performance.
+See docs/BROAD-SUBJECT-GUIDANCE.md and prior validation/device reports.

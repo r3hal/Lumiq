@@ -18,10 +18,15 @@ struct AutomaticGuidance {
 
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
-                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil, subjectMeasurements: PhotoMeasurements? = nil) -> GuidanceMessage {
+                         timestamp: TimeInterval, previewAspect: Double = 0.75, scene: SubjectScene? = nil, sceneMeasurements: PhotoMeasurements? = nil, subjectLabel: String? = nil, subjectMeasurements: PhotoMeasurements? = nil, recovering: Bool = false) -> GuidanceMessage {
         guard let bounds = reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }) else {
+            if recovering, detectedSince != nil {
+                shown = GuidanceMessage(kind: .steady, text: "Keep the subject in view")
+                candidate = shown; candidateSince = timestamp
+                return shown
+            }
             reset()
             if autoEnabled { shown = GuidanceMessage(kind: .searching, text: "Finding your shot…") }
             if let scene, scene.isLandscape, timestamp - scene.timestamp <= 6 {
@@ -100,6 +105,14 @@ struct SubjectBoxSmoother {
 }
 
 struct CameraStability {
+    /// Acquisition tolerates ordinary handheld movement. The stricter hold
+    /// below is reserved for focus/readiness and a real automatic lens ramp.
+    static func permitsDetection(rotation: (Double,Double,Double), acceleration: (Double,Double,Double)) -> Bool {
+        let values = [rotation.0,rotation.1,rotation.2,acceleration.0,acceleration.1,acceleration.2]
+        guard values.allSatisfy(\.isFinite) else { return false }
+        return sqrt(rotation.0*rotation.0+rotation.1*rotation.1+rotation.2*rotation.2) < 1.8
+            && sqrt(acceleration.0*acceleration.0+acceleration.1*acceleration.1+acceleration.2*acceleration.2) < 0.7
+    }
     static func isStable(rotation: (Double,Double,Double), acceleration: (Double,Double,Double)) -> Bool {
         let values = [rotation.0,rotation.1,rotation.2,acceleration.0,acceleration.1,acceleration.2]
         guard values.allSatisfy(\.isFinite) else { return false }

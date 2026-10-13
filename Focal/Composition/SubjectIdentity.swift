@@ -11,7 +11,7 @@ enum SubjectIdentity {
               cleaned.rangeOfCharacter(from: .letters) != nil else { return nil }
         return cleaned.prefix(1).uppercased() + String(cleaned.dropFirst())
     }
-    static func recognized(_ predictions: [(identifier: String, confidence: Double)]) -> (name: String, confidence: Double)? {
+    static func recognized(_ predictions: [(identifier: String, confidence: Double)], localized: Bool = false) -> (name: String, confidence: Double)? {
         var grouped = [String: Double]()
         for prediction in predictions {
             guard prediction.confidence.isFinite, (0...1).contains(prediction.confidence), let specific = name(prediction.identifier) else { continue }
@@ -19,9 +19,21 @@ enum SubjectIdentity {
             grouped[canonical] = max(grouped[canonical] ?? 0, prediction.confidence)
         }
         let ranked = grouped.sorted { $0.value > $1.value }
-        guard let best = ranked.first, best.value >= 0.45 else { return nil }
-        if ranked.count > 1, best.value - ranked[1].value < (best.value >= 0.6 ? 0.08 : 0.15) { return nil }
+        guard let best = ranked.first, best.value >= (localized ? 0.25 : 0.45) else { return nil }
+        // Moderate crop predictions require a clear competing-class margin,
+        // a known photographic noun and subsequent spatial/temporal evidence.
+        if best.value < 0.45 && !isCommonPhotographicSubject(best.key) { return nil }
+        let margin = best.value >= 0.6 ? 0.08 : best.value >= 0.45 ? 0.15 : 0.06
+        if ranked.count > 1, best.value - ranked[1].value < margin { return nil }
         return (best.key, best.value)
+    }
+    static func isCommonPhotographicSubject(_ label: String) -> Bool {
+        let words = Set(label.lowercased().split { !$0.isLetter }.map(String.init))
+        return !words.isDisjoint(with: ["desk", "table", "chair", "bench", "stool", "sofa", "couch", "armchair", "shelf", "bookcase", "lamp",
+            "tree", "plant", "flower", "rose", "sunflower", "orchid", "palm", "bonsai", "oak", "pine", "maple", "birch", "willow", "fir",
+            "book", "keyboard", "laptop", "computer", "monitor", "television", "camera", "phone", "clock", "watch",
+            "cup", "mug", "bottle", "glass", "vase", "bowl", "plate", "food", "fruit", "cake", "pizza",
+            "car", "truck", "bicycle", "bike", "motorcycle", "boat", "guitar", "piano", "shoe", "bag", "cards"])
     }
     private static func canonicalName(_ name: String) -> String {
         let value = name.lowercased()
@@ -29,6 +41,12 @@ enum SubjectIdentity {
         if ["coffee cup", "coffee mug"].contains(value) { return "Coffee mug" }
         if ["playing card", "playing cards", "card deck", "deck of cards"].contains(value) { return "Playing cards" }
         if ["tv", "television", "television set"].contains(value) { return "Television" }
+        if ["desk", "writing desk", "office desk", "work desk"].contains(value) { return "Desk" }
+        if ["table", "dining table", "dinner table", "dining room table"].contains(value) { return "Table" }
+        if ["chair", "armchair", "rocking chair", "folding chair", "office chair"].contains(value) { return "Chair" }
+        if ["couch", "sofa", "settee"].contains(value) { return "Sofa" }
+        if ["tree", "oak", "oak tree", "pine", "pine tree", "maple", "maple tree", "birch", "birch tree", "willow", "willow tree", "fir", "fir tree"].contains(value) { return "Tree" }
+        if ["plant", "potted plant", "houseplant", "house plant", "pot plant"].contains(value) { return "Plant" }
         return name
     }
     static func tip(for name: String) -> String {
@@ -37,6 +55,8 @@ enum SubjectIdentity {
         if words.contains("print") { return "Square up to the printed face" }
         if words.contains("keyboard") { return "Isolate the keys; catch the light" }
         if words.contains("chair") { return "Isolate the chair’s shape; keep its edges clear" }
+        if words.contains("desk") || words.contains("table") { return "Show the surface; keep its edges clear" }
+        if words.contains("tree") || words.contains("palm") || words.contains("bonsai") { return "Keep the canopy clear; include space around the trunk" }
         if words.contains("person") { return "Leave space above the head" }
         if words.contains("dog") || words.contains("cat") { return "Get down to eye level" }
         if ["flower", "plant", "rose"].contains(where: { words.contains($0) }) { return "Separate the petals from the background" }

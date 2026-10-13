@@ -18,16 +18,18 @@ final class SubjectTracker {
     private var selectedPoint: CGPoint?
     private var lastDetection: TimeInterval = -.infinity
     private var lastScene: TimeInterval = -.infinity
+    private var lastPrinted: TimeInterval = -.infinity
     private(set) var manual = false
     private(set) var label = "Auto subject"
     private(set) var scene: SubjectScene?
+    private(set) var isRecovering = false
 
     func cancelInference(includeTracking: Bool = true) {
         requestLock.lock(); let requests = activeRequests; requestLock.unlock()
         requests.filter { includeTracking || !($0 is VNTrackObjectRequest) }.forEach { $0.cancel() }
     }
     func performRequests(_ requests: [VNRequest], canContinue: () -> Bool = { true }, work: () throws -> Void) throws {
-        requests.forEach { $0.preferBackgroundProcessing = true }
+        requests.forEach { $0.preferBackgroundProcessing = false }
         requestLock.lock(); activeRequests = requests; requestLock.unlock()
         defer { requestLock.lock(); activeRequests = []; requestLock.unlock() }
         guard canContinue() else { throw CancellationError() }
@@ -41,8 +43,8 @@ final class SubjectTracker {
     func reset() {
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
         candidates = []; selectedPoint = nil; selector.reset(); health.reset()
-        lastDetection = -.infinity; lastScene = -.infinity; scene = nil
-        manual = false; label = "Auto subject"
+        lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
+        manual = false; label = "Auto subject"; isRecovering = false
     }
     func select(at imagePoint: UnitPoint2D) {
         let point = CGPoint(x: imagePoint.x, y: 1 - imagePoint.y)
@@ -58,6 +60,7 @@ final class SubjectTracker {
 
     func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval,
                      visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, canContinue: () -> Bool = { true }) -> VNDetectedObjectObservation? {
+        isRecovering = false
         guard canContinue() else { return nil }
         var retained: VNDetectedObjectObservation?
         if let tracking {
@@ -74,12 +77,12 @@ final class SubjectTracker {
             if health.lost(reliable: retained != nil, timestamp: timestamp) {
                 self.tracking = nil; trackedCandidate = nil; sequence = VNSequenceRequestHandler()
                 selector.reset(); candidates = []; label = manual ? "Your subject" : "Auto subject"
-            } else if retained == nil { return nil }
+            } else if retained == nil { isRecovering = true; return nil }
         }
         // During a lens ramp, only verify the chosen subject. No new acquisition
         // or semantic switching can silently redirect an automatic zoom.
         if trackingOnly { return retained }
-        let interval: TimeInterval = retained == nil ? 0.65 : 2.5
+        let interval: TimeInterval = retained == nil ? 0.65 : 1.1
         guard timestamp - lastDetection >= interval, !manual || retained == nil else { return retained }
         lastDetection = timestamp
         let detected = detect(in: buffer, detailBuffer: detailBuffer ?? buffer, timestamp: timestamp, visibleRegion: visibleRegion, canContinue: canContinue)
@@ -87,103 +90,133 @@ final class SubjectTracker {
         candidates = detected
         if let index = selector.select(detected.map(\.candidate), timestamp: timestamp,
                                        current: retained == nil ? nil : trackedCandidate, manualPoint: manual ? selectedPoint : nil) {
-            start(detected[index]); return detected[index].observation
+            start(detected[index])
+            // A saliency proposal may have no detector confidence. Verify it
+            // with the tracker before displaying it or arming automatic zoom.
+            return detected[index].observation.confidence >= 0.4 ? detected[index].observation : nil
         }
         return retained
     }
 
     private func detect(in buffer: CVPixelBuffer, detailBuffer: CVPixelBuffer, timestamp: TimeInterval, visibleRegion: CGRect, canContinue: () -> Bool) -> [Detection] {
+        guard let evidence = SubjectImageEvidence.sample(buffer) else { return [] }
         let faces = VNDetectFaceRectanglesRequest()
         let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
         let animals = VNRecognizeAnimalsRequest()
-        let saliency = VNGenerateObjectnessBasedSaliencyImageRequest()
-        do {
-            try performRequests([faces, people, animals], canContinue: canContinue) {
-                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([faces, people, animals])
+        let objectness = VNGenerateObjectnessBasedSaliencyImageRequest()
+        let attention = VNGenerateAttentionBasedSaliencyImageRequest()
+        let rectangles = VNDetectRectanglesRequest()
+        rectangles.maximumObservations = 2; rectangles.minimumConfidence = 0.7
+        rectangles.minimumSize = 0.12; rectangles.minimumAspectRatio = 0.2; rectangles.quadratureTolerance = 30
+        func run(_ requests: [VNRequest]) -> Bool {
+            do {
+                try performRequests(requests, canContinue: canContinue) {
+                    try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform(requests)
+                }
+                return canContinue()
+            } catch { return false }
+        }
+        // An unsupported/failed request must not discard other detector stages.
+        if !run([faces, people, animals]), canContinue() {
+            for request in [faces as VNRequest, people, animals] where canContinue() { _ = run([request]) }
+        }
+        guard canContinue() else { return [] }
+        if !run([objectness, attention, rectangles]), canContinue() {
+            _ = run([objectness]); _ = run([attention]); _ = run([rectangles])
+        }
+        guard canContinue() else { return [] }
+        func prominence(_ bounds: CGRect) -> Double? {
+            let values = [objectness.results?.first?.pixelBuffer, attention.results?.first?.pixelBuffer]
+                .compactMap { SubjectSaliencyEvidence.prominence(bounds, buffer: $0) }
+            return values.max()
+        }
+        var detections = [Detection]()
+        func append(_ observation: VNDetectedObjectObservation, category: SubjectCategory, label: String, semanticConfidence: Double, localized: Bool = false) {
+            guard valid(observation.boundingBox),
+                  visibleRegion.contains(CGPoint(x: observation.boundingBox.midX, y: observation.boundingBox.midY)) else { return }
+            let features = evidence.features(for: observation.boundingBox, saliencyProminence: prominence(observation.boundingBox))
+            let support = localized ? max(Double(observation.confidence), features.prominence) : Double(observation.confidence)
+            let regionProminence = localized ? max(features.prominence, Double(observation.confidence) * 0.7) : features.prominence
+            guard support >= 0.5 else { return }
+            let candidate = SubjectCandidate(bounds: observation.boundingBox, confidence: support, category: category,
+                label: label, classificationConfidence: semanticConfidence, prominence: regionProminence, isolation: features.isolation,
+                detail: features.detail, textureDensity: features.texture, localizedProposal: localized, visibleRegion: visibleRegion)
+            detections.append(Detection(observation: observation, candidate: candidate))
+        }
+        for person in people.results ?? [] { append(person, category: .person, label: "Person", semanticConfidence: Double(person.confidence)) }
+        for face in faces.results ?? [] { append(face, category: .face, label: "Person", semanticConfidence: Double(face.confidence)) }
+        for animal in animals.results ?? [] {
+            guard let recognized = animal.labels.first, recognized.confidence >= 0.55 else { continue }
+            append(animal, category: .pet, label: recognized.identifier.capitalized, semanticConfidence: Double(recognized.confidence))
+        }
+        // People do not bypass the object path. Attention and objectness provide
+        // complementary real boundaries for furniture, plants and products.
+        var proposals: [VNDetectedObjectObservation] = []
+        proposals += (objectness.results?.first?.salientObjects ?? []).map { $0 as VNDetectedObjectObservation }
+        proposals += (attention.results?.first?.salientObjects ?? []).map { $0 as VNDetectedObjectObservation }
+        proposals += (rectangles.results ?? []).map { $0 as VNDetectedObjectObservation }
+        let ranked = proposals.filter {
+            valid($0.boundingBox) && visibleRegion.contains(CGPoint(x: $0.boundingBox.midX, y: $0.boundingBox.midY))
+        }.sorted { left, right in
+            func rank(_ box: CGRect) -> Double {
+                let features = evidence.features(for: box, saliencyProminence: prominence(box))
+                let center = max(0, 1 - hypot(Double(box.midX - visibleRegion.midX), Double(box.midY - visibleRegion.midY)))
+                return features.prominence + features.isolation * 0.3 + center * 0.3
             }
+            return rank(left.boundingBox) > rank(right.boundingBox)
+        }
+        var objects = [VNDetectedObjectObservation]()
+        for proposal in ranked {
+            let duplicate = objects.contains { existing in
+                let overlap = existing.boundingBox.intersection(proposal.boundingBox)
+                let union = existing.boundingBox.width * existing.boundingBox.height + proposal.boundingBox.width * proposal.boundingBox.height - overlap.width * overlap.height
+                return !overlap.isNull && union > 0 && overlap.width * overlap.height / union > 0.7
+            }
+            if !duplicate { objects.append(proposal) }
+        }
+        let full = CIImage(cvPixelBuffer: detailBuffer)
+        let eligible = objects.filter { object in
+            !detections.contains {
+                let candidate = $0.candidate, overlap = candidate.bounds.intersection(object.boundingBox)
+                let area = object.boundingBox.width * object.boundingBox.height
+                return candidate.category.semantic && !overlap.isNull && area > 0 && overlap.width * overlap.height / area > 0.6
+            }
+        }
+        // The crop budget begins after proposal detection, so a slower device
+        // always gets a chance to classify its first actual object boundary.
+        let deadline = ProcessInfo.processInfo.systemUptime + 1.3
+        for object in eligible.prefix(2) {
             guard canContinue() else { return [] }
-            guard let evidence = SubjectImageEvidence.sample(buffer) else { return [] }
-            var detections = [Detection]()
-            func append(_ observation: VNDetectedObjectObservation, category: SubjectCategory, label: String, semanticConfidence: Double) {
-                guard valid(observation.boundingBox), observation.confidence >= 0.5,
-                      visibleRegion.contains(CGPoint(x: observation.boundingBox.midX, y: observation.boundingBox.midY)) else { return }
-                let prominence = SubjectSaliencyEvidence.prominence(observation.boundingBox, buffer: saliency.results?.first?.pixelBuffer)
-                let features = evidence.features(for: observation.boundingBox, saliencyProminence: prominence)
-                let candidate = SubjectCandidate(bounds: observation.boundingBox, confidence: Double(observation.confidence), category: category,
-                    label: label, classificationConfidence: semanticConfidence, prominence: features.prominence, isolation: features.isolation,
-                    detail: features.detail, textureDensity: features.texture, visibleRegion: visibleRegion)
-                detections.append(Detection(observation: observation, candidate: candidate))
-            }
-            for person in people.results ?? [] { append(person, category: .person, label: "Person", semanticConfidence: Double(person.confidence)) }
-            for face in faces.results ?? [] { append(face, category: .face, label: "Person", semanticConfidence: Double(face.confidence)) }
-            for animal in animals.results ?? [] {
-                guard let recognized = animal.labels.first, recognized.confidence >= 0.55 else { continue }
-                append(animal, category: .pet, label: recognized.identifier.capitalized, semanticConfidence: Double(recognized.confidence))
-            }
-            // A confidently detected person/pet needs no product classifiers.
-            // This keeps acquisition cheap for the most common subjects.
-            if detections.contains(where: {
-                let candidate = $0.candidate
-                return candidate.category.semantic && candidate.centerPreference >= 0.65 && candidate.visibleArea >= 0.08
-                    && (candidate.score(configuration: selector.configuration) ?? 0) >= selector.configuration.threshold
-            }) { return detections }
-            try performRequests([saliency], canContinue: canContinue) {
-                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([saliency])
-            }
-            guard canContinue() else { return [] }
-            for index in detections.indices {
-                let candidate = detections[index].candidate
-                let features = evidence.features(for: candidate.bounds, saliencyProminence: SubjectSaliencyEvidence.prominence(candidate.bounds, buffer: saliency.results?.first?.pixelBuffer))
-                detections[index].candidate.prominence = features.prominence
-            }
-            let objects = (saliency.results?.first?.salientObjects ?? []).filter {
-                valid($0.boundingBox) && visibleRegion.contains(CGPoint(x: $0.boundingBox.midX, y: $0.boundingBox.midY))
-            }.sorted { left, right in
-                let a = evidence.features(for: left.boundingBox, saliencyProminence: SubjectSaliencyEvidence.prominence(left.boundingBox, buffer: saliency.results?.first?.pixelBuffer))
-                let b = evidence.features(for: right.boundingBox, saliencyProminence: SubjectSaliencyEvidence.prominence(right.boundingBox, buffer: saliency.results?.first?.pixelBuffer))
-                return a.isolation + a.prominence > b.isolation + b.prominence
-            }
-            // Bound classification cost. Saliency confidence alone never declares
-            // that a wall, room structure or piece of furniture is a subject.
-            for object in objects.prefix(3) {
-                guard canContinue() else { return [] }
-                // Face/person/pet detectors already provide semantic boundaries.
-                guard !detections.contains(where: {
-                    let candidate = $0.candidate
-                    let overlap = candidate.bounds.intersection(object.boundingBox)
-                    let area = object.boundingBox.width * object.boundingBox.height
-                    return candidate.category.semantic && !overlap.isNull && area > 0 && overlap.width * overlap.height / area > 0.6
-                }) else { continue }
-                let request = VNClassifyImageRequest()
-                // Classify actual crop pixels, with a little context, rather
-                // than interpreting a whole-room label as the small subject.
-                let native = object.boundingBox.insetBy(dx: -0.025, dy: -0.025).intersection(visibleRegion)
-                let full = CIImage(cvPixelBuffer: detailBuffer)
-                let rect = CGRect(x: native.minX * full.extent.width, y: native.minY * full.extent.height,
-                                  width: native.width * full.extent.width, height: native.height * full.extent.height).integral.intersection(full.extent)
-                guard rect.width > 8, rect.height > 8 else { continue }
-                let crop = full.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
-                guard (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request]) }) != nil,
-                      let identity = SubjectIdentity.recognized((request.results ?? []).prefix(5).map { ($0.identifier, Double($0.confidence)) }) else { continue }
-                let classified = SubjectCategory.classified(identity.name)
-                // Classifier predictions of humans/pets never substitute for
-                // a missing semantic detector boundary.
-                guard !classified.semantic else { continue }
-                append(object, category: classified, label: identity.name, semanticConfidence: identity.confidence)
-            }
-            if canContinue() {
-                detections += printedDetections(in: detailBuffer, proposals: objects, evidence: evidence, visibleRegion: visibleRegion, canContinue: canContinue)
-            }
-            if canContinue(), retainedSceneNeeded(detections), timestamp - lastScene >= 3 {
-                lastScene = timestamp
-                let request = VNClassifyImageRequest()
-                if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request]) }) != nil,
-                   let result = request.results?.first, result.confidence >= 0.65 {
-                    scene = SubjectScene(label: result.identifier, confidence: result.confidence, timestamp: timestamp)
-                } else { scene = nil }
-            }
-            return detections
-        } catch { return [] }
+            if ProcessInfo.processInfo.systemUptime > deadline { break }
+            let native = object.boundingBox.insetBy(dx: -0.025, dy: -0.025).intersection(visibleRegion)
+            let rect = CGRect(x: native.minX * full.extent.width, y: native.minY * full.extent.height,
+                              width: native.width * full.extent.width, height: native.height * full.extent.height).integral.intersection(full.extent)
+            guard rect.width > 8, rect.height > 8 else { continue }
+            let crop = full.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+            let request = VNClassifyImageRequest()
+            guard (try? performRequests([request], canContinue: canContinue) {
+                try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request])
+            }) != nil,
+                let identity = SubjectIdentity.recognized((request.results ?? []).prefix(12).map { ($0.identifier, Double($0.confidence)) }, localized: true) else { continue }
+            let category = SubjectCategory.classified(identity.name)
+            guard !category.semantic else { continue }
+            append(object, category: category, label: identity.name, semanticConfidence: identity.confidence, localized: true)
+        }
+        let hasObject = detections.contains { !$0.candidate.category.semantic && $0.candidate.score(configuration: selector.configuration) != nil }
+        let printedInterval: TimeInterval = tracking == nil ? 1.5 : 4
+        if canContinue(), !hasObject, timestamp - lastPrinted >= printedInterval {
+            lastPrinted = timestamp
+            detections += printedDetections(in: detailBuffer, proposals: eligible, evidence: evidence, visibleRegion: visibleRegion, canContinue: canContinue)
+        }
+        if canContinue(), retainedSceneNeeded(detections), timestamp - lastScene >= 3, ProcessInfo.processInfo.systemUptime <= deadline {
+            lastScene = timestamp
+            let request = VNClassifyImageRequest()
+            if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request]) }) != nil,
+               let result = request.results?.first, result.confidence >= 0.65 {
+                scene = SubjectScene(label: result.identifier, confidence: result.confidence, timestamp: timestamp)
+            } else { scene = nil }
+        }
+        return canContinue() ? detections : []
     }
     private func printedDetections(in buffer: CVPixelBuffer, proposals: [VNDetectedObjectObservation], evidence: SubjectImageEvidence,
                                    visibleRegion: CGRect, canContinue: () -> Bool) -> [Detection] {
@@ -191,13 +224,14 @@ final class SubjectTracker {
         rectangles.maximumObservations = 4; rectangles.minimumConfidence = 0.6
         rectangles.minimumSize = 0.08; rectangles.minimumAspectRatio = 0.15; rectangles.quadratureTolerance = 30
         let text = VNRecognizeTextRequest()
-        text.recognitionLevel = .accurate; text.usesLanguageCorrection = false
+        text.recognitionLevel = .fast; text.usesLanguageCorrection = false
         text.automaticallyDetectsLanguage = true; text.minimumTextHeight = 0.015
         do {
             try performRequests([rectangles, text], canContinue: canContinue) {
                 try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([rectangles, text])
             }
             guard canContinue() else { return [] }
+            let deadline = ProcessInfo.processInfo.systemUptime + 0.7
             let lines: [PrintedTextLine] = (text.results ?? []).compactMap { observation in
                 guard let top = observation.topCandidates(1).first else { return nil }
                 return PrintedTextLine(text: top.string, confidence: Double(top.confidence), bounds: observation.boundingBox)
@@ -211,7 +245,7 @@ final class SubjectTracker {
                     return !overlap.isNull && overlap.width * overlap.height > proposal.boundingBox.width * proposal.boundingBox.height * 0.7
                 }) { shapes.append(proposal) }
             }
-            for rectangle in shapes.prefix(3) {
+            for rectangle in shapes.prefix(2) {
                 let box = rectangle.boundingBox
                 guard valid(box), visibleRegion.contains(CGPoint(x: box.midX, y: box.midY)), canContinue() else { continue }
                 let printed = PrintedSubjectEvidence.identify(lines, inside: box)
@@ -219,7 +253,7 @@ final class SubjectTracker {
                 var name = printed?.name, confidence = printed?.confidence ?? 0
                 // A useful geometric candidate need not have drawn saliency.
                 // Read its real high-resolution crop before giving up on it.
-                if printed == nil || (printed?.confidence ?? 0) < 0.65 {
+                if (printed == nil || (printed?.confidence ?? 0) < 0.65) && ProcessInfo.processInfo.systemUptime <= deadline {
                     let roi = box.intersection(visibleRegion)
                     let rect = CGRect(x: roi.minX * full.extent.width, y: roi.minY * full.extent.height,
                                       width: roi.width * full.extent.width, height: roi.height * full.extent.height).integral.intersection(full.extent)
@@ -227,7 +261,7 @@ final class SubjectTracker {
                         let crop = full.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
                         let request = VNClassifyImageRequest()
                         if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request]) }) != nil,
-                           let identity = SubjectIdentity.recognized((request.results ?? []).prefix(5).map { ($0.identifier, Double($0.confidence)) }),
+                           let identity = SubjectIdentity.recognized((request.results ?? []).prefix(12).map { ($0.identifier, Double($0.confidence)) }, localized: true),
                            !SubjectCategory.classified(identity.name).semantic {
                             name = identity.name; confidence = identity.confidence
                         }
@@ -241,7 +275,7 @@ final class SubjectTracker {
                 let candidate = SubjectCandidate(bounds: box, confidence: Double(rectangle.confidence), category: SubjectCategory.classified(name),
                     label: name, classificationConfidence: confidence, textConfidence: printed?.confidence ?? 0,
                     prominence: prominence, isolation: features.isolation, detail: features.detail,
-                    textureDensity: features.texture, visibleRegion: visibleRegion)
+                    textureDensity: features.texture, localizedProposal: true, visibleRegion: visibleRegion)
                 detections.append(Detection(observation: rectangle, candidate: candidate))
             }
             return detections
@@ -252,7 +286,8 @@ final class SubjectTracker {
     }
     private func start(_ detection: Detection) {
         sequence = VNSequenceRequestHandler(); health.reset()
-        let request = VNTrackObjectRequest(detectedObjectObservation: detection.observation)
+        let seed = VNDetectedObjectObservation(boundingBox: detection.observation.boundingBox)
+        let request = VNTrackObjectRequest(detectedObjectObservation: seed)
         request.trackingLevel = .accurate; tracking = request
         trackedCandidate = detection.candidate; label = detection.candidate.label
     }

@@ -909,6 +909,10 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             !CameraStability.isStable(rotation: ($0.rotationRate.x, $0.rotationRate.y, $0.rotationRate.z),
                                       acceleration: ($0.userAcceleration.x, $0.userAcceleration.y, $0.userAcceleration.z))
         } == true
+        let rapidMovement = analysisSource == .iPhone && motion.deviceMotion.map {
+            !CameraStability.permitsDetection(rotation: ($0.rotationRate.x, $0.rotationRate.y, $0.rotationRate.z),
+                                             acceleration: ($0.userAcceleration.x, $0.userAcceleration.y, $0.userAcceleration.z))
+        } == true
         if zooming, let native = latestNativeBounds, abs(analysisZoom - latestBoundsZoom) > 0.015 {
             tracker.reseed(bounds: FramingPlanner.zoomedRect(native, scale: analysisZoom / latestBoundsZoom), label: tracker.label, manual: tracker.manual)
         }
@@ -930,7 +934,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let topLeft = visibleProjection.imagePoint(.init(x:0,y:0))
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
-        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || deviceMoving || now < manualInferenceResumeAfter,
+        let keepFramedSubject = analysisSource == .iPhone && framing.phase == .framed && latestNativeBounds != nil
+        if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || keepFramedSubject || now < manualInferenceResumeAfter,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
             imageBounds = object.boundingBox
             latestNativeBounds = object.boundingBox; latestBoundsZoom = analysisZoom
@@ -1038,7 +1043,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var measured = result; measured.subjectBounds = analysisReadingBounds
         let message = automaticGuidance.update(reading:measured,phase:framing.phase,stable:stable,
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
-            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements)
+            zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering)
         let label = tracker.label
         let phase = framing.phase
         publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.levelReliable = reliable; self.guidance = message }
