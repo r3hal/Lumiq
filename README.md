@@ -1,6 +1,10 @@
-# Focal — a little perspective
+# Focal — professional camera and photography tools
 
-A native iPhone camera app inspired by Framed’s **enable guidance → select → compose → capture** workflow, with Focal branding and a camera layout based on the supplied reference screenshots. SwiftUI, AVFoundation, Apple Vision, and Core Motion. No third-party SDKs, account, API key, or backend. AI starts off on a fresh install. The bottom-right button always toggles guidance; Find another subject is available in the options sheet.
+A native SwiftUI camera with original charcoal/amber identity, optional Focal Intelligence, real AUTO/PRO controls, photography intents, live precision tools, captured-image Insights and read-only Compare. Existing capture/gallery/editor and Sony services are preserved. Apple frameworks only; no account, API key or backend. The app opens directly to the iPhone camera. AI and precision tools start off; the photographer controls automation.
+
+**Latest: Focal 2.0 / build 16.** See [the professional-upgrade report, limitations and iPhone/Sony test instructions](docs/PROFESSIONAL-UPGRADE.md) and [pre-change feature audit](docs/PROFESSIONAL-AUDIT.md). Source/resource/structural checks pass. Native builds/tests could not run in this Linux workspace; all 235 XCTest functions and hardware behavior remain pending. Codemagic `ios-sideload` runs native tests before building the IPA.
+
+PRO exposes actual supported ISO/shutter, EV, WB, focus/loupe and discovered lenses. Aperture stays informational. Menu → Focal Precision enables measured histogram/zebra/approximate peaking/AutoTune independently of AI. AI Settings selects intent. Gallery exposes Insights and two-image Compare. Focal Link searches real camera descriptors on the joined Wi-Fi subnet, then retains the existing genuine Sony stream/control path; no fixed camera IP, fake feed or new restricted entitlement is used.
 
 **No Mac or paid developer membership?** Follow [INSTALL-FOR-FREE.md](INSTALL-FOR-FREE.md) for Windows + AltStore Classic personal sideloading. The `ios-sideload` cloud workflow runs regression tests, then builds an unsigned IPA for AltStore to sign. Only the free `ios-sideload` and `ios-check` workflows are included.
 
@@ -16,14 +20,14 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 ## Included
 
 - High-resolution 4:3 live preview format selection with continuous focus, exposure and white balance; portrait rear-camera preview, maximum supported photo dimensions with quality prioritization, original JPEG persistence, tap-to-select/focus, and device-aware lens/pinch zoom.
-- On-device human/face/cat/dog/saliency selection followed by Vision object tracking on a 640-pixel analysis buffer, preview crop mapping, stable center/thirds targets, selectable thirds corners, motion level, and a 650 ms alignment dwell before the ready state.
+- On-device human/face/cat/dog/saliency selection followed by Vision object tracking on a 640-pixel analysis buffer, preview crop mapping, intent-aware automatic layouts, center/thirds overrides and selectable thirds corners, motion level, and a 650 ms alignment dwell before the ready state.
 - AI Guidance on → meaningful subject → motion-verified hold → appropriate smooth automatic zoom, with a yellow subject box, directional bottom guidance, and subject-specific final advice. One zoom per armed AI session; pinch/lens controls cancel automation.
-- Screenshot-inspired black camera layout, thin yellow subject box, clean default preview, expandable exposure strip, white shutter, lens buttons, grouped Settings and aspect popup.
+- Original charcoal/amber camera layout, refined subject corners, clean default preview, real AUTO/PRO strip, white shutter, lens controls and native settings sheets.
 - Persistent AI Guidance toggle (off on upgrade/fresh install), subject selectivity, optional grid/level (off by default), steady-hold duration, shutter sound, scan saving, caption style, Photos export and RAW retention settings. Shutter muting requires supported iOS 18+ hardware/configuration.
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 201 XCTest functions covering composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
+- Privacy manifest, app icon, shared scheme, and 235 XCTest functions covering controls, intent, pixel tools, composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
 
 ## Composition planning (1.12, build 15)
 

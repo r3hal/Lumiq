@@ -46,6 +46,7 @@ struct CaptureOptions {
     var raw = false
     var flash: CameraFlash = .off
     var shutterSound = true
+    var encoding: PhotoEncoding = .jpeg
 }
 
 struct CameraCapture {
@@ -77,6 +78,12 @@ final class CameraSettings: ObservableObject {
     @Published var guide = false { didSet { defaults.set(guide, forKey: "camera.guide") } }
     @Published var subjectThreshold: Double = 0.68 { didSet { defaults.set(subjectThreshold, forKey: "camera.subjectThreshold") } }
     @Published var aspect: PhotoAspect = .standard { didSet { defaults.set(aspect.rawValue, forKey: "camera.aspect") } }
+    @Published var encoding: PhotoEncoding = .jpeg { didSet { defaults.set(encoding.rawValue,forKey:"camera.encoding") } }
+    @Published var intent: PhotographyIntent = .auto { didSet { defaults.set(intent.rawValue,forKey:"camera.intent") } }
+    @Published var autoTune = false { didSet { defaults.set(autoTune,forKey:"camera.autoTune") } }
+    @Published var histogram = false { didSet { defaults.set(histogram,forKey:"camera.histogram") } }
+    @Published var highlightWarnings = false { didSet { defaults.set(highlightWarnings,forKey:"camera.highlightWarnings") } }
+    @Published var focusPeaking = false { didSet { defaults.set(focusPeaking,forKey:"camera.focusPeaking") } }
     @Published var caption: CaptionStyle = .bold { didSet { defaults.set(caption.rawValue, forKey: "camera.caption") } }
     @Published var flash: CameraFlash = .off { didSet { defaults.set(flash.rawValue, forKey: "camera.flash") } }
 
@@ -114,6 +121,12 @@ final class CameraSettings: ObservableObject {
         guide = defaults.bool(forKey: "camera.guide")
         subjectThreshold = max(0.55, min(0.85, defaults.double(forKey: "camera.subjectThreshold")))
         aspect = PhotoAspect(rawValue: defaults.string(forKey: "camera.aspect") ?? "") ?? .standard
+        encoding = PhotoEncoding(rawValue:defaults.string(forKey:"camera.encoding") ?? "") ?? .jpeg
+        intent = PhotographyIntent(rawValue:defaults.string(forKey:"camera.intent") ?? "") ?? .auto
+        autoTune = defaults.bool(forKey:"camera.autoTune")
+        histogram = defaults.bool(forKey:"camera.histogram")
+        highlightWarnings = defaults.bool(forKey:"camera.highlightWarnings")
+        focusPeaking = defaults.bool(forKey:"camera.focusPeaking")
         caption = CaptionStyle(rawValue: defaults.string(forKey: "camera.caption") ?? "") ?? .bold
         flash = CameraFlash(rawValue: defaults.integer(forKey: "camera.flash")) ?? .off
     }

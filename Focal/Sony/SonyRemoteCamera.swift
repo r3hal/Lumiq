@@ -21,7 +21,8 @@ final class SonyRemoteCamera: ObservableObject {
     @Published private(set) var resolution = "—"
     @Published private(set) var isCapturing = false
     @Published private(set) var message: String?
-    @Published var host = "192.168.122.1"
+    @Published var host = UserDefaults.standard.string(forKey:"sony.lastCameraHost") ?? ""
+    var discoveredDescriptorURL:URL?
     var onImage: ((CGImage)->Void)?
     private var deliveredFrames = 0
     private var lastFramePublication: TimeInterval = -.infinity
@@ -60,9 +61,13 @@ final class SonyRemoteCamera: ObservableObject {
             do {
                 var descriptor: SonyDescriptor?
                 var lastError: Error?
-                for port in [64321,61000] {
+                var descriptorURLs:[URL] = []
+                if let selected = discoveredDescriptorURL, selected.host == selectedHost {
+                    descriptorURLs.append(try SonyEndpoint.validate(selected,host:selectedHost))
+                }
+                descriptorURLs += [64321,61000].compactMap { URL(string:"http://\(selectedHost):\($0)/DmsRmtDesc.xml") }
+                for url in descriptorURLs {
                     try Task.checkCancellation()
-                    let url = URL(string:"http://\(selectedHost):\(port)/DmsRmtDesc.xml")!
                     do {
                         let config = URLSessionConfiguration.ephemeral; config.allowsCellularAccess = false; config.timeoutIntervalForRequest = 2.5; config.timeoutIntervalForResource = 3
                         let discovery = URLSession(configuration:config,delegate:SonyLocalSessionDelegate(),delegateQueue:nil)
@@ -74,6 +79,7 @@ final class SonyRemoteCamera: ObservableObject {
                 }
                 guard current == generation,!Task.isCancelled else { return }
                 guard let descriptor else { throw lastError ?? SonyRemoteError(message:"No advertised Sony wireless service was found.") }
+                UserDefaults.standard.set(selectedHost,forKey:"sony.lastCameraHost")
                 let api = SonyAPIClient(endpoint:descriptor.endpoint); client = api
                 var supported = try await Self.available(api)
                 if supported.contains("startRecMode") && !supported.contains("actTakePicture") {

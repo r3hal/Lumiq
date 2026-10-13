@@ -12,6 +12,7 @@ struct PhotoDetailView: View {
     @State private var variant = "Photo"
     @State private var showEditor = false
     @State private var showViewer = false
+    @State private var showInsights = false
     @State private var metadata: PhotoMetadata?
     @State private var photosDenied = false
     private var current: SavedPhoto { library.photos.first { $0.id == photo.id } ?? photo }
@@ -38,9 +39,9 @@ struct PhotoDetailView: View {
                         .accessibilityLabel(photo.isDemo ? "Sample lake and mountain scene" : "Your captured photo")
                     HStack {
                         VStack(alignment: .leading, spacing: 7) {
-                            Eyebrow(text: photo.isDemo ? "Demo frame" : "A moment, kept").foregroundStyle(Palette.mint)
+                            Eyebrow(text: photo.isDemo ? "Demo frame" : "Capture details").foregroundStyle(Palette.mint)
                             Text(photo.createdAt, format: .dateTime.month(.wide).day().year())
-                                .font(.system(.title2, design: .serif))
+                                .font(.title2)
                             Text("\(photo.mode) composition · \(photo.createdAt.formatted(date: .omitted, time: .shortened))")
                                 .font(.caption).foregroundStyle(.secondary)
                             if variant == "Photo", let resolution = photo.resolutionLabel {
@@ -60,6 +61,7 @@ struct PhotoDetailView: View {
                         Spacer()
                         Button("Full screen",systemImage: "arrow.up.left.and.arrow.down.right") { showViewer = true }
                     }.foregroundStyle(Palette.yellow)
+                    Button("Focal Insights",systemImage:"chart.xyaxis.line") { showInsights = true }.foregroundStyle(Palette.yellow).disabled(variant == "Scan")
                     if !current.canUsePhoneEditor { Text("Looks, adjustments, effects and frames are available for iPhone captures.").font(.caption).foregroundStyle(.secondary) }
                     Picker("Collection",selection: Binding(get: { current.collection ?? "" },set: { library.setCollection($0.isEmpty ? nil : $0,for: current) })) {
                         Text("No collection").tag("")
@@ -120,6 +122,7 @@ struct PhotoDetailView: View {
                 }
             }
             .sheet(isPresented: $showEditor) { PhotoEditorView(photo: current) }
+            .sheet(isPresented:$showInsights) { PhotoInsightsView(url:imageURL,intent:PhotographyIntent(rawValue:current.photographyIntent ?? "") ?? .auto) }
             .fullScreenCover(isPresented: $showViewer) { PhotoViewer(url: imageURL) }
             .task(id: imageURL) {
                 let file = imageURL

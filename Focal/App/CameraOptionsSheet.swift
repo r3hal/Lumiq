@@ -1,6 +1,6 @@
 import SwiftUI
 
-private enum CameraSheetRoute: Hashable { case source, sony, ai, settings, help }
+private enum CameraSheetRoute: Hashable { case source, sony, ai, precision, settings, help }
 
 struct CameraOptionsSheet: View {
     @ObservedObject var camera: CameraController
@@ -12,6 +12,7 @@ struct CameraOptionsSheet: View {
     @Binding var corner: Int?
     @Binding var sonyFullFrame: Bool
     var startsWithSony = false
+    var startsWithSettings = false
     @State private var seeded = false
     let openReference: () -> Void
     let openExplore: () -> Void
@@ -25,13 +26,13 @@ struct CameraOptionsSheet: View {
                     mainRows
                     extraRows
                 }.padding(18)
-            }.background(.black).navigationTitle("Menu").navigationBarTitleDisplayMode(.inline)
+            }.background(Palette.ink).navigationTitle("Menu").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.7)) }.accessibilityLabel("Close camera menu") } }
                 .navigationDestination(for: CameraSheetRoute.self) { route in destination(route) }
-        }.onAppear { if !seeded { seeded = true; if startsWithSony { path = [.source, .sony] } } }
+        }.onAppear { if !seeded { seeded = true; if startsWithSony { path = [.source, .sony] } else if startsWithSettings { path = [.settings] } } }
             .onChange(of: path) { _, routes in detent = routes.isEmpty ? .fraction(0.78) : .large }
             .tint(Palette.yellow).preferredColorScheme(.dark)
-            .presentationDragIndicator(.visible).presentationBackground(.black)
+            .presentationDragIndicator(.visible).presentationBackground(Palette.ink)
             .presentationCornerRadius(28).presentationDetents([.fraction(0.78), .large], selection: $detent)
     }
     private var mainRows: some View {
@@ -55,6 +56,8 @@ struct CameraOptionsSheet: View {
             Button { path.append(.settings) } label: { row("Camera Settings", symbol: "gearshape") }
             divider
             Button { path.append(.ai) } label: { row("AI Settings", symbol: "sparkles") }
+            divider
+            Button { path.append(.precision) } label: { row("Focal Precision",symbol:"waveform.path") }
             divider
             Button { path.append(.help) } label: { row("Help & Guides", symbol: "questionmark.circle") }
         }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(.white)
@@ -89,6 +92,7 @@ struct CameraOptionsSheet: View {
         case .sony:
             SonyConnectionView(camera: sony, returnToPhone: { source = .iPhone; dismiss() }, openCamera: { dismiss() })
         case .ai: AIPhotographyView(source: source)
+        case .precision: PrecisionSettingsView()
         case .settings:
             SettingsView(camera: camera, source: source, sonyResolution: sony.resolution, sonyModel: sony.model,
                          sonyPreviewInfo: sony.qualityStatus + " · " + sony.streamDiagnostics).toolbar(.hidden, for: .navigationBar)
@@ -117,7 +121,7 @@ private struct CameraSourceSelectionView: View {
             sourceCard("Sony Camera", detail: "Connect your Sony Alpha camera over Wi-Fi.", symbol: "camera", selected: source == .sony, action: chooseSony)
             Text("Sony A7 III is the initial target. A6100 support is planned and needs separate hardware testing.").font(.caption).foregroundStyle(.secondary).padding(.top, 8)
             Spacer()
-        }.padding(20).background(.black).foregroundStyle(.white)
+        }.padding(20).background(Palette.ink).foregroundStyle(.white)
             .navigationTitle("Camera Source").navigationBarTitleDisplayMode(.inline)
     }
     private func sourceCard(_ title: String, detail: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {

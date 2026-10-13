@@ -37,7 +37,7 @@ struct ExploreView: View {
                     if !settings.challenge.isEmpty { Button("End current practice") { settings.challenge = "" }.foregroundStyle(Palette.yellow) }
                     Text("Counts track retained photos taken during practice. They do not certify composition or artistic quality.").font(.caption).foregroundStyle(.secondary)
                 }.padding(22)
-            }.background(.black).tint(Palette.yellow)
+            }.background(Palette.ink).tint(Palette.yellow)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
     }

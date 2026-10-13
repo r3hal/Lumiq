@@ -10,7 +10,7 @@ This implementation supports a **capability-advertised ScalarWebAPI service**. U
 
 1. On the Sony, enable **Ctrl w/ Smartphone** and open its Connection screen to display the DIRECT network/password. Keep the camera awake, with a memory card and still-photo mode selected.
 2. On the iPhone, join that camera's **DIRECT Wi-Fi** in Settings. The network may have no internet; stay connected to it.
-3. In Focal, open **… → Camera Source → Sony**. Enter the camera's private IPv4 address and tap **Connect**. Default is `192.168.122.1`; some camera configurations use `192.168.0.1`. Allow iOS **Local Network** access. If denied, enable it in iPhone Settings for Focal.
+3. In Focal, open **… → Camera Source → Sony**. In Focal 2.0, use **Find camera on Wi-Fi** to validate real descriptors on the current subnet, select one, and connect. Manual private IPv4 entry remains available; there is no assumed default camera IP. Allow iOS **Local Network** access. If denied, enable it in iPhone Settings for Focal.
 4. Focal probes `/DmsRmtDesc.xml` on ports 64321 and 61000. It uses the descriptor's actual camera action URL, not a guessed control endpoint. It queries `getAvailableApiList`; optional `startRecMode` is followed by capability re-query. `startLiveview` or an advertised live URL must supply the stream.
 5. A validated decoded camera JPEG is required before the state becomes streaming. No phone preview appears in Sony mode. Failure provides a reconnect screen; the three-dot source picker or Return to iPhone restores the native camera.
 

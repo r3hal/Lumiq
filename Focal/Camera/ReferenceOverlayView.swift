@@ -25,7 +25,7 @@ struct ReferenceOverlayView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                     if let error { Text(error).foregroundStyle(.red) }
                 }.padding(24)
-            }.background(.black).navigationTitle("Reference overlay").navigationBarTitleDisplayMode(.inline)
+            }.background(Palette.ink).navigationTitle("Reference overlay").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
                 .task(id: selection) {
                     guard let selection else { loading = false; return }

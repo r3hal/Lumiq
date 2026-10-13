@@ -7,6 +7,10 @@ struct LibraryView: View {
     @State private var collection = ""
     @State private var newCollection = false
     @State private var collectionName = ""
+    @State private var choosingComparison = false
+    @State private var comparisonIDs:[UUID] = []
+    @State private var showComparison = false
+    private var comparisonPhotos:[SavedPhoto] { comparisonIDs.compactMap { id in library.photos.first { $0.id == id } } }
     @Environment(\.dismiss) private var dismiss
     private var visible: [SavedPhoto] { library.photos.filter { (!favoritesOnly || $0.isFavorite) && (collection.isEmpty || $0.collection == collection) } }
 
@@ -15,7 +19,7 @@ struct LibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Eyebrow(text: "A collection of little moments").foregroundStyle(Palette.mint)
+                        Eyebrow(text: "CAPTURE ARCHIVE").foregroundStyle(Palette.mint)
                         Text("Library").font(.system(size: 30, weight: .bold))
                         Text("\(library.photos.count) \(library.photos.count == 1 ? "frame" : "frames") worth keeping.")
                             .font(.subheadline).foregroundStyle(.secondary)
@@ -27,6 +31,14 @@ struct LibraryView: View {
                         Text("Favorites").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    if choosingComparison {
+                        HStack {
+                            Text("Select two images · \(comparisonIDs.count)/2").font(.caption)
+                            Spacer()
+                            Button("Compare") { showComparison = true }.disabled(comparisonPhotos.count != 2)
+                            Button("Cancel") { choosingComparison = false; comparisonIDs = [] }
+                        }.tint(Palette.yellow)
+                    }
 
                     HStack {
                         Picker("Collection",selection: $collection) {
@@ -50,7 +62,7 @@ struct LibraryView: View {
                     } else {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 22) {
                             ForEach(visible) { photo in
-                                Button { selected = photo } label: {
+                                Button { select(photo) } label: {
                                     VStack(alignment: .leading, spacing: 10) {
                                         GeometryReader { geometry in
                                             PhotoImage(url: library.url(for: photo), maxPixels: 600, fill: true)
@@ -59,8 +71,9 @@ struct LibraryView: View {
                                         }
                                         .aspectRatio(3.0 / 4, contentMode: .fit)
                                         .clipShape(RoundedRectangle(cornerRadius: 16))
+                                        .overlay { RoundedRectangle(cornerRadius:16).stroke(comparisonIDs.contains(photo.id) ? Palette.yellow : .clear,lineWidth:2) }
                                         .overlay(alignment: .topTrailing) {
-                                            if library.isBestInBurst(photo) { Text("Best in series").font(.caption2).padding(6).background(.black.opacity(0.65)).foregroundStyle(Palette.yellow) }
+                                            if library.isBestInBurst(photo) { Text("Technical pick").font(.caption2).padding(6).background(.black.opacity(0.65)).foregroundStyle(Palette.yellow) }
                                             if photo.isFavorite {
                                                 Image(systemName: "heart.fill").font(.caption).foregroundStyle(.white)
                                                     .padding(9).background(.black.opacity(0.25), in: Circle()).padding(8)
@@ -88,8 +101,12 @@ struct LibraryView: View {
             .background(Palette.ink)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement:.topBarLeading) { Button("Compare",systemImage:"rectangle.split.2x1") { choosingComparison = true; comparisonIDs = [] }.disabled(library.photos.count < 2) }
             }
             .sheet(item: $selected) { PhotoDetailView(photo: $0) }
+            .sheet(isPresented:$showComparison) {
+                if comparisonPhotos.count == 2 { PhotoCompareView(first:comparisonPhotos[0],second:comparisonPhotos[1]) }
+            }
             .alert("New collection",isPresented: $newCollection) {
                 TextField("Name",text: $collectionName)
                 Button("Create") { do { try library.createCollection(collectionName) } catch { library.errorMessage = error.localizedDescription } }
@@ -99,6 +116,12 @@ struct LibraryView: View {
                 Button("OK") { library.errorMessage = nil }
             } message: { Text(library.errorMessage ?? "") }
         }
+    }
+    private func select(_ photo:SavedPhoto) {
+        if !choosingComparison { selected = photo; return }
+        if comparisonIDs.contains(photo.id) { comparisonIDs.removeAll { $0 == photo.id } }
+        else if comparisonIDs.count < 2 { comparisonIDs.append(photo.id) }
+        UISelectionFeedbackGenerator().selectionChanged()
     }
 }
 

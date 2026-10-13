@@ -65,6 +65,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "96A3003DDC188183C803654E";
 		};
+		"E141A84BF947B5EAD4CFFB80" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/App/PrecisionSettingsView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"B2D6F220C104FF41639422CF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E141A84BF947B5EAD4CFFB80";
+		};
 		"38B92521018C4ADA2FFEFA2C" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -94,6 +104,16 @@
 		"84E527555B3F57EC22BD06F4" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "80ECA8EE485556FF2ED3D571";
+		};
+		"096C8774AAA6F4C0FE29D01E" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Camera/CameraControls.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"791F085FDD2DC93679922E07" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "096C8774AAA6F4C0FE29D01E";
 		};
 		"F7851E62E7763B37A7DB7748" = {
 			"isa" = "PBXFileReference";
@@ -144,6 +164,16 @@
 		"2BE25F7A30CD371A7ACA8FC9" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "B3082BDAB83FE3C7E798BE98";
+		};
+		"33B23C782E39E9E926F0EA1D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Camera/ProfessionalControlsView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"1CDA04EF220DBBEBE02EF2DF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "33B23C782E39E9E926F0EA1D";
 		};
 		"8BF606DC98693D26A8466994" = {
 			"isa" = "PBXFileReference";
@@ -234,6 +264,16 @@
 		"45E2673DFABB12C735A40FD4" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "535DCFAD032310B3C8AE5B4E";
+		};
+		"B8F7AB05F5807267991A0BC9" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Composition/PhotographyIntent.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"8A76F025830F58AC9B48466E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B8F7AB05F5807267991A0BC9";
 		};
 		"FF156683D5CC8BD7F3CFC99F" = {
 			"isa" = "PBXFileReference";
@@ -425,6 +465,36 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "C0B5751F943116892AAABC99";
 		};
+		"7114D54B5946F849E21FC072" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Insights/PhotoCompareView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"1497125DB3EE9E34C88BA747" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7114D54B5946F849E21FC072";
+		};
+		"7068891884281E96233B99DE" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Insights/PhotoInsights.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"CC1383F5A0214B26A66C5880" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7068891884281E96233B99DE";
+		};
+		"7F5048F040F5EB7F834017CF" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Insights/PhotoInsightsView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"DCAC7C571D7A97172634DB62" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7F5048F040F5EB7F834017CF";
+		};
 		"4C6B472ADC421C5792FF4E2F" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -475,6 +545,36 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "BA502165D9AE20709ECA1FDE";
 		};
+		"027E2B5DA4C38393A80F6593" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Precision/AutoTune.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"9053E90906B27DF51F032ABA" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "027E2B5DA4C38393A80F6593";
+		};
+		"7B59AC4286CC1C3A0E24156B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Precision/PrecisionAnalysis.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"7473666C46002D17E4A7057E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7B59AC4286CC1C3A0E24156B";
+		};
+		"E209053318279F0F1C9AADFC" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Precision/PrecisionOverlayView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"3CFAAB3883C28CD0E06FABAF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E209053318279F0F1C9AADFC";
+		};
 		"0BFD36576976F65FAA195F73" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -504,6 +604,16 @@
 		"FC9BB23C73B53E7554F24780" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "974D22D2D28B7AC89F34D682";
+		};
+		"21F5C81BE958861AD195388B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Sony/SonyDiscovery.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"CA8B712A5CA017A9B8C7A613" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "21F5C81BE958861AD195388B";
 		};
 		"5CD70D9F5889B182FA6A136C" = {
 			"isa" = "PBXFileReference";
@@ -635,6 +745,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "655B6EFAC6953DE140E27C20";
 		};
+		"F9E4C14DAC2022A5944D6D5B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/ProfessionalCameraTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"8D384A98D03E7E60A3E474EC" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F9E4C14DAC2022A5944D6D5B";
+		};
 		"984F8355909113E00611AC0A" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -763,14 +883,17 @@
 				"DD4EEC7BABB3F512353C33E5",
 				"C7B31A999734912C7380420D",
 				"96A3003DDC188183C803654E",
+				"E141A84BF947B5EAD4CFFB80",
 				"38B92521018C4ADA2FFEFA2C",
 				"08E18AD6EA1A26C47D3BC7CD",
 				"80ECA8EE485556FF2ED3D571",
+				"096C8774AAA6F4C0FE29D01E",
 				"F7851E62E7763B37A7DB7748",
 				"583C1B623B2F53A6C2B54CE2",
 				"60764D36D93D574522D81545",
 				"FF367A3984DC926EE202E1E7",
 				"B3082BDAB83FE3C7E798BE98",
+				"33B23C782E39E9E926F0EA1D",
 				"8BF606DC98693D26A8466994",
 				"DE0C16BC15166366AD430CCF",
 				"A4DDB49B1C57E418C87447D2",
@@ -780,6 +903,7 @@
 				"FD37C76EF9CE840E81963971",
 				"F6B45CBABD2940697E419928",
 				"535DCFAD032310B3C8AE5B4E",
+				"B8F7AB05F5807267991A0BC9",
 				"FF156683D5CC8BD7F3CFC99F",
 				"2F1ADB32C379B37967582641",
 				"CC3B1BDC4337401B07D63E6A",
@@ -799,14 +923,21 @@
 				"15D1D9780A74C906233A2878",
 				"1D7198952751EC5638A6F8E6",
 				"C0B5751F943116892AAABC99",
+				"7114D54B5946F849E21FC072",
+				"7068891884281E96233B99DE",
+				"7F5048F040F5EB7F834017CF",
 				"4C6B472ADC421C5792FF4E2F",
 				"268753136EDCD5C06509B454",
 				"12DB100F191C0631373C9542",
 				"A68677DF34CF4EA07C9634D5",
 				"BA502165D9AE20709ECA1FDE",
+				"027E2B5DA4C38393A80F6593",
+				"7B59AC4286CC1C3A0E24156B",
+				"E209053318279F0F1C9AADFC",
 				"0BFD36576976F65FAA195F73",
 				"7AC2AB9391626665CE476033",
 				"974D22D2D28B7AC89F34D682",
+				"21F5C81BE958861AD195388B",
 				"5CD70D9F5889B182FA6A136C",
 				"2976BE912D8C8856D784CD9B",
 				"4C2456AE42D163AA55DE96B1",
@@ -838,6 +969,7 @@
 				"9F5036EBFA1C8C5D9E47EE12",
 				"9B9DBB7512D28FE5B8D95D11",
 				"655B6EFAC6953DE140E27C20",
+				"F9E4C14DAC2022A5944D6D5B",
 				"984F8355909113E00611AC0A",
 				"8335DB598771E8F2D188ACED",
 				"47D767AB5FD4105EC2317932",
@@ -868,8 +1000,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "15";
-				"MARKETING_VERSION" = "1.12";
+				"CURRENT_PROJECT_VERSION" = "16";
+				"MARKETING_VERSION" = "2.0";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -891,8 +1023,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "15";
-				"MARKETING_VERSION" = "1.12";
+				"CURRENT_PROJECT_VERSION" = "16";
+				"MARKETING_VERSION" = "2.0";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -923,14 +1055,17 @@
 				"264A3032D0CC37C444F6F157",
 				"39E7A3C3032A37DD015579A6",
 				"1E2FCE7F5E1326FF02DDD42A",
+				"B2D6F220C104FF41639422CF",
 				"3884E2592954F27CC0E91E5C",
 				"D128142C592100D17B572CF6",
 				"84E527555B3F57EC22BD06F4",
+				"791F085FDD2DC93679922E07",
 				"44BEB21871DD787D8E01BC1E",
 				"C8AC88BB57A63BBE5A83FCD8",
 				"C83EAF631BB664BD92B59518",
 				"26754B6C149AA3B77FB06954",
 				"2BE25F7A30CD371A7ACA8FC9",
+				"1CDA04EF220DBBEBE02EF2DF",
 				"88185BBBF818E10442A1F864",
 				"4017E17BB623685E306390EB",
 				"AF7CF0039AA6A478054A4F74",
@@ -940,6 +1075,7 @@
 				"07566F72E315C53805A9A166",
 				"23F2E3F4C147C1257AB0482D",
 				"45E2673DFABB12C735A40FD4",
+				"8A76F025830F58AC9B48466E",
 				"D01DF8DDA53C7DD6EBA0813F",
 				"CAB6F98E6FAA5EFD98AB1B11",
 				"28229A918EEA44D86C62BCD7",
@@ -959,14 +1095,21 @@
 				"161F285D307BDEF7A76C5EC1",
 				"A01ED24691E58E335EEE7C2C",
 				"7E6E128191AF7FC40ACEBA2D",
+				"1497125DB3EE9E34C88BA747",
+				"CC1383F5A0214B26A66C5880",
+				"DCAC7C571D7A97172634DB62",
 				"F3F126A2BB28214C1F910701",
 				"E6987CF486325A3AB7A7B454",
 				"0F07C9BF6F00C1C768086473",
 				"07D67FDE4FB164F1EED5C1B4",
 				"685992A3C82CA4C48C1D9E58",
+				"9053E90906B27DF51F032ABA",
+				"7473666C46002D17E4A7057E",
+				"3CFAAB3883C28CD0E06FABAF",
 				"21C7292B0B3115496CAD3FCF",
 				"F7C44D8554BCD0D9E9CC9ACB",
 				"FC9BB23C73B53E7554F24780",
+				"CA8B712A5CA017A9B8C7A613",
 				"D0035E1878291AE3BC00322F",
 				"37651303F9B15B1F6FC4CEB6",
 				"C155C902E2F09D19AF171308",
@@ -1078,6 +1221,7 @@
 				"220AB2911A116948FB1E5960",
 				"EA07C1DB3E62D1ABF10D9958",
 				"618E321AF19AB00E158A3F7C",
+				"8D384A98D03E7E60A3E474EC",
 				"698F8A6A4C799CD25E5E3BF8",
 				"20FC2453DA3C83E273106AE7",
 				"E431C5C8ACB24B4668AFAC9E",

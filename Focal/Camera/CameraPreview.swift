@@ -9,6 +9,7 @@ final class PreviewSurface: UIView {
     var onZoom: ((Double) -> Void)?
     var onPinchBegin: ((@escaping (Double)->Void)->Void)?
     var currentZoom: Double = 1
+    var showTapIndicator = true
     private var pinchStart: Double = 1
     private var pinching = false
     private var baseReady = false
@@ -29,6 +30,7 @@ final class PreviewSurface: UIView {
         guard bounds.width > 0, bounds.height > 0 else { return }
         onSelect?(.init(x: point.x / bounds.width, y: point.y / bounds.height))
         onFocus?(previewLayer.captureDevicePointConverted(fromLayerPoint: point))
+        guard showTapIndicator else { return }
         let indicator = UIView(frame: CGRect(x: point.x - 28, y: point.y - 28, width: 56, height: 56))
         indicator.isUserInteractionEnabled = false
         indicator.layer.borderColor = UIColor.white.cgColor
@@ -67,6 +69,7 @@ struct CameraPreview: UIViewRepresentable {
     let zoom: Double
     let onPinchBegin: (@escaping (Double)->Void)->Void
     var mirrored = false
+    var showTapIndicator = true
 
     func makeUIView(context: Context) -> PreviewSurface {
         let view = PreviewSurface()
@@ -77,12 +80,15 @@ struct CameraPreview: UIViewRepresentable {
         view.onZoom = onZoom
         view.onPinchBegin = onPinchBegin
         view.currentZoom = zoom
+        view.showTapIndicator = showTapIndicator
         rotate(view)
         return view
     }
     func updateUIView(_ view: PreviewSurface, context: Context) {
         view.isUserInteractionEnabled = context.environment.isEnabled
         view.currentZoom = zoom
+        view.showTapIndicator = showTapIndicator
+        view.accessibilityHint = showTapIndicator ? "Tap to select and request focus. Pinch to zoom." : "Tap to select a subject. Focus remains under manual or supported device control. Pinch to zoom."
         view.onFocus = onFocus
         view.onSelect = onSelect
         view.onZoom = onZoom

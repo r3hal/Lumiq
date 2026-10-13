@@ -2,8 +2,8 @@ import XCTest
 @testable import Focal
 
 final class CameraDesignStateTests: XCTestCase {
-    func testProMaxStandardPreviewFillsAvailableSafeAreaWithCorrectProjectionRatio() {
-        XCTAssertEqual(CameraViewportLayout.aspect(source: .iPhone, capture: .standard, sonyFullFrame: false, sonyAspect: 1.5, width: 440, height: 716), 440.0 / 716, accuracy: 0.000001)
+    func testProMaxStandardPreviewMatchesCapturedAspect() {
+        XCTAssertEqual(CameraViewportLayout.aspect(source: .iPhone, capture: .standard, sonyFullFrame: false, sonyAspect: 1.5, width: 440, height: 716), 0.75, accuracy: 0.000001)
     }
     func testSelectedCropsAndRealSonyFrameKeepTheirOwnAspect() {
         XCTAssertEqual(CameraViewportLayout.aspect(source: .iPhone, capture: .square, sonyFullFrame: false, sonyAspect: 1.5, width: 440, height: 716), 1)

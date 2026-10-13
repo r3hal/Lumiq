@@ -35,7 +35,7 @@ enum PhotoRenderer {
             }
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
-            ("What I see" as NSString).draw(in: CGRect(x: padding, y: image.size.height + bandHeight * 0.2,
+            ("Focal · field note" as NSString).draw(in: CGRect(x: padding, y: image.size.height + bandHeight * 0.2,
                                                        width: image.size.width - padding * 2, height: bandHeight * 0.75),
                                             withAttributes: [.font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph])
         }

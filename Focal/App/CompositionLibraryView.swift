@@ -24,7 +24,7 @@ struct CompositionLibraryView: View {
                     Link("Adobe · Leading lines",destination:URL(string:"https://lightroom.adobe.com/academy/principles/composition/leading-lines")!)
                 }.font(.subheadline).tint(Palette.yellow).padding(.vertical,10)
             }.padding(18)
-        }.background(.black).foregroundStyle(.white)
+        }.background(Palette.ink).foregroundStyle(.white)
             .navigationTitle("Composition").navigationBarTitleDisplayMode(.inline)
     }
 }

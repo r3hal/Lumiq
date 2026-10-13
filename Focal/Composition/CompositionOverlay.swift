@@ -35,15 +35,9 @@ struct CompositionOverlay: View {
                 FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady)
                 let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
                 if !rect.isNull && rect.width > 0 && rect.height > 0 {
-                    if subjectLabel.lowercased().contains("person") {
-                        SubjectCorners().stroke(Palette.yellow, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        SubjectCorners().stroke(Palette.yellow, style: StrokeStyle(lineWidth:1.4,lineCap:.round))
                             .frame(width: rect.width * geometry.size.width, height: rect.height * geometry.size.height)
                             .position(x: rect.midX * geometry.size.width, y: rect.midY * geometry.size.height)
-                    } else {
-                        RoundedRectangle(cornerRadius: 4).stroke(Palette.yellow, lineWidth: 1.2)
-                            .frame(width: rect.width * geometry.size.width, height: rect.height * geometry.size.height)
-                            .position(x: rect.midX * geometry.size.width, y: rect.midY * geometry.size.height)
-                    }
                     if let name = SubjectIdentity.name(subjectLabel) {
                         HStack(spacing: 6) {
                             Image(systemName: name.lowercased().contains("dog") || name.lowercased().contains("cat") ? "pawprint.fill" : "viewfinder")

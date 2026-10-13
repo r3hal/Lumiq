@@ -3,7 +3,7 @@ import Foundation
 struct GuidanceMessage: Equatable {
     enum Kind: Equatable { case searching, detected, adjustment, steady, framing, ready, scene }
     var kind: Kind = .searching
-    var text = "Point at a subject"
+    var text = "Select a photographic subject"
 }
 
 /// A measured, debounced state machine; no cosmetic/random AI messages.
@@ -29,7 +29,7 @@ struct AutomaticGuidance {
                 return shown
             }
             reset()
-            if autoEnabled { shown = GuidanceMessage(kind: .searching, text: "Finding your shot…") }
+            if autoEnabled { shown = GuidanceMessage(kind: .searching, text: "Scanning the scene…") }
             if let scene, scene.isLandscape, timestamp - scene.timestamp <= 6 {
                 let text: String
                 if rollReliable && abs(reading.rollDegrees) > 5 { text = "Keep the camera level" }
@@ -54,7 +54,7 @@ struct AutomaticGuidance {
         if detectedSince == nil { detectedSince = timestamp }
         let name = subjectLabel.flatMap(SubjectIdentity.name)
         let desired: GuidanceMessage
-        if phase == .zooming { desired = GuidanceMessage(kind:.framing,text:"Framing your shot…") }
+        if phase == .zooming { desired = GuidanceMessage(kind:.framing,text:"Refining the crop…") }
         else if timestamp-(detectedSince ?? timestamp) < 0.45 { desired = GuidanceMessage(kind:.detected,text:name.map { "\($0) detected" } ?? "Subject detected") }
         else if speed > 0.25 { desired = GuidanceMessage(kind:.steady,text:"Keep the subject in view") }
         else if bounds.width > 0.85 || bounds.height > 0.85 || bounds.minX < -0.02 || bounds.maxX > 1.02 || bounds.minY < -0.02 || bounds.maxY > 1.02 {
@@ -74,8 +74,8 @@ struct AutomaticGuidance {
             } else if let measurements = subjectMeasurements, let advice = measuredAdvice(measurements, name: name) {
                 desired = GuidanceMessage(kind: .adjustment, text: advice)
             } else if stable && reading.state == .ready && !phase.isPreparing {
-                desired = GuidanceMessage(kind:.ready,text:compositionPlan.map { "Great framing · \($0.selected.explanation)" } ?? name.map { "Great framing · \(SubjectIdentity.tip(for: $0))" } ?? "Great framing")
-            } else { desired = GuidanceMessage(kind:.steady,text:compositionPlan.map { "Hold steady · \($0.selected.technique.rawValue.lowercased())" } ?? (autoEnabled && phase == .settling && stable ? "Centered — framing up…" : "Hold steady")) }
+                desired = GuidanceMessage(kind:.ready,text:compositionPlan.map { "Composition aligned · \($0.selected.explanation)" } ?? name.map { "Composition aligned · \(SubjectIdentity.tip(for: $0))" } ?? "Composition aligned")
+            } else { desired = GuidanceMessage(kind:.steady,text:compositionPlan.map { "Hold steady · \($0.selected.technique.rawValue.lowercased())" } ?? (autoEnabled && phase == .settling && stable ? "Placement stable · preparing crop" : "Hold steady")) }
         }
         // Loss and actual zoom transitions are immediate; movement text must persist.
         if desired.kind == .framing || shown.kind == .searching || desired.kind == .detected || (desired.kind == .steady && shown.kind == .detected) {

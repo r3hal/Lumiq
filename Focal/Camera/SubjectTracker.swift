@@ -71,6 +71,17 @@ final class SubjectTracker {
         selector.configuration.threshold = max(0.55, min(0.85, value))
         selector.reset()
     }
+    func setIntent(_ intent: PhotographyIntent) {
+        selector.configuration.intent = intent; reset()
+    }
+    /// Offline, single-image inspection reuses the live detectors. It does not
+    /// synthesize repeated frames or pretend to have temporal tracking evidence.
+    func inspectStillImage(_ buffer:CVPixelBuffer,intent:PhotographyIntent) -> [SubjectCandidate] {
+        selector.configuration.intent = intent
+        let observed = detect(in:buffer,detailBuffer:buffer,timestamp:ProcessInfo.processInfo.systemUptime,
+            visibleRegion:CGRect(x:0,y:0,width:1,height:1),canContinue:{ !Task.isCancelled })
+        return observed.map(\.candidate).filter { ($0.score(configuration:selector.configuration) ?? 0) >= selector.configuration.threshold }
+    }
     func reset() {
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
         candidates = []; enclosingRectangles = []; selectedPoint = nil; selector.reset(); health.reset()
@@ -93,6 +104,20 @@ final class SubjectTracker {
                      visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, retainSelection: Bool = false, canContinue: () -> Bool = { true }) -> SubjectObservation? {
         isRecovering = false
         guard canContinue() else { return nil }
+        if selector.configuration.intent == .landscape {
+            tracking = nil; trackedCandidate = nil; candidates = []; enclosingRectangles = []
+            if timestamp-lastScene >= 3 {
+                lastScene = timestamp
+                let request = VNClassifyImageRequest()
+                do {
+                    try performRequests([request],canContinue:canContinue) { try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([request]) }
+                    guard canContinue() else { return nil }
+                    if let result = request.results?.first, result.confidence >= 0.65 { scene = .init(label:result.identifier,confidence:result.confidence,timestamp:timestamp) }
+                    else { scene = nil }
+                } catch { scene = nil }
+            }
+            return nil
+        }
         var retained: VNDetectedObjectObservation?
         if let tracking {
             do {

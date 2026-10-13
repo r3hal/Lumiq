@@ -60,7 +60,7 @@ struct PhotoEditorView: View {
             tabStrip.disabled(!photo.canUsePhoneEditor)
             controlPanel.frame(height: 174).disabled(!photo.canUsePhoneEditor)
             bottomBar.padding(.bottom, 8).disabled(!photo.canUsePhoneEditor)
-        }.padding(.horizontal, 16).background(.black).foregroundStyle(.white).tint(Palette.yellow)
+        }.padding(.horizontal, 16).background(Palette.ink).foregroundStyle(.white).tint(Palette.yellow)
             .disabled(saving)
     }
     private var topBar: some View {

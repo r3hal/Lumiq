@@ -5,6 +5,7 @@ struct SonyConnectionView: View {
     let returnToPhone: () -> Void
     var openCamera: (() -> Void)? = nil
     @State private var showGuide = false
+    @StateObject private var discovery = SonyDiscoveryModel()
     private var connected: Bool { camera.state == .streaming && camera.hasFrame }
     private var busy: Bool { camera.state == .connecting || camera.state == .reconnecting }
 
@@ -24,8 +25,9 @@ struct SonyConnectionView: View {
                 }
                 Button("Use iPhone Camera", action: returnToPhone).font(.subheadline).foregroundStyle(.white.opacity(0.8))
             }.padding(22)
-        }.background(.black).foregroundStyle(.white).tint(Palette.yellow)
-            .navigationTitle(connected ? "Sony Camera" : "Connect Sony Camera").navigationBarTitleDisplayMode(.inline)
+        }.background(Palette.ink).foregroundStyle(.white).tint(Palette.yellow)
+            .navigationTitle("Focal Link").navigationBarTitleDisplayMode(.inline)
+            .onDisappear { discovery.cancel() }
             .sheet(isPresented: $showGuide) {
                 NavigationStack { SonySetupGuide().toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showGuide = false } } } }
                     .preferredColorScheme(.dark).presentationDragIndicator(.visible)
@@ -54,6 +56,18 @@ struct SonyConnectionView: View {
             step(2, "Join the camera’s DIRECT network in iPhone Settings → Wi-Fi.")
             step(3, "Return to Focal and allow Local Network access.")
             step(4, "Check the camera address, then tap Connect Camera.")
+            Button(discovery.searching ? "Cancel search" : "Find camera on Wi-Fi",systemImage:"antenna.radiowaves.left.and.right") {
+                if discovery.searching { discovery.cancel() } else { discovery.search(previous:camera.host) }
+            }.frame(minHeight:44).disabled(busy)
+            if discovery.searching { ProgressView().tint(Palette.yellow) }
+            if let message = discovery.message { Text(message).font(.caption).foregroundStyle(Palette.muted) }
+            ForEach(discovery.cameras) { found in
+                Button {
+                    camera.host = found.host; camera.discoveredDescriptorURL = found.descriptorURL; discovery.cancel()
+                } label: {
+                    HStack { VStack(alignment:.leading) { Text(found.model).font(.subheadline); Text(found.host).font(.caption) }; Spacer(); Image(systemName:"arrow.down.circle") }.padding(12).background(Palette.panel,in:RoundedRectangle(cornerRadius:12))
+                }.accessibilityLabel("Use discovered \(found.model) at \(found.host)")
+            }
             TextField("Camera IP address", text: $camera.host).keyboardType(.decimalPad)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().font(.system(size: 15, design: .monospaced))
                 .padding(14).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
@@ -89,7 +103,7 @@ struct SonyConnectionView: View {
                 if let openCamera { action("Open Camera", primary: true, action: openCamera) }
                 action("Disconnect", primary: false) { camera.disconnect() }
             } else {
-                action(busy ? "Connecting…" : "Connect Camera", primary: true) { camera.connect() }.disabled(busy)
+                action(busy ? "Connecting…" : "Connect Camera", primary: true) { discovery.cancel(); camera.connect() }.disabled(busy || !SonyEndpoint.validHost(camera.host.trimmingCharacters(in:.whitespacesAndNewlines)))
                 if busy { action("Cancel connection", primary: false) { camera.disconnect() } }
                 else { action("View Full Guide", primary: false) { showGuide = true } }
             }
@@ -114,7 +128,7 @@ private struct SonySetupGuide: View {
                 Text("Connected is shown only after Focal receives and decodes a real live-view frame. The app negotiates only advertised controls and stream sizes. Sony firmware and remote mode determine the available functions and wireless preview quality.")
                 Text("Focus, zoom, shooting mode and exposure may need adjustment on the camera. If Sony does not advertise a compatible remote API in this mode, Focal cannot establish this live view. A6100 support is planned and requires independent hardware testing.")
             }.font(.subheadline).lineSpacing(4).padding(22)
-        }.background(.black).foregroundStyle(.white).navigationTitle("Sony Wi-Fi Guide").navigationBarTitleDisplayMode(.inline)
+        }.background(Palette.ink).foregroundStyle(.white).navigationTitle("Sony Wi-Fi Guide").navigationBarTitleDisplayMode(.inline)
     }
 }
 

@@ -2,6 +2,7 @@ import Foundation
 
 /// The preview never waits on Vision, and Vision never holds its camera buffer.
 struct PreviewAnalysisScheduler {
+    init(interval: TimeInterval = 0.25) { self.interval = max(0.1,interval) }
     var interval: TimeInterval = 0.25
     private(set) var busy = false
     private var lastAdmission: TimeInterval = -.infinity

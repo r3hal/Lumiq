@@ -9,6 +9,7 @@ struct SubjectAnalysisFeatures: Equatable {
 }
 
 struct SubjectSelectionConfiguration {
+    var intent: PhotographyIntent = .auto
     var threshold: Double = 0.68
     var minimumConfidence: Double = 0.55
     var semanticDwell: TimeInterval = 0.35
@@ -76,6 +77,7 @@ struct SubjectCandidate {
             && visibleArea >= 0.004 && visibleArea <= 0.92
     }
     func score(configuration: SubjectSelectionConfiguration) -> Double? {
+        guard configuration.intent.accepts(category) else { return nil }
         guard validBoundary, confidence >= configuration.minimumConfidence,
               [prominence, isolation, detail, textureDensity, classificationConfidence, textConfidence, compositionPotential].allSatisfy(\.isFinite) else { return nil }
         // Recognized people/pets should not need a high-contrast background.

@@ -23,6 +23,7 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     var burstID: UUID? = nil
     var measurements: PhotoMeasurements? = nil
     var cameraOrigin: String? = nil
+    var photographyIntent: String? = nil
     var editingRecipe: EditRecipe? = nil
     var editingSourceFilename: String? = nil
     var developedFromRAW: Bool? = nil
@@ -86,20 +87,21 @@ final class PhotoLibrary: ObservableObject {
     @discardableResult
     func add(data: Data, mode: String, isDemo: Bool = false, rawData: Data? = nil,
              originalData: Data? = nil, scanData: Data? = nil, aspect: String? = nil, subject: String? = nil,
-             challenge: String? = nil, burstID: UUID? = nil, cameraOrigin: String? = nil, editingRecipe: EditRecipe? = nil, developedFromRAW: Bool? = nil) async throws -> SavedPhoto {
+             challenge: String? = nil, burstID: UUID? = nil, cameraOrigin: String? = nil, editingRecipe: EditRecipe? = nil, developedFromRAW: Bool? = nil, photographyIntent:String? = nil) async throws -> SavedPhoto {
         guard canWrite else { throw LibraryError.unavailable }
-        var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + ".jpg", createdAt: Date(),
+        var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + "." + Self.fileExtension(data), createdAt: Date(),
                                mode: mode, isDemo: isDemo, isFavorite: false)
         photo.aspect = aspect
         photo.subject = subject
         photo.challenge = challenge
         photo.burstID = burstID
         photo.cameraOrigin = cameraOrigin
+        photo.photographyIntent = photographyIntent
         photo.editingRecipe = editingRecipe
         photo.developedFromRAW = developedFromRAW
         photo.measurements = await Task.detached { PhotoMeasurements.from(data: data) }.value
         if rawData != nil { photo.rawFilename = UUID().uuidString + ".dng" }
-        if originalData != nil { photo.originalFilename = UUID().uuidString + ".jpg" }
+        if let originalData { photo.originalFilename = UUID().uuidString + "." + Self.fileExtension(originalData) }
         if scanData != nil { photo.scanFilename = UUID().uuidString + ".jpg" }
         // Read the file header only, without decoding/re-encoding the full-resolution capture.
         if let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -130,6 +132,11 @@ final class PhotoLibrary: ObservableObject {
             throw error
         }
         return photo
+    }
+
+    static func fileExtension(_ data: Data) -> String {
+        guard let source = CGImageSourceCreateWithData(data as CFData,nil), let type = CGImageSourceGetType(source) else { return "jpg" }
+        return (type as String).lowercased().contains("hei") ? "heic" : "jpg"
     }
 
     /// Replace only the review derivative; keep camera JPEG, edit baseline and

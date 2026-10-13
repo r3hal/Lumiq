@@ -1,13 +1,14 @@
 import Foundation
 import ImageIO
 
-struct PhotoMetadata {
+struct PhotoMetadata: Sendable {
     let rows: [(String, String)]
     static func read(_ url: URL) -> Self? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
         let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         var rows: [(String,String)] = []
+        if let type = CGImageSourceGetType(source) { rows.append(("Encoding",(type as String).replacingOccurrences(of:"public.",with:"").uppercased())) }
         if let w = properties[kCGImagePropertyPixelWidth] as? Int, let h = properties[kCGImagePropertyPixelHeight] as? Int {
             let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
             rows.append(("File dimensions",orientation >= 5 ? "\(h) × \(w)" : "\(w) × \(h)"))

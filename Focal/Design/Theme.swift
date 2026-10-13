@@ -1,11 +1,32 @@
 import SwiftUI
 
 enum Palette {
-    static let ink = Color.black
-    static let panel = Color(white: 0.12)
+    static let ink = Color(red:16.0/255,green:17.0/255,blue:18.0/255)
+    static let panel = Color(red:35.0/255,green:37.0/255,blue:39.0/255)
+    static let text = Color(white:247.0/255)
+    static let muted = Color(red:158.0/255,green:163.0/255,blue:168.0/255)
     static let paper = Color(red: 0.95, green: 0.94, blue: 0.90)
-    static let mint = Color(red: 76.0 / 255, green: 217.0 / 255, blue: 100.0 / 255)
-    static let yellow = Color(red: 1, green: 211.0 / 255, blue: 42.0 / 255)
+    static let mint = Color(red:0.45,green:0.74,blue:0.58)
+    static let yellow = Color(red:237.0/255,green:202.0/255,blue:103.0/255)
+}
+
+struct FocalIntelligenceMark: Shape {
+    func path(in rect:CGRect) -> Path {
+        let c = CGPoint(x:rect.midX,y:rect.midY), half = min(rect.width,rect.height)*0.35, arm = half*0.4
+        return Path { path in
+            for sx in [-1.0,1.0] {
+                for sy in [-1.0,1.0] {
+                    let p = CGPoint(x:c.x+sx*half,y:c.y+sy*half)
+                    path.move(to:CGPoint(x:p.x-sx*arm,y:p.y)); path.addLine(to:p)
+                    path.addLine(to:CGPoint(x:p.x,y:p.y-sy*arm))
+                }
+            }
+            path.move(to:CGPoint(x:c.x,y:c.y-half*0.4))
+            path.addLine(to:CGPoint(x:c.x+half*0.35,y:c.y))
+            path.addLine(to:CGPoint(x:c.x,y:c.y+half*0.4))
+            path.addLine(to:CGPoint(x:c.x-half*0.35,y:c.y)); path.closeSubpath()
+        }
+    }
 }
 
 struct CameraPressStyle: ButtonStyle {

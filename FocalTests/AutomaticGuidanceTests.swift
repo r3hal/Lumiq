@@ -12,7 +12,7 @@ final class AutomaticGuidanceTests: XCTestCase {
     }
     func testSearchRequiresConfirmedBounds() {
         var guide = AutomaticGuidance()
-        XCTAssertEqual(update(&guide,CompositionReading(),at:0).text,"Point at a subject")
+        XCTAssertEqual(update(&guide,CompositionReading(),at:0).text,"Select a photographic subject")
         var uncertain = reading(); uncertain.subjectConfidence = 0.2
         XCTAssertEqual(update(&guide,uncertain,at:1).kind,.searching)
         uncertain.subjectConfidence = 1; uncertain.subjectBounds = nil
@@ -22,7 +22,7 @@ final class AutomaticGuidanceTests: XCTestCase {
         var guide = AutomaticGuidance()
         XCTAssertEqual(update(&guide,reading(),at:0).kind,.detected)
         XCTAssertEqual(update(&guide,reading(),at:0.5).kind,.detected)
-        XCTAssertEqual(update(&guide,reading(),at:1.2).text,"Great framing")
+        XCTAssertEqual(update(&guide,reading(),at:1.2).text,"Composition aligned")
         XCTAssertEqual(update(&guide,CompositionReading(),at:1.3).kind,.searching)
     }
     func testPhysicalMotionPreventsReady() {
@@ -50,10 +50,10 @@ final class AutomaticGuidanceTests: XCTestCase {
     func testRealZoomTransitionIsImmediateAndCompletionCanBecomeReady() {
         var guide = AutomaticGuidance()
         XCTAssertEqual(update(&guide,reading(),at:0,phase:.settling).text,"Subject detected")
-        XCTAssertEqual(update(&guide,reading(),at:0.6,phase:.settling).text,"Centered — framing up…")
-        XCTAssertEqual(update(&guide,reading(),at:0.7,phase:.zooming).text,"Framing your shot…")
+        XCTAssertEqual(update(&guide,reading(),at:0.6,phase:.settling).text,"Placement stable · preparing crop")
+        XCTAssertEqual(update(&guide,reading(),at:0.7,phase:.zooming).text,"Refining the crop…")
         _ = update(&guide,reading(x:0.55),at:1.7,phase:.framed)
-        XCTAssertEqual(update(&guide,reading(x:0.55),at:2.4,phase:.framed).text,"Great framing")
+        XCTAssertEqual(update(&guide,reading(x:0.55),at:2.4,phase:.framed).text,"Composition aligned")
     }
     func testSubjectBoxDropsLostSubjectAndResetsOnSceneCut() throws {
         var smoother = SubjectBoxSmoother()
@@ -87,7 +87,7 @@ final class AutomaticGuidanceTests: XCTestCase {
         var guide = AutomaticGuidance()
         let result = guide.update(reading: CompositionReading(), phase: .searching, stable: true, rollReliable: true,
                                   autoEnabled: true, zoomAvailable: true, timestamp: 0)
-        XCTAssertEqual(result.kind, .searching); XCTAssertEqual(result.text, "Finding your shot…")
+        XCTAssertEqual(result.kind, .searching); XCTAssertEqual(result.text, "Scanning the scene…")
     }
     func testPhonePanCombinesBothPhysicalDirectionsFromActualBounds() throws {
         let cue = try XCTUnwrap(CompositionCue(reading: reading(x: 0.3, y: 0.3), previewAspect: 0.75))

@@ -1,18 +1,17 @@
-Focal 1.12, build 15
-PASS: Photography research reviewed; evidence/technique mapping and limitations documented in docs/COMPOSITION-PLANNING.md.
-PASS: Lexical delimiter balance in 69 Swift files (53 app, 16 test). Not a Swift grammar/type check.
-PASS: All sources/resources registered; plists/shared scheme, assets and fonts inspected.
-PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: Cloud workflows/shell syntax checked; native tests remain before archive and unsigned IPA packaging.
-PASS: 201 native XCTest functions registered (25 new); none executed here.
-PASS: git diff --check.
-ATTEMPTED: Xcode simulator build and simulator test; both exited 127, xcodebuild: command not found.
-PENDING: Native syntax/type checking/build and all 201 XCTest executions in Codemagic.
-PENDING: Actual visual comparison/safe areas/native UI transitions on iPhone 16 Pro Max and other supported devices.
-PENDING: Real object/person/pet selection, no forced blank-wall subjects, pixel evidence accuracy and stable composition recommendations.
-PENDING: Direction/hold/ready/zoom states, crop/context retention, native-lens/detail limits, pinch cancellation and sheet-dismissal/manual priority.
-PENDING: Capture/RAW/focus/white balance/gallery/editor/permission/lifecycle regressions.
-PENDING: Actual iPhone/Sony preview FPS, analysis cadence, memory/heat while moving, zooming and after settling.
-PENDING: A7 III real connection/stream/capture/focus/recovery and shared guidance; A6100 remains planned and independently unverified.
-LIMITS: Research covers 22 common techniques, not every possible artistic arrangement. Sixteen subject layout families compare heuristic evidence; horizon advice uses a landscape-plus-edge path. Five techniques remain visual-judgment advice. No trained aesthetic model, global-best guarantee, gaze/depth/reflection/spiral/story inference, fabricated boxes or unsupported Sony lens control.
-No Swift compiler, Apple SDK, Xcode, simulator or physical devices were available. Structural checks do not establish native compilation, visual matching or runtime performance.
+Focal 2.0, build 16 — professional upgrade
+PASS: Existing providers/capture/library/editor/detection/zoom/Sony audit and preservation mapping documented.
+PASS: Lexical delimiters across 81 Swift files (64 app, 17 test); not a Swift grammar/type check.
+PASS: All app/test sources and resources registered; deterministic project generation.
+PASS: Plists/shared scheme, assets/font, cloud YAML/shell syntax and git diff --check.
+PASS: 235 XCTest functions registered (34 new); none executed here.
+ATTEMPTED: Stage/final simulator builds and final simulator test. Exit 127: xcodebuild: command not found.
+PENDING: Native compile/type checking and all 235 XCTest executions in Codemagic.
+PENDING: Actual iPhone 16 Pro Max capture/aspect/mirroring/RAW/HEIF/JPEG/permissions/gallery/editor regressions.
+PENDING: AUTO/PRO hardware ranges, linked ISO/shutter AUTO, WB gains, protected focus/exposure, lens selection, loupe and session recovery.
+PENDING: Actual intent recognition, stable boxes/readiness/ramp and immediate pinch/manual-control priority.
+PENDING: Histogram/zebra/peaking geometry and accuracy, AutoTune evidence/expiry/PRO guards and real preview/memory/heat measurements.
+PENDING: Captured-image Insights/Compare native image I/O, metadata, layouts and preservation checks.
+PENDING: A7 III discovery/local permission/descriptor/stream/capture/focus/metadata/recovery/shared analysis and transfer quality; A6100 remains independently unverified.
+LIMITS: No physical hardware tests. No trained aesthetic/gaze/depth/optical-sharpness model or objective greatest-photo guarantee. Peaking is approximate; preview clipping differs from RAW. WB temperature is requested through clamped actual gains. Long PRO exposures may reduce frame cadence. Discovery is bounded unicast, not SSDP multicast, and may miss devices. PTP/IP and unsupported Sony lens/RAW/exposure controls remain absent. No new app package, backend, SDK or entitlement.
+Structural checks do not establish native compilation, visual matching, device compatibility or runtime performance.
+See docs/PROFESSIONAL-AUDIT.md and docs/PROFESSIONAL-UPGRADE.md.

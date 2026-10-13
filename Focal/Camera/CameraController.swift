@@ -39,12 +39,24 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var liveMeasurements: PhotoMeasurements?
     @Published private(set) var sceneLabel: String?
     @Published private(set) var compositionPlan: SceneCompositionPlan?
+    @Published private(set) var controls = CameraControlSnapshot()
+    @Published private(set) var precisionReading: PrecisionReading?
+    @Published private(set) var autoTuneRecommendations: [AutoTuneRecommendation] = []
     @Published var errorMessage: String?
 
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "app.focal.camera", qos: .userInitiated)
     private let analysisQueue = DispatchQueue(label: "app.focal.vision", qos: .utility, autoreleaseFrequency: .workItem)
     private let videoQueue = DispatchQueue(label: "app.focal.video", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    private let precisionQueue = DispatchQueue(label:"app.focal.precision",qos:.utility,autoreleaseFrequency:.workItem)
+    private let precisionLock = NSLock()
+    private var precisionContext = PrecisionContext() // Protected by precisionLock.
+    private var precisionScheduler = PreviewAnalysisScheduler(interval:0.35) // Video queue.
+    private var precisionExternalScheduler = PreviewAnalysisScheduler(interval:0.35) // Protected by precisionLock.
+    private var precisionVideoBuffer: CVPixelBuffer? // Video queue; held until precision finishes.
+    private var precisionExternalBuffer: CVPixelBuffer? // Precision queue.
+    private let precisionVideoContext = CIContext(options:[.cacheIntermediates:false,.priorityRequestLow:true])
+    private let precisionExternalContext = CIContext(options:[.cacheIntermediates:false,.priorityRequestLow:true])
     private var previewScheduler = PreviewAnalysisScheduler() // Video queue only.
     private var previewCadence = PreviewFrameCadence() // Video queue only.
     private var videoAnalysisBuffer: CVPixelBuffer? // Video queue; no overwrite until Vision finishes.
@@ -64,10 +76,15 @@ final class CameraController: NSObject, ObservableObject {
     private var lastCoach: TimeInterval = -.infinity
     private var lastScene: TimeInterval = -.infinity
     private var configured = false
+    private var manualState = ManualCameraState() // Camera queue only.
+    private var manualApplyScheduled = false
+    private var selectedCameraID: String?
+    private var cameraLensOptions: [CameraLensOption] = []
     private var wantsToRun = false // Camera queue only.
     private var engine = CompositionEngine() // Analysis queue only.
     private var mode: CompositionMode = .automatic
     private var compositionPlanning = true
+    private var photographyIntent: PhotographyIntent = .auto
     private var scenePlanner = SceneCompositionPlanner()
     private var compositionEvidence: SceneCompositionEvidence?
     private var lastCompositionEvidence: TimeInterval = -.infinity
@@ -86,6 +103,7 @@ final class CameraController: NSObject, ObservableObject {
     private var holdDuration = 0.9
     private var analysisSource: CameraSource = .iPhone
     private var latestNativeBounds: CGRect?
+    private var previousMotionSubject:(bounds:CGRect,label:String,time:TimeInterval,zoom:Double)?
     private var latestBoundsZoom: Double = 1
     private var lastTelemetry: TimeInterval = 0
     private let externalLock = NSLock()
@@ -137,9 +155,15 @@ final class CameraController: NSObject, ObservableObject {
         ) { [weak self] _ in self?.resumeIfWanted() })
         observers.append(NotificationCenter.default.addObserver(
             forName: .AVCaptureSessionRuntimeError, object: session, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             self?.isRunning = false
-            self?.errorMessage = "The camera stopped unexpectedly. Close and reopen Focal to try again."
+            let error = notification.userInfo?[AVCaptureSessionErrorKey] as? AVError
+            if error?.code == .mediaServicesWereReset {
+                self?.queue.async { [weak self] in
+                    guard let self, self.wantsToRun else { return }
+                    self.discardConfiguration(); self.configureAndStart()
+                }
+            } else { self?.errorMessage = "Camera session interrupted. Use Retry camera when it is available again." }
         })
     }
 
@@ -168,6 +192,8 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func stop() {
+        precisionLock.lock(); precisionContext.generation += 1; precisionLock.unlock()
+        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = [] }
         zoomRequestLock.lock(); zoomRequests.clear(); zoomRequestLock.unlock()
         videoQueue.async { self.previewCadence = PreviewFrameCadence() }
         queue.async { [weak self] in
@@ -190,6 +216,7 @@ final class CameraController: NSObject, ObservableObject {
             let previous = self.position
             self.cancelZoomRamp()
             self.position = previous == .back ? .front : .back
+            self.selectedCameraID = nil
             self.discardConfiguration()
             self.analysisQueue.async { self.ignoreFramesUntil = 0; self.resetAnalysis() }
             self.configureAndStart()
@@ -204,7 +231,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func setExposure(_ bias: Float) {
         queue.async {
-            guard self.captureCompletion == nil else { return }
+            guard self.captureCompletion == nil, !self.manualState.hasManualExposure, bias.isFinite else { return }
             guard let device = self.device else { return }
             let value = max(device.minExposureTargetBias, min(device.maxExposureTargetBias, bias))
             do {
@@ -225,7 +252,8 @@ final class CameraController: NSObject, ObservableObject {
         session.commitConfiguration()
         configured = false
         device = nil
-        DispatchQueue.main.async { self.isRunning = false }
+        cameraLensOptions = []
+        DispatchQueue.main.async { self.isRunning = false; self.controls = CameraControlSnapshot() }
     }
 
     private func guidanceSnapshot() -> GuidanceActivation.Snapshot {
@@ -269,6 +297,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setInterfacePaused(_ paused: Bool) {
+        precisionLock.lock(); precisionContext.paused = paused; precisionContext.generation += 1; precisionLock.unlock()
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
@@ -284,6 +313,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setAnalysisSource(_ source: CameraSource) {
+        precisionLock.lock(); precisionContext.source = source; precisionContext.generation += 1; precisionLock.unlock()
         guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled, source: source); guidanceLock.unlock()
         tracker.cancelInference()
         queue.async {
@@ -303,6 +333,7 @@ final class CameraController: NSObject, ObservableObject {
 
     /// Admission control drops frames while the shared Vision queue is busy.
     func analyzeExternalFrame(_ image: CGImage) {
+        analyzeExternalPrecision(image)
         let snapshot = guidanceSnapshot()
         guard snapshot.enabled, snapshot.source == .sony else { return }
         externalLock.lock()
@@ -359,6 +390,7 @@ final class CameraController: NSObject, ObservableObject {
                 iso:iso.isFinite && iso > 0 ? String(format:"%.0f",iso) : nil,ev:Double(device.exposureTargetBias),
                 aperture:aperture.isFinite && aperture > 0 ? String(format:"ƒ/%.1f",aperture) : nil)
             DispatchQueue.main.async { self.telemetry = data }
+            self.publishControls()
         }
     }
 
@@ -382,6 +414,16 @@ final class CameraController: NSObject, ObservableObject {
                 self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
                 if !enabled { DispatchQueue.main.async { self.compositionPlan = nil } }
+            }
+        }
+    }
+    func setIntent(_ intent: PhotographyIntent) {
+        tracker.cancelInference()
+        queue.async {
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.photographyIntent = intent; self.tracker.setIntent(intent); self.resetAnalysis()
+                if !intent.permitsZoom { self.framing.reset(enabled:false); self.publishFraming() }
             }
         }
     }
@@ -477,6 +519,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setPreviewAspect(_ aspect: Double) {
+        precisionLock.lock(); precisionContext.previewAspect = aspect; precisionContext.generation += 1; precisionLock.unlock()
         analysisQueue.async {
             self.previewAspect = aspect; self.engine.reset(); self.scenePlanner.reset()
             self.compositionEvidence = nil; self.lastCompositionEvidence = -.infinity
@@ -497,7 +540,7 @@ final class CameraController: NSObject, ObservableObject {
                 self.ignoreFramesUntil = 0
                 self.publishAnalysis(snapshot) {
                     self.subjectLabel = "Auto subject"; self.reading = CompositionReading()
-                    self.guidance = GuidanceMessage(kind: .searching, text: "Finding your shot…")
+                    self.guidance = GuidanceMessage(kind: .searching, text: "Scanning the scene…")
                 }
             }
         }
@@ -505,6 +548,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func selectSubject(at previewPoint: UnitPoint2D) {
         guard guidanceSnapshot().enabled else { return }
+        tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
@@ -513,6 +557,8 @@ final class CameraController: NSObject, ObservableObject {
                 let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: self.previewAspect, mirrored: self.analysisFrontCamera)
                 self.tracker.select(at: projection.imagePoint(previewPoint))
                 self.engine.reset(); self.boxSmoother.reset(); self.automaticGuidance.reset()
+                self.scenePlanner.reset(); self.manualTargetLock = nil; self.previousMotionSubject = nil
+                self.precisionLock.lock(); self.precisionContext.relativeSubjectMotion = nil; self.precisionContext.subjectMotionTimestamp = nil; self.precisionLock.unlock()
                 self.latestNativeBounds = nil
                 self.framing.reset(enabled: self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
@@ -567,6 +613,8 @@ final class CameraController: NSObject, ObservableObject {
     private func resetAnalysis(armFraming: Bool = true) {
         framing.reset(enabled: armFraming && autoFrameEnabled && guidanceEnabled && analysisSource == .iPhone)
         automaticGuidance.reset(); boxSmoother.reset(); latestNativeBounds = nil
+        previousMotionSubject = nil
+        precisionLock.lock(); precisionContext.relativeSubjectMotion = nil; precisionContext.subjectMotionTimestamp = nil; precisionLock.unlock()
         publishFraming()
         engine.reset()
         manualTargetLock = nil
@@ -592,14 +640,14 @@ final class CameraController: NSObject, ObservableObject {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
                 if continuous && (!self.guidanceSnapshot().enabled || self.guidanceSnapshot().source != .iPhone || device.isAdjustingFocus) { return }
-                if device.isFocusPointOfInterestSupported {
+                if self.manualState.permitsFocus(automatic:continuous), device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = point
                     // Tap selects the focus location, not a permanently locked
                     // lens distance. Continue refocusing as the camera moves.
                     let focusMode: AVCaptureDevice.FocusMode = device.isFocusModeSupported(.continuousAutoFocus) ? .continuousAutoFocus : .autoFocus
                     if device.isFocusModeSupported(focusMode) { device.focusMode = focusMode }
                 }
-                if meterExposure && device.isExposurePointOfInterestSupported {
+                if meterExposure && self.manualState.permitsAutoMetering && device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = point
                     if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
@@ -645,16 +693,17 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func photoSettings(options: CaptureOptions = CaptureOptions()) -> AVCapturePhotoSettings {
-        let format: [String: Any] = [AVVideoCodecKey: AVVideoCodecType.jpeg]
-        let settings: AVCapturePhotoSettings
         let rawFormat = output.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) })
             ?? output.availableRawPhotoPixelFormatTypes.first
+        let bayerRAW = options.raw && rawFormat.map { !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } == true
+        let codec: AVVideoCodecType = !bayerRAW && options.encoding == .heif && output.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
+        let format: [String: Any] = [AVVideoCodecKey: codec]
+        let settings: AVCapturePhotoSettings
         if options.raw, let rawFormat {
             settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat, processedFormat: format)
         } else { settings = AVCapturePhotoSettings(format: format) }
         settings.maxPhotoDimensions = output.maxPhotoDimensions
         // Bayer RAW bypasses computational processing; ProRAW supports quality processing.
-        let bayerRAW = options.raw && rawFormat.map { !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } == true
         settings.photoQualityPrioritization = bayerRAW ? .speed : .quality
         let flash = AVCaptureDevice.FlashMode(rawValue: options.flash.rawValue) ?? .off
         settings.flashMode = output.supportedFlashModes.contains(flash) ? flash : .off
@@ -664,7 +713,7 @@ final class CameraController: NSObject, ObservableObject {
         return settings
     }
 
-    private func configureAndStart() {
+    private func configureAndStart(allowFallback: Bool = true) {
         guard wantsToRun else { return }
         if !configured { DispatchQueue.main.async { self.access = .checking } }
         do {
@@ -675,7 +724,12 @@ final class CameraController: NSObject, ObservableObject {
                 let types: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera,
                                                          .builtInDualCamera, .builtInWideAngleCamera]
                 let selectedTypes: [AVCaptureDevice.DeviceType] = position == .back ? types : [.builtInTrueDepthCamera, .builtInWideAngleCamera]
-                guard let camera = selectedTypes.compactMap({ AVCaptureDevice.default($0, for: .video, position: position) }).first else {
+                let discovered = selectedTypes.compactMap { AVCaptureDevice.default($0,for:.video,position:position) }
+                let explicit = selectedCameraID.flatMap { id in
+                    AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:position).devices.first { $0.uniqueID == id }
+                }
+                let fallback = !allowFallback ? AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position) : nil
+                guard let camera = explicit ?? fallback ?? discovered.first else {
                     DispatchQueue.main.async { self.access = .unavailable }
                     return
                 }
@@ -720,6 +774,7 @@ final class CameraController: NSObject, ObservableObject {
                 zoomMultiplier = hasUltraWide ? CGFloat(camera.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue ?? 2) : 1
                 camera.videoZoomFactor = min(camera.maxAvailableVideoZoomFactor, max(camera.minAvailableVideoZoomFactor, zoomMultiplier))
                 camera.unlockForConfiguration()
+                try applyManualControls(camera)
                 let lower = Double(camera.minAvailableVideoZoomFactor / zoomMultiplier)
                 let upper = min(6, Double(camera.maxAvailableVideoZoomFactor / zoomMultiplier))
                 var stops = [lower, 1.0, 2.0]
@@ -742,7 +797,7 @@ final class CameraController: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.isFrontCamera = camera.position == .front; self.previewFPS = nil
                     self.exposureBias = camera.exposureTargetBias
-                    self.exposureRange = max(-3, camera.minExposureTargetBias)...min(3, camera.maxExposureTargetBias)
+                    self.exposureRange = camera.minExposureTargetBias...camera.maxExposureTargetBias
                     self.motionAvailable = self.motion.isDeviceMotionAvailable
                     self.previewResolution = "\(dimensions.height) × \(dimensions.width) · \(self.configuredPreviewRate) fps target"
                     self.qualityZoomLimit = autoLimit
@@ -756,6 +811,7 @@ final class CameraController: NSObject, ObservableObject {
                     if #available(iOS 18.0, *) { self.canMuteShutter = self.output.isShutterSoundSuppressionSupported }
                 }
                 configured = true
+                publishControls()
             }
             if !session.isRunning {
                 session.startRunning()
@@ -774,10 +830,249 @@ final class CameraController: NSObject, ObservableObject {
             }
         } catch {
             discardConfiguration()
+            if allowFallback && selectedCameraID == nil {
+                configureAndStart(allowFallback:false)
+                return
+            }
             DispatchQueue.main.async {
                 self.access = .unavailable
                 self.errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    func setControlMode(_ mode: CameraControlMode) {
+        queue.async {
+            guard self.captureCompletion == nil else { return }
+            if mode == .auto { self.manualState.reset() } else { self.manualState.mode = .pro }
+            self.updateManualControls()
+        }
+    }
+    func setManualISO(_ value: Double?) {
+        queue.async {
+            guard self.captureCompletion == nil, self.manualState.mode == .pro else { return }
+            if let value {
+                guard value.isFinite, let device = self.device, device.isExposureModeSupported(.custom) else { return }
+                self.manualState.iso = value
+                if self.manualState.seconds == nil { self.manualState.seconds = CMTimeGetSeconds(device.exposureDuration) }
+            } else { self.manualState.automaticExposure() }
+            self.scheduleManualControls()
+        }
+    }
+    func setManualShutter(_ value: Double?) {
+        queue.async {
+            guard self.captureCompletion == nil, self.manualState.mode == .pro else { return }
+            if let value {
+                guard value.isFinite, let device = self.device, device.isExposureModeSupported(.custom) else { return }
+                self.manualState.seconds = value
+                if self.manualState.iso == nil { self.manualState.iso = Double(device.iso) }
+            } else { self.manualState.automaticExposure() }
+            self.scheduleManualControls()
+        }
+    }
+    func setManualWhiteBalance(_ temperature: Double?, tint: Double = 0) {
+        queue.async {
+            guard self.captureCompletion == nil, self.manualState.mode == .pro, tint.isFinite, temperature?.isFinite != false else { return }
+            self.manualState.temperature = temperature; self.manualState.tint = tint
+            self.scheduleManualControls()
+        }
+    }
+    func setManualFocus(_ position: Double?) {
+        queue.async {
+            guard self.captureCompletion == nil, self.manualState.mode == .pro, position?.isFinite != false else { return }
+            self.manualState.focus = position
+            self.scheduleManualControls()
+        }
+    }
+    func selectLens(_ id: String) {
+        queue.async {
+            guard self.captureCompletion == nil, self.wantsToRun, self.device?.uniqueID != id else { return }
+            let devices = AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:self.position).devices
+            guard devices.contains(where:{ $0.uniqueID == id }) else { return }
+            let previous = self.selectedCameraID
+            self.cancelZoomRamp(); self.selectedCameraID = id; self.discardConfiguration(); self.configureAndStart(allowFallback:false)
+            if !self.configured {
+                self.selectedCameraID = previous; self.discardConfiguration(); self.configureAndStart()
+                DispatchQueue.main.async { self.errorMessage = "Lens could not start. The previous camera was restored." }
+            }
+        }
+    }
+    private func updateManualControls() {
+        guard let device else { return }
+        do { try applyManualControls(device); publishControls() }
+        catch { DispatchQueue.main.async { self.errorMessage = "The camera could not apply that control. Current hardware values are shown." } }
+    }
+    private func scheduleManualControls() {
+        guard !manualApplyScheduled else { return }
+        manualApplyScheduled = true
+        queue.asyncAfter(deadline:.now()+0.04) {
+            self.manualApplyScheduled = false
+            guard self.captureCompletion == nil else { return }
+            self.updateManualControls()
+        }
+    }
+    private func applyManualControls(_ camera: AVCaptureDevice) throws {
+        try camera.lockForConfiguration()
+        defer { camera.unlockForConfiguration() }
+        if manualState.hasManualExposure, camera.isExposureModeSupported(.custom) {
+            let minISO = Double(camera.activeFormat.minISO), maxISO = Double(camera.activeFormat.maxISO)
+            let minTime = CMTimeGetSeconds(camera.activeFormat.minExposureDuration), maxTime = CMTimeGetSeconds(camera.activeFormat.maxExposureDuration)
+            if minISO <= maxISO, minTime > 0, minTime <= maxTime,
+               let iso = ManualCameraState.clamp(manualState.iso ?? Double(camera.iso),to:minISO...maxISO),
+               let seconds = ManualCameraState.clamp(manualState.seconds ?? CMTimeGetSeconds(camera.exposureDuration),to:minTime...maxTime) {
+                manualState.iso = iso; manualState.seconds = seconds
+                let requested = CMTime(seconds:seconds,preferredTimescale:1_000_000_000)
+                let duration = CMTimeMaximum(camera.activeFormat.minExposureDuration,CMTimeMinimum(camera.activeFormat.maxExposureDuration,requested))
+                camera.setExposureModeCustom(duration:duration,iso:Float(iso),completionHandler:nil)
+            }
+        } else {
+            manualState.automaticExposure()
+            if camera.isExposureModeSupported(.continuousAutoExposure) { camera.exposureMode = .continuousAutoExposure }
+        }
+        if let temperature = manualState.temperature, camera.isLockingWhiteBalanceWithCustomDeviceGainsSupported {
+            let values = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature:Float(min(10000,max(2000,temperature))),tint:Float(min(150,max(-150,manualState.tint))))
+            var gains = camera.deviceWhiteBalanceGains(for:values)
+            gains.redGain = max(1,min(camera.maxWhiteBalanceGain,gains.redGain))
+            gains.greenGain = max(1,min(camera.maxWhiteBalanceGain,gains.greenGain))
+            gains.blueGain = max(1,min(camera.maxWhiteBalanceGain,gains.blueGain))
+            camera.setWhiteBalanceModeLocked(with:gains,completionHandler:nil)
+        } else {
+            manualState.temperature = nil
+            if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { camera.whiteBalanceMode = .continuousAutoWhiteBalance }
+        }
+        if let value = manualState.focus, camera.isLockingFocusWithCustomLensPositionSupported {
+            let position = min(1,max(0,value)); manualState.focus = position
+            camera.setFocusModeLocked(lensPosition:Float(position),completionHandler:nil)
+        } else {
+            manualState.focus = nil
+            if camera.isFocusModeSupported(.continuousAutoFocus) { camera.focusMode = .continuousAutoFocus }
+        }
+    }
+    private func publishControls() {
+        guard let device else { return }
+        var value = CameraControlSnapshot()
+        value.mode = manualState.mode; value.iso = Double(device.iso)
+        let seconds = CMTimeGetSeconds(device.exposureDuration)
+        value.seconds = seconds.isFinite && seconds > 0 ? seconds : nil
+        let wb = device.temperatureAndTintValues(for:device.deviceWhiteBalanceGains)
+        value.temperature = wb.temperature.isFinite ? Double(wb.temperature) : nil
+        value.tint = wb.tint.isFinite ? Double(wb.tint) : nil
+        value.lensPosition = Double(device.lensPosition)
+        if device.isExposureModeSupported(.custom) {
+            let lo = Double(device.activeFormat.minISO), hi = Double(device.activeFormat.maxISO)
+            if lo > 0, hi >= lo { value.isoRange = lo...hi }
+            let a = CMTimeGetSeconds(device.activeFormat.minExposureDuration), b = CMTimeGetSeconds(device.activeFormat.maxExposureDuration)
+            if a.isFinite, b.isFinite, a > 0, b >= a { value.durationRange = a...b }
+        }
+        value.manualExposure = device.exposureMode == .custom
+        value.manualWhiteBalance = manualState.temperature != nil && device.whiteBalanceMode == .locked
+        value.manualFocus = manualState.focus != nil && device.focusMode == .locked
+        value.canWhiteBalance = device.isLockingWhiteBalanceWithCustomDeviceGainsSupported
+        value.canFocus = device.isLockingFocusWithCustomLensPositionSupported
+        value.canTapFocus = device.isFocusPointOfInterestSupported && (device.isFocusModeSupported(.autoFocus) || device.isFocusModeSupported(.continuousAutoFocus))
+        value.evAdjustable = !value.manualExposure && device.minExposureTargetBias < device.maxExposureTargetBias
+        value.lensID = device.uniqueID
+        if cameraLensOptions.isEmpty {
+            let discovery = AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:position)
+            cameraLensOptions = discovery.devices.map { lens in
+            let label: String
+            switch lens.deviceType {
+            case .builtInUltraWideCamera: label = "Ultra wide"
+            case .builtInTelephotoCamera: label = "Telephoto"
+            case .builtInWideAngleCamera: label = "Wide"
+            case .builtInTrueDepthCamera: label = "Front depth"
+            default: label = "Automatic lenses"
+            }
+            return CameraLensOption(id:lens.uniqueID,label:label)
+            }
+        }
+        value.lenses = cameraLensOptions
+        value.encodings = output.availablePhotoCodecTypes.contains(.hevc) ? [.jpeg,.heif] : [.jpeg]
+        precisionLock.lock()
+        precisionContext.controls = value; precisionContext.ev = Double(device.exposureTargetBias)
+        precisionContext.evRange = Double(device.minExposureTargetBias)...Double(device.maxExposureTargetBias)
+        precisionContext.zoom = Double(device.videoZoomFactor/zoomMultiplier)
+        precisionContext.minimumZoom = Double(device.minAvailableVideoZoomFactor/zoomMultiplier)
+        precisionContext.mirrored = device.position == .front
+        precisionLock.unlock()
+        DispatchQueue.main.async { self.controls = value }
+    }
+
+    func setPrecisionOptions(_ options: PrecisionOptions) {
+        precisionLock.lock(); precisionContext.options = options; precisionContext.generation += 1; precisionLock.unlock()
+        DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = [] }
+    }
+    private func precisionSnapshot() -> PrecisionContext {
+        precisionLock.lock(); defer { precisionLock.unlock() }; return precisionContext
+    }
+    private func analyzePhonePrecision(_ sample: CMSampleBuffer) {
+        let context = precisionSnapshot(), now = ProcessInfo.processInfo.systemUptime
+        guard context.source == .iPhone, !context.paused, let native = CMSampleBufferGetImageBuffer(sample),
+              precisionScheduler.admit(at:now,enabled:context.options.enabled) else { return }
+        guard let copied = precisionCopy(CIImage(cvPixelBuffer:native),storage:&precisionVideoBuffer,renderer:precisionVideoContext) else { precisionScheduler.finish(); return }
+        let aspect = Double(CVPixelBufferGetWidth(native))/Double(CVPixelBufferGetHeight(native))
+        precisionQueue.async {
+            defer { self.videoQueue.async { self.precisionScheduler.finish() } }
+            self.processPrecision(copied,aspect:aspect,context:context,timestamp:now)
+        }
+    }
+    private func analyzeExternalPrecision(_ image:CGImage) {
+        let context = precisionSnapshot(), now = ProcessInfo.processInfo.systemUptime
+        guard context.source == .sony, !context.paused, context.options.enabled else { return }
+        precisionLock.lock(); let admitted = precisionExternalScheduler.admit(at:now,enabled:true); precisionLock.unlock()
+        guard admitted else { return }
+        precisionQueue.async {
+            defer { self.precisionLock.lock(); self.precisionExternalScheduler.finish(); self.precisionLock.unlock() }
+            guard let buffer = self.precisionCopy(CIImage(cgImage:image),storage:&self.precisionExternalBuffer,renderer:self.precisionExternalContext) else { return }
+            self.processPrecision(buffer,aspect:Double(image.width)/Double(image.height),context:context,timestamp:now)
+        }
+    }
+    private func precisionCopy(_ image:CIImage,storage:inout CVPixelBuffer?,renderer:CIContext) -> CVPixelBuffer? {
+        guard image.extent.width > 0, image.extent.height > 0 else { return nil }
+        let scale = min(1,600/max(image.extent.width,image.extent.height))
+        let width = max(1,Int(image.extent.width*scale)), height = max(1,Int(image.extent.height*scale))
+        if storage == nil || CVPixelBufferGetWidth(storage!) != width || CVPixelBufferGetHeight(storage!) != height {
+            var created:CVPixelBuffer?
+            guard CVPixelBufferCreate(kCFAllocatorDefault,width,height,kCVPixelFormatType_32BGRA,[kCVPixelBufferIOSurfacePropertiesKey:[String:Any]()] as CFDictionary,&created) == kCVReturnSuccess else { return nil }
+            storage = created
+        }
+        guard let buffer = storage else { return nil }
+        renderer.render(image.transformed(by:CGAffineTransform(scaleX:scale,y:scale)),to:buffer,bounds:CGRect(x:0,y:0,width:CGFloat(width),height:CGFloat(height)),colorSpace:CGColorSpaceCreateDeviceRGB())
+        return buffer
+    }
+    private func processPrecision(_ buffer:CVPixelBuffer,aspect:Double,context:PrecisionContext,timestamp:TimeInterval) {
+        guard precisionSnapshot().generation == context.generation else { return }
+        let projection = PreviewProjection(imageAspect:aspect,previewAspect:context.previewAspect,mirrored:context.source == .iPhone && context.mirrored)
+        guard let reading = PrecisionAnalyzer.analyze(buffer,projection:projection,options:context.options,timestamp:timestamp) else { return }
+        let motionValue = context.source == .iPhone ? motion.deviceMotion : nil
+        let current = ProcessInfo.processInfo.systemUptime
+        let rotation = motionValue.flatMap { value -> Double? in
+            guard current-value.timestamp >= 0, current-value.timestamp < 0.45 else { return nil }
+            return sqrt(pow(value.rotationRate.x,2)+pow(value.rotationRate.y,2)+pow(value.rotationRate.z,2))
+        }
+        let controls = context.source == .iPhone ? context.controls : CameraControlSnapshot()
+        let recommendations = context.options.autoTune ? AutoTune.recommendations(measured:reading.measurements,controls:controls,
+            ev:context.source == .iPhone ? context.ev : nil,evRange:context.source == .iPhone ? context.evRange : nil,
+            motion:rotation,zoom:context.source == .iPhone ? context.zoom : 1,minimumZoom:context.source == .iPhone ? context.minimumZoom : 1,timestamp:timestamp,
+            subjectMotion:context.subjectMotionTimestamp.flatMap { timestamp >= $0 && timestamp-$0 < 1.5 ? context.relativeSubjectMotion : nil }) : []
+        DispatchQueue.main.async {
+            guard self.precisionSnapshot().generation == context.generation else { return }
+            self.precisionReading = reading; self.autoTuneRecommendations = recommendations
+        }
+    }
+    func applyAutoTune(_ recommendation:AutoTuneRecommendation) {
+        queue.async {
+            let context = self.precisionSnapshot(), now = ProcessInfo.processInfo.systemUptime
+            guard context.options.autoTune,
+                  AutoTune.permitsApplication(recommendation,source:context.source,mode:self.manualState.mode,manualExposure:self.manualState.hasManualExposure,paused:context.paused,busy:self.captureCompletion != nil,now:now),
+                  let bias = recommendation.exposureBias,
+                  let device = self.device, device.exposureMode == .continuousAutoExposure else { return }
+            do {
+                try device.lockForConfiguration(); defer { device.unlockForConfiguration() }
+                let value = max(device.minExposureTargetBias,min(device.maxExposureTargetBias,Float(bias)))
+                device.setExposureTargetBias(value,completionHandler:nil)
+                DispatchQueue.main.async { self.exposureBias = value }
+            } catch { DispatchQueue.main.async { self.errorMessage = "AutoTune could not change exposure. Current settings were retained." } }
         }
     }
 
@@ -896,6 +1191,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                        from connection: AVCaptureConnection) {
         let snapshot = guidanceSnapshot()
         guard snapshot.source == .iPhone else { return }
+        analyzePhonePrecision(sampleBuffer)
         let now = ProcessInfo.processInfo.systemUptime
         let timestamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
         if let rate = previewCadence.observe(timestamp) {
@@ -1035,6 +1331,15 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         } ?? (analysisSource == .sony)
         // When looking straight up/down, gravity cannot give a meaningful portrait roll.
         let roll = gravity.map { hypot($0.x, $0.y) > 0.2 ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
+        var relativeMotion:Double?
+        if analysisSource == .iPhone, stable, !zooming, now >= manualInferenceResumeAfter, confidence >= 0.65, let bounds {
+            if let old = previousMotionSubject, old.label == tracker.label, evaluatedAt > old.time,
+               evaluatedAt-old.time < 1.5, abs(analysisZoom-old.zoom) < 0.01 {
+                relativeMotion = hypot(Double(bounds.midX-old.bounds.midX),Double(bounds.midY-old.bounds.midY))/(evaluatedAt-old.time)
+            }
+            previousMotionSubject = (bounds,tracker.label,evaluatedAt,analysisZoom)
+        } else { previousMotionSubject = nil }
+        precisionLock.lock(); precisionContext.relativeSubjectMotion = relativeMotion; precisionContext.subjectMotionTimestamp = relativeMotion == nil ? nil : evaluatedAt; precisionLock.unlock()
         let planning = compositionPlanning && mode == .automatic
         let projection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect,mirrored:analysisFrontCamera)
         if planning, !zooming, !rapidMovement, now >= manualInferenceResumeAfter, evaluatedAt-lastCompositionEvidence >= 0.8 {
@@ -1053,14 +1358,14 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let plan = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
             others:contextSubjects,enclosingFrames:frames,timestamp:evaluatedAt,
             maximumScale:analysisSource == .iPhone ? max(1,automaticZoomLimit/max(0.01,analysisZoom)) : 1,
-            freeze:zooming) : nil
+            freeze:zooming,intent:photographyIntent) : nil
         if subject == nil && !tracker.isRecovering { manualTargetLock = nil }
         let manualTarget = preferredTarget ?? manualTargetLock ?? subject.map { CompositionEngine.target(for:$0,mode:mode) } ?? UnitPoint2D(x:0.5,y:0.5)
         if mode == .thirds, subject != nil { manualTargetLock = manualTarget }
         let layoutTarget = plan?.target ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
         // Preserve context and off-center placement. Zoom only a positively
         // evaluated centered crop; changing modes never silently forces center.
-        let allowPlannedZoom = planning ? (plan?.permitsZoom ?? false) : mode != .thirds
+        let allowPlannedZoom = photographyIntent.permitsZoom && (planning ? (plan?.permitsZoom ?? false) : mode != .thirds)
         if (!planning || plan != nil || bounds == nil), let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,
                                             detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:stable, holdDuration:holdDuration, previewAspect:previewAspect,

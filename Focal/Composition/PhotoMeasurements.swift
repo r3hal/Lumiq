@@ -3,7 +3,7 @@ import CoreVideo
 import CoreImage
 import ImageIO
 
-struct PhotoMeasurements: Codable, Equatable {
+struct PhotoMeasurements: Codable, Equatable, Sendable {
     let brightness: Double
     let shadowFraction: Double
     let highlightFraction: Double

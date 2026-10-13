@@ -3,23 +3,19 @@ import SwiftUI
 enum CameraViewportLayout {
     static func aspect(source: CameraSource, capture: PhotoAspect, sonyFullFrame: Bool, sonyAspect: Double, width: Double, height: Double) -> Double {
         if source == .sony && sonyFullFrame { return sonyAspect }
-        // Immersive standard phone preview, independent of the saved sensor
-        // crop. Projection receives this actual viewport ratio as well.
-        if source == .iPhone && capture == .standard && width > 0 && height > 0 {
-            return min(capture.ratio, width / height)
-        }
+        // Keep the visible frame identical to the selected capture crop.
         return capture.ratio
     }
 }
 
 /// Presentation is derived from measured service state, never a timed demo.
 enum CameraGuideState: Equatable {
-    case off, searching, recovering, detected, guiding, holding, zooming, ready
+    case off, searching, scene, recovering, detected, guiding, holding, zooming, ready
     static func resolve(enabled: Bool, reading: CompositionReading, phase: FramingPhase, message: GuidanceMessage) -> Self {
         guard enabled else { return .off }
         let validBounds = reading.subjectBounds.map { !$0.isNull && $0.width > 0 && $0.height > 0 && [$0.minX, $0.minY, $0.width, $0.height].allSatisfy(\.isFinite) } ?? false
         let confirmed = validBounds && reading.subjectConfidence >= 0.4
-        guard confirmed else { return message.kind == .steady ? .recovering : .searching }
+        guard confirmed else { return message.kind == .steady ? .recovering : message.kind == .scene ? .scene : .searching }
         if phase == .zooming { return .zooming }
         if message.kind == .ready && reading.state == .ready && !phase.isPreparing { return .ready }
         if message.kind == .detected { return .detected }
@@ -30,6 +26,7 @@ enum CameraGuideState: Equatable {
         switch self {
         case .off: return "sparkles"
         case .searching, .recovering: return "viewfinder"
+        case .scene: return "mountain.2"
         case .detected: return "viewfinder.circle"
         case .guiding: return "arrow.up.and.down.and.arrow.left.and.right"
         case .holding: return "hand.raised.circle"
@@ -79,13 +76,14 @@ struct CameraGuidanceCard: View {
     private var title: String {
         switch state {
         case .off: return ""
-        case .searching: return "Finding your shot"
+        case .searching: return "Scene scan"
+        case .scene: return "Scene assessment"
         case .recovering: return "Keep the subject in view"
-        case .detected: return "Subject detected"
+        case .detected: return "Subject acquired"
         case .guiding: return instruction
-        case .holding: return "Hold steady"
-        case .zooming: return "Adjusting framing…"
-        case .ready: return "Great framing"
+        case .holding: return "Stability check"
+        case .zooming: return "Crop adjustment"
+        case .ready: return "Composition aligned"
         }
     }
 }

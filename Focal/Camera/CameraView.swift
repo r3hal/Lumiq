@@ -25,6 +25,7 @@ struct CameraView: View {
     @State private var reviewPhoto: SavedPhoto?
     @State private var reviewAutoSave = false
     @State private var showCameraPanel = false
+    @State private var startSettings = false
     @State private var openSonyPanel = false
     @State private var pendingPanelAction: PanelAction?
     private enum PanelAction { case reference, explore }
@@ -57,22 +58,23 @@ struct CameraView: View {
 
     private var cameraLayout: some View {
         GeometryReader { geometry in
-            let footerHeight: CGFloat = source == .sony ? 116 : 100
-            let availableHeight: CGFloat = max(160, geometry.size.height - 44 - footerHeight)
+            let footerHeight: CGFloat = source == .sony ? 128 : 120
+            let availableHeight: CGFloat = max(160, geometry.size.height - 94 - footerHeight)
             let targetAspect = CameraViewportLayout.aspect(source: source, capture: settings.aspect,
                 sonyFullFrame: sonyFullFrame, sonyAspect: sony.imageAspect, width: Double(geometry.size.width), height: Double(availableHeight))
             let aspect: CGFloat = CGFloat(targetAspect)
             let width: CGFloat = min(geometry.size.width, availableHeight * aspect)
             VStack(spacing: 0) {
-                toolbar.frame(height: 44)
+                toolbar.frame(height: 50)
+                professionalStatus.frame(height:44)
                 ZStack { viewfinder.frame(width: width, height: width / aspect) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).zIndex(1)
                 footer.frame(height: footerHeight)
             }
             .onChange(of: targetAspect, initial: true) { _, value in immersivePreviewAspect = value }
         }
-        .background(Color.black.ignoresSafeArea())
-        .foregroundStyle(Color.white)
+        .background(Palette.ink.ignoresSafeArea())
+        .foregroundStyle(Palette.text)
     }
 
     private var lifecycleCamera: some View {
@@ -101,6 +103,7 @@ struct CameraView: View {
             .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
             .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
             .onChange(of: settings.compositionPlanning) { _, value in smartGate.reset(); camera.setCompositionPlanning(value) }
+            .onChange(of: settings.intent) { _, value in smartGate.reset(); camera.setIntent(value) }
     }
 
     private var compositionCamera: some View {
@@ -116,11 +119,20 @@ struct CameraView: View {
             }
     }
 
-    private var presentedCamera: some View {
+    private var precisionOptions: PrecisionOptions {
+        .init(histogram:settings.histogram,highlights:settings.highlightWarnings,peaking:settings.focusPeaking,autoTune:settings.autoTune)
+    }
+    private var instrumentedCamera: some View {
         compositionCamera
+            .onChange(of:precisionOptions) { _,value in camera.setPrecisionOptions(value) }
+    }
+
+    private var presentedCamera: some View {
+        instrumentedCamera
             .sheet(isPresented: $showCameraPanel, onDismiss: finishCameraPanel) {
                 CameraOptionsSheet(camera: camera, sony: sony, source: $source, mode: $mode, corner: $corner,
                     sonyFullFrame: $sonyFullFrame, startsWithSony: openSonyPanel,
+                    startsWithSettings:startSettings,
                     openReference: { pendingPanelAction = .reference }, openExplore: { pendingPanelAction = .explore })
             }
             .fullScreenCover(item: $reviewPhoto, onDismiss: resume) { photo in
@@ -148,6 +160,8 @@ struct CameraView: View {
         camera.setCoach(settings.coach)
         camera.setMode(mode)
         camera.setCompositionPlanning(settings.compositionPlanning)
+        camera.setIntent(settings.intent)
+        camera.setPrecisionOptions(precisionOptions)
         configureSubjectFeatures()
         camera.setAutoFraming(settings.autoFrame && settings.subjectTracking)
         camera.setGuidance(settings.guide)
@@ -160,6 +174,7 @@ struct CameraView: View {
     }
     private func finishCameraPanel() {
         openSonyPanel = false
+        startSettings = false
         camera.setInterfacePaused(false)
         let next = pendingPanelAction; pendingPanelAction = nil
         switch next {
@@ -216,13 +231,13 @@ struct CameraView: View {
 
     private var toolbar: some View {
         HStack(spacing: 20) {
-            if source == .sony {
-                Button { source = .iPhone } label: { Image(systemName: "chevron.left").frame(width: 30, height: 44) }.accessibilityLabel("Return to iPhone camera")
-                Text(sony.hasFrame ? sony.model : "Sony Camera").font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            } else { aspectButton }
+            VStack(alignment:.leading,spacing:2) {
+                Text("FOCAL").font(.system(size:18,weight:.semibold)).tracking(4)
+                if source == .sony { Text(sony.hasFrame ? sony.model : "SONY LINK").font(.system(size:9,design:.monospaced)).foregroundStyle(Palette.muted).lineLimit(1) }
+            }
             Spacer(minLength: 8)
-            if source == .iPhone { flashButton }
-            exposureButton
+            if source == .iPhone && camera.supportsFlash { flashButton }
+            Button { startSettings = true; showCameraPanel = true } label: { Image(systemName:"slider.horizontal.3").frame(width:44,height:44) }.accessibilityLabel("Camera settings")
             cameraMenu
         }
         .padding(.horizontal, 20)
@@ -244,6 +259,31 @@ struct CameraView: View {
                     .foregroundStyle(showAspect ? Palette.yellow : Color.secondary)
             }.frame(minHeight: 44)
         }.accessibilityLabel("Aspect ratio and RAW options")
+    }
+
+    private var professionalStatus: some View {
+        HStack(spacing:12) {
+            if source == .iPhone {
+                Menu {
+                    ForEach(camera.controls.encodings.filter { !settings.raw || !camera.supportsRAW || camera.supportsProRAW || $0 == .jpeg }) { encoding in Button(encoding.rawValue) { settings.encoding = encoding } }
+                    if camera.supportsRAW { Toggle("RAW original",isOn:$settings.raw) }
+                    Text("HEIF originals; edited/cropped derivatives may be JPEG")
+                } label: {
+                    Text((settings.raw && camera.supportsRAW ? "RAW + " : "") + actualEncoding.rawValue).font(.system(.caption2,design:.monospaced,weight:.semibold))
+                }.foregroundStyle(Palette.yellow).disabled(!camera.isRunning || controlsBusy)
+                Button { camera.setControlMode(camera.controls.mode == .auto ? .pro : .auto) } label: {
+                    Text(camera.controls.mode.rawValue).font(.system(.caption,design:.monospaced,weight:.semibold)).padding(.horizontal,10).frame(minHeight:34)
+                        .background(camera.controls.mode == .pro ? Palette.yellow.opacity(0.15) : Palette.panel,in:Capsule())
+                }.disabled(!camera.isRunning || controlsBusy).accessibilityLabel("Camera control mode \(camera.controls.mode.rawValue)")
+            } else { Text(sony.hasFrame ? "SONY LIVE" : "SONY LINK").font(.system(.caption2,design:.monospaced)).foregroundStyle(Palette.yellow) }
+            aspectButton
+            Spacer(minLength:2)
+            exposureButton
+        }.padding(.horizontal,20)
+    }
+    private var actualEncoding: PhotoEncoding {
+        if settings.raw && camera.supportsRAW && !camera.supportsProRAW { return .jpeg }
+        return camera.controls.encodings.contains(settings.encoding) ? settings.encoding : .jpeg
     }
 
     private var flashButton: some View {
@@ -282,6 +322,8 @@ struct CameraView: View {
             previewContent
             switchingOverlay
             referenceOverlay
+            PrecisionOverlayView(reading:camera.precisionReading,options:precisionOptions,recommendations:camera.autoTuneRecommendations,apply:camera.applyAutoTune)
+                .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
             subjectOverlay
             coachOverlay
         }
@@ -289,7 +331,9 @@ struct CameraView: View {
         .overlay(alignment: .topLeading) { aspectOverlay }
         .overlay(alignment: .bottom) {
             VStack(spacing: 12) {
-                if showExposure && hasLivePreview {
+                if source == .iPhone && camera.controls.mode == .pro && hasLivePreview {
+                    ProfessionalControlsView(camera:camera,busy:controlsBusy)
+                } else if showExposure && hasLivePreview {
                     exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if hasLivePreview && settings.guide {
                     CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
@@ -315,7 +359,8 @@ struct CameraView: View {
             session: camera.session, onFocus: { camera.focus(at: $0) },
             onSelect: { smartGate.reset(); camera.selectSubject(at: $0) },
             onZoom: { camera.setZoom($0) }, zoom: camera.zoom,
-            onPinchBegin: { camera.beginManualZoom(completion: $0) }, mirrored: camera.isFrontCamera)
+            onPinchBegin: { camera.beginManualZoom(completion: $0) }, mirrored: camera.isFrontCamera,
+            showTapIndicator:camera.controls.canTapFocus && !camera.controls.manualFocus)
             .disabled(controlsBusy)
     }
 
@@ -449,7 +494,7 @@ struct CameraView: View {
             Text(label).foregroundStyle(showExposureAdjustment ? Palette.yellow : Color.white)
                 .frame(maxWidth: .infinity)
         }
-        .disabled(source == .sony || demo || saving || camera.isCapturing || camera.framingPhase == .zooming)
+        .disabled(source == .sony || demo || saving || camera.isCapturing || camera.framingPhase == .zooming || !camera.controls.evAdjustable)
         .accessibilityLabel("Exposure compensation \(live.evLabel)")
         .accessibilityHint(source == .iPhone ? "Adjust compensation" : "Read only; adjust on camera")
     }
@@ -481,11 +526,9 @@ struct CameraView: View {
                 .padding(.horizontal, 14).padding(.top, 13).padding(.bottom, 5)
             if source == .sony { sonyFrameOption }
             ForEach(PhotoAspect.allCases) { aspect in aspectOption(aspect) }.padding(.horizontal, 6)
-            Divider().overlay(Color.white.opacity(0.1)).padding(.horizontal, 12).padding(.vertical, 9)
-            rawToggle
-            if !camera.supportsRAW || source == .sony {
-                Text("Unavailable on this camera").font(.system(size: 9)).foregroundStyle(Color.secondary)
-                    .padding(.horizontal, 14).padding(.bottom, 10)
+            if camera.supportsRAW && source == .iPhone {
+                Divider().overlay(Color.white.opacity(0.1)).padding(.horizontal,12).padding(.vertical,9)
+                rawToggle
             }
         }.frame(width: 150).background(Color(white: 0.08).opacity(0.96), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -534,7 +577,7 @@ struct CameraView: View {
         VStack(spacing: 3) {
             if source == .sony && sony.hasFrame { SonyTelemetryStrip(telemetry: sony.telemetry).padding(.horizontal, 20) }
             captureButtons
-        }.frame(maxHeight: .infinity).background(Color.black)
+        }.frame(maxHeight: .infinity).background(Palette.ink)
     }
 
     private var lensStops: [Double] {
@@ -585,12 +628,14 @@ struct CameraView: View {
 
     private var guidanceButton: some View {
         Button { settings.guide.toggle(); UIImpactFeedbackGenerator(style: .soft).impactOccurred() } label: {
-            Image(systemName: "sparkles").font(.system(size: 21, weight: .medium))
-                .foregroundStyle(settings.guide ? .black : Palette.yellow)
-                .frame(width: 48, height: 48).background(settings.guide ? Palette.yellow : .black, in: Circle())
-                .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.55), lineWidth: 1.5))
-                .shadow(color: Palette.yellow.opacity(settings.guide ? 0.17 : 0), radius: 7)
-        }.buttonStyle(CameraPressStyle()).accessibilityLabel("AI Guidance")
+            VStack(spacing:4) {
+                FocalIntelligenceMark().stroke(settings.guide ? Palette.ink : Palette.yellow,style:StrokeStyle(lineWidth:1.7,lineCap:.round,lineJoin:.round))
+                    .frame(width:27,height:27).frame(width:50,height:50)
+                    .background(settings.guide ? Palette.yellow : Palette.panel,in:Circle())
+                    .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.4),lineWidth:1))
+                Text(settings.guide ? "AI ON" : "AI OFF").font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(Palette.muted)
+            }
+        }.buttonStyle(CameraPressStyle()).accessibilityLabel("Focal Intelligence")
             .accessibilityValue(settings.guide ? "On" : "Off")
             .accessibilityHint("Toggle composition guidance and automatic zoom")
             .animation(.easeInOut(duration: 0.18), value: settings.guide)
@@ -600,8 +645,8 @@ struct CameraView: View {
         Group {
             if let photo = library.photos.first { PhotoImage(url: library.url(for: photo), maxPixels: 180, fill: true) }
             else { Image(systemName: "photo").font(.system(size: 19)).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.panel) }
-        }.frame(width: 40, height: 40).clipped().clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(0.3), lineWidth: 1))
+        }.frame(width:48,height:48).clipped().clipShape(RoundedRectangle(cornerRadius:12))
+            .overlay(RoundedRectangle(cornerRadius:12).stroke(.white.opacity(0.2),lineWidth:1))
     }
 
     private var instruction: String {
@@ -609,7 +654,7 @@ struct CameraView: View {
         if saved { return "Saved to your library." }
         if demo { return "Demo scene. Enable AI Guidance to return to the camera." }
         if source == .sony && sony.state != .streaming { return (sony.state == .connecting || sony.state == .reconnecting) ? (sony.message ?? "Connecting to Sony…") : "Connect a Sony camera for guidance" }
-        if !settings.guide { return "Tap to enable AI Guidance" }
+        if !settings.guide { return "" }
         if camera.guidance.kind == .ready,settings.coach,let advice = camera.coachAdvice.first { return camera.guidance.text+" · "+advice }
         return camera.guidance.text
     }
@@ -657,8 +702,9 @@ struct CameraView: View {
         let scan = settings.saveScan && settings.guide && !demo ? camera.scanData : nil
         let label: String? = settings.guide && !demo && reading.subjectBounds != nil ? subjectName : nil
         let capturedMode = settings.guide ? (mode == .automatic ? camera.compositionPlan?.selected.technique.rawValue ?? mode.rawValue : mode.rawValue) : "Free shoot"
+        let capturedIntent = settings.intent.rawValue
         let challenge = settings.challenge.isEmpty ? nil : settings.challenge
-        let options = CaptureOptions(raw: settings.raw && camera.supportsRAW && source == .iPhone,flash: settings.flash,shutterSound: settings.shutterSound)
+        let options = CaptureOptions(raw: settings.raw && camera.supportsRAW && source == .iPhone,flash: settings.flash,shutterSound: settings.shutterSound,encoding:actualEncoding)
         captureTask = Task {
             var added = [SavedPhoto]()
             do {
@@ -683,7 +729,7 @@ struct CameraView: View {
                     try Task.checkCancellation()
                     let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: capturedDemo,
                         rawData: keepRAW ? capture.raw : nil,originalData: rendered.0 == capture.processed ? nil : capture.processed,
-                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst,cameraOrigin: capturedSource.rawValue)
+                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst,cameraOrigin: capturedSource.rawValue,photographyIntent:capturedIntent)
                     added.append(photo)
                     if index+1 < count { try await Task.sleep(for: .milliseconds(180)) }
                 }

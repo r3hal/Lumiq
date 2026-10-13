@@ -55,7 +55,7 @@ struct SettingsView: View {
                                     ForEach(CaptionStyle.allCases) { style in
                                         Button { settings.caption = style } label: {
                                             VStack(spacing: 9) {
-                                                Text("What I see").font(style.font).foregroundStyle(Palette.yellow)
+                                                Text("Focal · field note").font(style.font).foregroundStyle(Palette.yellow)
                                                 Text(style.rawValue).font(.caption).foregroundStyle(settings.caption == style ? .white : .secondary)
                                             }
                                             .frame(width: 100, height: 65)
@@ -94,18 +94,18 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.11 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 2.0 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
             }
         }
-        .foregroundStyle(.white).background(.black).tint(Palette.yellow)
+        .foregroundStyle(.white).background(Palette.ink).tint(Palette.yellow)
         .sheet(isPresented: $showGuide) { NavigationStack { FieldGuideView() }.presentationDragIndicator(.visible) }
         .sheet(isPresented: $showPrivacy) {
             NavigationStack {
                 ScrollView {
-                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no accounts, analytics or cloud AI. Optional Sony mode communicates only with the local camera address you select for received live view and advertised controls. Analysis still runs on your iPhone. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nSubject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
+                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no accounts, analytics or cloud AI. Focal Link can check a bounded set of addresses on your joined Wi-Fi subnet for real Sony descriptors when you request discovery. Streaming and controls then communicate only with the camera address you select. Analysis still runs on your iPhone. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nOptional histogram, zebra and approximate peaking analyze preview pixels locally. AutoTune does not silently change PRO controls. Insights and Compare analyze stored image files locally without modifying originals. Subject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
                         .padding(24).lineSpacing(5)
                 }.navigationTitle("Privacy Policy").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showPrivacy = false } } }

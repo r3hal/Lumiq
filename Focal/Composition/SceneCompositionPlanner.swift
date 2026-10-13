@@ -42,7 +42,7 @@ struct SceneCompositionPlanner {
 
     mutating func update(subject: CGRect?, confidence: Float, label: String, evidence: SceneCompositionEvidence?,
                          others: [CompositionContextSubject] = [], enclosingFrames: [CGRect] = [],
-                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false) -> SceneCompositionPlan? {
+                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto) -> SceneCompositionPlan? {
         guard timestamp.isFinite else { reset(); return nil }
         guard let subject, Self.valid(subject), confidence >= 0.55 else {
             // Return no plan/box during loss; preserve the choice only for a
@@ -63,7 +63,7 @@ struct SceneCompositionPlanner {
             }
             return nil
         }
-        let options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:maximumScale)
+        let options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent)
         guard let best = options.first else { reset(); return nil }
         let chosen: CompositionOption
         if let old = plan,
@@ -88,7 +88,8 @@ struct SceneCompositionPlanner {
         return retained
     }
     static func compare(subject: CGRect, evidence: SceneCompositionEvidence, others: [CompositionContextSubject] = [],
-                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1) -> [CompositionOption] {
+                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto) -> [CompositionOption] {
+        guard intent != .landscape else { return [] }
         guard valid(subject), maximumScale.isFinite, maximumScale >= 1 else { return [] }
         let center = UnitPoint2D(x:subject.midX,y:subject.midY)
         let background = evidence.region(SceneCompositionEvidence.full,excluding:subject)
@@ -167,10 +168,10 @@ struct SceneCompositionPlanner {
                 let croppedBackground = evidence.region(crop,excluding:subject)
                 let clean = max(0,1-croppedBackground.edgeDensity*2)
                 let penalty = croppedBackground.clipping*0.06+(scale-1)*0.025
-                let score = support*0.68+size*0.1+ease*0.1+clean*0.12-penalty
+                let score = support*0.68+size*0.1+ease*0.1+clean*0.12-penalty+intent.bonus(for:technique)
                 // Non-centered layouts never auto-zoom: it would move the
                 // subject off the selected target. Manual recompose comes first.
-                let zoom = target.distance(to:.init(x:0.5,y:0.5)) < 0.01 ? scale : 1
+                let zoom = intent.permitsZoom && target.distance(to:.init(x:0.5,y:0.5)) < 0.01 ? scale : 1
                 let option = CompositionOption(technique:technique,target:target,crop:crop,score:score,explanation:reason,zoomScale:zoom)
                 if best == nil || option.score > (best?.score ?? 0) { best = option }
             }

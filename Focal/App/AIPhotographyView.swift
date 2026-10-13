@@ -7,6 +7,11 @@ struct AIPhotographyView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(spacing: 0) {
+                    Picker("Focal Intent",selection:$settings.intent) {
+                        ForEach(PhotographyIntent.allCases) { Text($0.rawValue).tag($0) }
+                    }.padding(15)
+                    Text(settings.intent.description).font(.caption).foregroundStyle(Palette.muted).padding(.horizontal,15).padding(.bottom,12)
+                    divider
                     row("AI Guidance", subtitle: "Show composition guidance", value: $settings.guide)
                     divider
                     row("Automatic Zoom", subtitle: source == .sony ? "Use the lens controls on your Sony" : "Zoom when framing is ready", value: automaticZoom)
@@ -42,7 +47,7 @@ struct AIPhotographyView: View {
                     Text("Require stronger evidence before choosing a subject.").font(.caption).foregroundStyle(.secondary)
                 }.padding(15).background(Palette.panel, in: RoundedRectangle(cornerRadius: 16))
             }.padding(18)
-        }.background(.black).foregroundStyle(.white).tint(Palette.yellow)
+        }.background(Palette.ink).foregroundStyle(.white).tint(Palette.yellow)
             .navigationTitle("AI Photography").navigationBarTitleDisplayMode(.inline)
     }
     private var automaticZoom: Binding<Bool> {

@@ -53,7 +53,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Focal uses your camera to help you compose and capture photos. Frames are analyzed only on your iPhone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Focal connects only to the Sony camera address you choose for real wireless live view and advertised camera controls.</string>
+	<string>Focal checks Sony camera descriptors on your joined Wi-Fi when you request discovery, then connects to the camera you choose for real live view and advertised controls.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Focal uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.</string>
 	<key>NSMotionUsageDescription</key>
