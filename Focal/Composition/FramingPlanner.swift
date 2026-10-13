@@ -11,11 +11,13 @@ struct FramingPlanner {
     private var stableSince: TimeInterval?
     private var previous: CGRect?
     private var anchor: CGRect?
+    private(set) var holdProgress: Double = 0
 
     mutating func reset(enabled: Bool) {
         phase = enabled ? .searching : .off
         stableSince = nil
         previous = nil; anchor = nil
+        holdProgress = 0
     }
     mutating func finish() { phase = .framed }
 
@@ -23,6 +25,7 @@ struct FramingPlanner {
                          currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = [], deviceStable: Bool = true, holdDuration: Double = 0.75, previewAspect: Double = 0.75) -> Double? {
         guard [roll,timestamp,currentZoom,maximumZoom,holdDuration,previewAspect].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, previewAspect > 0 else { return nil }
         guard phase != .off, phase != .framed, phase != .zooming else { return nil }
+        holdProgress = 0
         guard let bounds, valid(bounds), confidence >= 0.6 else {
             phase = .searching; stableSince = nil; previous = nil; anchor = nil
             return nil
@@ -45,7 +48,9 @@ struct FramingPlanner {
             stableSince = nil; self.anchor = nil
         }
         if stableSince == nil { stableSince = timestamp; anchor = bounds }
-        guard timestamp - (stableSince ?? timestamp) >= max(0.5,min(2,holdDuration)) else { return nil }
+        let requiredHold = max(0.5,min(3,holdDuration))
+        holdProgress = min(1, max(0, (timestamp - (stableSince ?? timestamp)) / requiredHold))
+        guard holdProgress >= 1 else { return nil }
         // Account for the off-center extent, so zoom never cuts off the selected subject.
         let fit = min(0.72 / (Double(bounds.width) + 2 * abs(dx)),
                       0.62 / (Double(bounds.height) + 2 * abs(dy)))

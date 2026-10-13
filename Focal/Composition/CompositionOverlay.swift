@@ -35,22 +35,23 @@ struct CompositionOverlay: View {
                 FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady)
                 let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
                 if !rect.isNull && rect.width > 0 && rect.height > 0 {
-                    let compact = framingPhase == .zooming || framingPhase == .framed
-                    if !compact {
-                        RoundedRectangle(cornerRadius:6).stroke(Palette.yellow,lineWidth:1.3)
-                            .frame(width:rect.width*geometry.size.width,height:rect.height*geometry.size.height)
-                            .position(x:rect.midX*geometry.size.width,y:rect.midY*geometry.size.height)
-                            .transition(.opacity)
+                    if subjectLabel.lowercased().contains("person") {
+                        SubjectCorners().stroke(Palette.yellow, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                            .frame(width: rect.width * geometry.size.width, height: rect.height * geometry.size.height)
+                            .position(x: rect.midX * geometry.size.width, y: rect.midY * geometry.size.height)
+                    } else {
+                        RoundedRectangle(cornerRadius: 4).stroke(Palette.yellow, lineWidth: 1.2)
+                            .frame(width: rect.width * geometry.size.width, height: rect.height * geometry.size.height)
+                            .position(x: rect.midX * geometry.size.width, y: rect.midY * geometry.size.height)
                     }
                     if let name = SubjectIdentity.name(subjectLabel) {
-                        HStack(spacing: 5) {
-                            Circle().fill(compact ? Palette.mint : Palette.yellow).frame(width: 4, height: 4)
-                            Text(name.lowercased()).font(.system(size:11,weight:.medium)).lineLimit(2)
-                        }
-                        .foregroundStyle(compact ? Palette.mint : Palette.yellow).padding(.horizontal,7).padding(.vertical,4)
-                        .background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:5))
-                        .position(x:min(geometry.size.width-65,max(65,rect.midX*geometry.size.width)),
-                                  y:min(geometry.size.height-18,max(18,rect.maxY*geometry.size.height+14)))
+                        HStack(spacing: 6) {
+                            Image(systemName: name.lowercased().contains("dog") || name.lowercased().contains("cat") ? "pawprint.fill" : "viewfinder")
+                                .foregroundStyle(Palette.yellow)
+                            Text(name + " detected").font(.system(size: 11, weight: .medium)).lineLimit(1)
+                        }.foregroundStyle(.white).padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .position(x: geometry.size.width / 2, y: 25)
                     }
                 }
             }
@@ -76,16 +77,7 @@ private struct FramingDirectionOverlay: View {
                     CameraPanArrow(subject: cue.subject, target: cue.target)
                         .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
-                ZStack {
-                    if phase != .off {
-                        Rectangle().fill(color).frame(width: 15, height: 1.5)
-                        Rectangle().fill(color).frame(width: 1.5, height: 15)
-                    } else {
-                        Circle().stroke(color, lineWidth: 1.6).frame(width: 25, height: 25)
-                        if ready { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(color) }
-                        else { Circle().fill(color).frame(width: 4, height: 4) }
-                    }
-                }.position(x: cue.target.x * geometry.size.width, y: cue.target.y * geometry.size.height)
+
             }
         }
     }
@@ -117,6 +109,21 @@ private struct CameraPanArrow: Shape {
             path.move(to: CGPoint(x: tip.x - ux * 8 - uy * 5, y: tip.y - uy * 8 + ux * 5))
             path.addLine(to: tip)
             path.addLine(to: CGPoint(x: tip.x - ux * 8 + uy * 5, y: tip.y - uy * 8 - ux * 5))
+        }
+    }
+}
+
+private struct SubjectCorners: Shape {
+    func path(in rect: CGRect) -> Path {
+        let length = min(19, min(rect.width, rect.height) * 0.24)
+        return Path { path in
+            for corner in [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)] {
+                let dx: CGFloat = corner.x == rect.minX ? 1 : -1
+                let dy: CGFloat = corner.y == rect.minY ? 1 : -1
+                path.move(to: CGPoint(x: corner.x + dx * length, y: corner.y))
+                path.addLine(to: corner)
+                path.addLine(to: CGPoint(x: corner.x, y: corner.y + dy * length))
+            }
         }
     }
 }

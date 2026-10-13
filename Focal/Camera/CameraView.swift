@@ -4,6 +4,7 @@ struct CameraView: View {
     @StateObject private var camera = CameraController()
     @StateObject private var sony = SonyRemoteCamera()
     @State private var source: CameraSource = .iPhone
+    @State private var immersivePreviewAspect = 0.75
     @State private var sonyFullFrame = true
     @EnvironmentObject private var library: PhotoLibrary
     @EnvironmentObject private var settings: CameraSettings
@@ -23,17 +24,22 @@ struct CameraView: View {
     @State private var captureGeneration = UUID()
     @State private var reviewPhoto: SavedPhoto?
     @State private var reviewAutoSave = false
-    @State private var showSettings = false
+    @State private var showCameraPanel = false
+    @State private var openSonyPanel = false
+    @State private var pendingPanelAction: PanelAction?
+    private enum PanelAction { case reference, explore }
     @State private var showLibrary = false
     @State private var mode: CompositionMode = .centered
     @State private var corner: Int?
     @State private var saving = false
     @State private var saved = false
     private var reading: CompositionReading { camera.reading }
-    private var canShoot: Bool { (source == .sony ? sony.canCapture : (demo || camera.isRunning)) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming }
+    private var canShoot: Bool { (source == .sony ? sony.canCapture : (demo || camera.isRunning)) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming && !showCameraPanel && reviewPhoto == nil }
     private var subjectName: String { SubjectIdentity.name(camera.subjectLabel) ?? "Selected subject" }
-    private var viewfinderAspect: Double { source == .sony && sonyFullFrame ? sony.imageAspect : settings.aspect.ratio }
-    private var sonyPreviewInfo: String { sony.qualityStatus + " · " + sony.streamDiagnostics }
+    private var viewfinderAspect: Double {
+        if source == .sony && sonyFullFrame { return sony.imageAspect }
+        return source == .iPhone && settings.aspect == .standard ? immersivePreviewAspect : settings.aspect.ratio
+    }
     private var aspectTitle: String { source == .sony && sonyFullFrame ? "Camera" : settings.aspect.rawValue }
     private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
 
@@ -51,17 +57,21 @@ struct CameraView: View {
 
     private var cameraLayout: some View {
         GeometryReader { geometry in
-            let aspect: CGFloat = CGFloat(viewfinderAspect)
-            let availableHeight: CGFloat = max(160, geometry.size.height - 208)
+            let footerHeight: CGFloat = source == .sony ? 116 : 100
+            let availableHeight: CGFloat = max(160, geometry.size.height - 44 - footerHeight)
+            let targetAspect = CameraViewportLayout.aspect(source: source, capture: settings.aspect,
+                sonyFullFrame: sonyFullFrame, sonyAspect: sony.imageAspect, width: Double(geometry.size.width), height: Double(availableHeight))
+            let aspect: CGFloat = CGFloat(targetAspect)
             let width: CGFloat = min(geometry.size.width, availableHeight * aspect)
             VStack(spacing: 0) {
                 toolbar.frame(height: 44)
                 ZStack { viewfinder.frame(width: width, height: width / aspect) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).zIndex(1)
-                footer.frame(height: 164)
+                footer.frame(height: footerHeight)
             }
+            .onChange(of: targetAspect, initial: true) { _, value in immersivePreviewAspect = value }
         }
-        .background(Color.black)
+        .background(Color.black.ignoresSafeArea())
         .foregroundStyle(Color.white)
     }
 
@@ -71,6 +81,7 @@ struct CameraView: View {
             .onDisappear { visible = false; pauseActiveSource() }
             .onChange(of: scenePhase) { _, phase in handleScenePhase(phase) }
             .onChange(of: source) { _, value in changeSource(to: value) }
+            .onChange(of: showCameraPanel) { _, value in camera.setInterfacePaused(value) }
             .onChange(of: sony.hasFrame) { _, value in
                 if source == .sony && !value { camera.setAnalysisSource(.sony) }
             }
@@ -83,6 +94,9 @@ struct CameraView: View {
         lifecycleCamera
             .onChange(of: settings.subjectThreshold) { _, value in camera.setSubjectThreshold(value) }
             .onChange(of: settings.holdDuration) { _, value in camera.setHoldDuration(value) }
+            .onChange(of: settings.petDetection) { _, _ in configureSubjectFeatures() }
+            .onChange(of: settings.subjectTracking) { _, _ in configureSubjectFeatures(); camera.setAutoFraming(settings.autoFrame && settings.subjectTracking) }
+            .onChange(of: settings.smartSelection) { _, _ in configureSubjectFeatures() }
             .onChange(of: settings.coach) { _, value in camera.setCoach(value) }
             .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
             .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
@@ -91,7 +105,7 @@ struct CameraView: View {
     private var compositionCamera: some View {
         preferenceCamera
             .onChange(of: settings.guide) { _, value in changeGuidance(to: value) }
-            .onChange(of: settings.autoFrame) { _, value in smartGate.reset(); camera.setAutoFraming(value) }
+            .onChange(of: settings.autoFrame) { _, value in smartGate.reset(); camera.setAutoFraming(value && settings.subjectTracking) }
             .onChange(of: viewfinderAspect) { _, value in smartGate.reset(); camera.setPreviewAspect(value) }
             .onChange(of: corner) { _, value in changeCorner(to: value) }
             .onChange(of: reading.state) { old, new in
@@ -103,8 +117,10 @@ struct CameraView: View {
 
     private var presentedCamera: some View {
         compositionCamera
-            .fullScreenCover(isPresented: $showSettings, onDismiss: resume) {
-                SettingsView(camera: camera, source: source, sonyResolution: sony.resolution, sonyModel: sony.model, sonyPreviewInfo: sonyPreviewInfo)
+            .sheet(isPresented: $showCameraPanel, onDismiss: finishCameraPanel) {
+                CameraOptionsSheet(camera: camera, sony: sony, source: $source, mode: $mode, corner: $corner,
+                    sonyFullFrame: $sonyFullFrame, startsWithSony: openSonyPanel,
+                    openReference: { pendingPanelAction = .reference }, openExplore: { pendingPanelAction = .explore })
             }
             .fullScreenCover(item: $reviewPhoto, onDismiss: resume) { photo in
                 PhotoEditorView(photo: photo, captureReview: true, autoSaveOnReview: reviewAutoSave)
@@ -130,10 +146,25 @@ struct CameraView: View {
         camera.setHoldDuration(settings.holdDuration)
         camera.setCoach(settings.coach)
         camera.setMode(mode)
-        camera.setAutoFraming(settings.autoFrame)
+        configureSubjectFeatures()
+        camera.setAutoFraming(settings.autoFrame && settings.subjectTracking)
         camera.setGuidance(settings.guide)
         camera.setPreviewAspect(viewfinderAspect)
         resume()
+    }
+
+    private func configureSubjectFeatures() {
+        camera.setSubjectFeatures(pets: settings.petDetection, tracking: settings.subjectTracking, smartSelection: settings.smartSelection)
+    }
+    private func finishCameraPanel() {
+        openSonyPanel = false
+        camera.setInterfacePaused(false)
+        let next = pendingPanelAction; pendingPanelAction = nil
+        switch next {
+        case .reference: pauseActiveSource(); showReference = true
+        case .explore: pauseActiveSource(); showExplore = true
+        case nil: resume()
+        }
     }
 
     private func changeGuidance(to enabled: Bool) {
@@ -143,7 +174,11 @@ struct CameraView: View {
     }
 
     private func handleScenePhase(_ phase: ScenePhase) {
-        if phase == .active && visible && !showSettings && !showLibrary && !showReference && !showExplore && reviewPhoto == nil {
+        if phase == .active && showCameraPanel {
+            if source == .sony { sony.resume() }
+            return
+        }
+        if phase == .active && visible && !showCameraPanel && !showLibrary && !showReference && !showExplore && reviewPhoto == nil {
             resume()
         } else { pauseActiveSource() }
     }
@@ -152,8 +187,8 @@ struct CameraView: View {
         captureGeneration = UUID(); captureTask?.cancel(); saving = false; seriesProgress = ""
         camera.stop(); sony.disconnect(); demo = false; showExposure = false
         smartGate.reset(); camera.setAnalysisSource(value)
-        if value == .iPhone { camera.start() }
-        else { sonyFullFrame = true; mode = .thirds; settings.guide = true }
+        if value == .iPhone { if !showCameraPanel { camera.start() } }
+        else { sonyFullFrame = true; mode = .thirds }
     }
 
     private func changeCorner(to value: Int?) {
@@ -168,7 +203,7 @@ struct CameraView: View {
             try? await Task.sleep(for: interval)
             guard !Task.isCancelled else { return }
             let active: Bool = visible && scenePhase == .active && !demo && source == .iPhone
-                && !showSettings && !showLibrary && !showReference && !showExplore && reviewPhoto == nil
+                && !showCameraPanel && !showLibrary && !showReference && !showExplore && reviewPhoto == nil
             let ready: Bool = reading.state == .ready && camera.guidance.kind == .ready && !camera.framingPhase.isPreparing
             let shouldCapture: Bool = smartGate.shouldCapture(
                 enabled: settings.smartShutter && settings.guide, ready: ready,
@@ -179,9 +214,12 @@ struct CameraView: View {
 
     private var toolbar: some View {
         HStack(spacing: 20) {
-            aspectButton
-            Spacer()
-            flashButton
+            if source == .sony {
+                Button { source = .iPhone } label: { Image(systemName: "chevron.left").frame(width: 30, height: 44) }.accessibilityLabel("Return to iPhone camera")
+                Text(sony.hasFrame ? sony.model : "Sony Camera").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            } else { aspectButton }
+            Spacer(minLength: 8)
+            if source == .iPhone { flashButton }
             exposureButton
             cameraMenu
         }
@@ -225,50 +263,9 @@ struct CameraView: View {
     }
 
     private var cameraMenu: some View {
-        Menu {
-            cameraSourceMenu
-            automationMenu
-            toolsMenu
-            compositionMenu
-            if source == .sony {
-                Button("Disconnect Sony", role: .destructive) { sony.disconnect(); camera.findSubject() }
-            }
-        } label: {
-            Image(systemName: "ellipsis").font(.system(size: 21, weight: .bold)).frame(width: 30, height: 44)
-        }.accessibilityLabel("Camera Source and settings")
-    }
-
-    @ViewBuilder private var cameraSourceMenu: some View {
-        Picker("Camera Source", selection: $source) {
-            ForEach(CameraSource.allCases) { value in Text(value.rawValue).tag(value) }
-        }
-        Button("Settings", systemImage: "gearshape") { pauseActiveSource(); showSettings = true }
-    }
-
-    @ViewBuilder private var automationMenu: some View {
-        Toggle("AI Guidance", isOn: $settings.guide)
-        Button("Automatic subject selection", systemImage: "viewfinder") { smartGate.reset(); camera.findSubject() }
-            .disabled(!settings.guide)
-        Button("Switch camera", systemImage: "camera.rotate") { camera.switchCamera() }
-            .disabled(demo || source == .sony)
-        Toggle("Smart shutter", isOn: $settings.smartShutter).disabled(source == .sony)
-        Toggle("Automatic zoom", isOn: $settings.autoFrame).disabled(source == .sony)
-        Toggle("Measured coach", isOn: $settings.coach)
-    }
-
-    @ViewBuilder private var toolsMenu: some View {
-        Button("Reference overlay", systemImage: "photo.on.rectangle") { pauseActiveSource(); showReference = true }
-        Button("Explore & practice", systemImage: "sparkles") { pauseActiveSource(); showExplore = true }
-    }
-
-    @ViewBuilder private var compositionMenu: some View {
-        Picker("Composition", selection: $mode) {
-            Text("Thirds").tag(CompositionMode.thirds)
-            Text("Center").tag(CompositionMode.centered)
-        }.disabled(settings.autoFrame && source == .iPhone)
-        Button("Change thirds corner") {
-            corner = ((CompositionEngine.thirdsTargets.firstIndex(of: reading.target) ?? 0) + 1) % 4
-        }.disabled(mode != .thirds || (settings.autoFrame && source == .iPhone))
+        Button { openSonyPanel = false; showCameraPanel = true } label: {
+            Image(systemName: "ellipsis").font(.system(size: 21, weight: .bold)).frame(width: 44, height: 44)
+        }.accessibilityLabel("Camera options").buttonStyle(CameraPressStyle())
     }
 
     private var controlsBusy: Bool { saving || camera.isCapturing || camera.isSwitchingCamera }
@@ -286,13 +283,19 @@ struct CameraView: View {
             subjectOverlay
             coachOverlay
         }
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 9))
         .overlay(alignment: .topLeading) { aspectOverlay }
         .overlay(alignment: .bottom) {
-            if showExposure {
-                exposureStrip.padding(.horizontal, 10).padding(.bottom, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            VStack(spacing: 12) {
+                if showExposure && hasLivePreview {
+                    exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if hasLivePreview && settings.guide {
+                    CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling)
+                        .allowsHitTesting(false)
+                }
+                if source == .iPhone && (demo || camera.access == .available) { lensButtons }
+            }.padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 24)
+                .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
         }
         .animation(.easeInOut(duration: 0.2), value: showExposure)
     }
@@ -323,8 +326,14 @@ struct CameraView: View {
                     })
             }
         } else {
-            SonyConnectionView(camera: sony) { source = .iPhone }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 15) {
+                Image(systemName: "camera").font(.system(size: 40, weight: .light)).foregroundStyle(Palette.yellow)
+                Text(sony.state == .reconnecting ? "Restoring Sony live view…" : "Sony Camera").font(.headline)
+                if sony.state == .connecting || sony.state == .reconnecting { ProgressView().tint(Palette.yellow) }
+                Button("Connect Sony camera") { openSonyPanel = true; showCameraPanel = true }
+                    .buttonStyle(.borderedProminent).tint(Palette.yellow).foregroundStyle(.black)
+                if let message = sony.message { Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(3) }
+            }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -515,28 +524,14 @@ struct CameraView: View {
             .padding(.horizontal, 14).padding(.bottom, 13)
     }
 
+    private var guideState: CameraGuideState {
+        CameraGuideState.resolve(enabled: settings.guide, reading: reading, phase: camera.framingPhase, message: camera.guidance)
+    }
     private var footer: some View {
-        VStack(spacing: 0) {
-            guidanceText
-            lensButtons
+        VStack(spacing: 3) {
+            if source == .sony && sony.hasFrame { SonyTelemetryStrip(telemetry: sony.telemetry).padding(.horizontal, 20) }
             captureButtons
-            Spacer(minLength: 0)
-        }.background(Color.black)
-    }
-
-    private var guidanceColor: Color {
-        guard settings.guide else { return Color.secondary }
-        switch camera.guidance.kind {
-        case .searching, .scene: return Color.secondary
-        case .ready, .framing: return Palette.mint
-        default: return Palette.yellow
-        }
-    }
-
-    private var guidanceText: some View {
-        Text(instruction).font(.system(size: 12, weight: .medium)).foregroundStyle(guidanceColor)
-            .lineLimit(2).multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity).frame(height: 29).padding(.horizontal, 12)
+        }.frame(maxHeight: .infinity).background(Color.black)
     }
 
     private var lensStops: [Double] {
@@ -545,22 +540,23 @@ struct CameraView: View {
     }
 
     private var lensButtons: some View {
-        HStack(spacing: 7) {
-            if source == .sony { Text("Sony lens · zoom on camera").font(.caption).foregroundStyle(Color.secondary) }
+        HStack(spacing: 8) {
             ForEach(lensStops, id: \.self) { stop in zoomButton(stop) }
-        }.frame(height: 43)
+        }.padding(.horizontal, 10).padding(.vertical, 5)
+            .background(.black.opacity(0.72), in: Capsule()).frame(height: 43)
     }
 
     private func zoomButton(_ stop: Double) -> some View {
         let selected: Bool = closestStop == stop
         let label: String = zoomLabel(selected ? camera.zoom : stop)
-        let foreground: Color = selected ? Palette.yellow : Color.secondary
-        let background: Color = selected ? Palette.yellow.opacity(0.14) : Color(white: 0.07)
+        let foreground: Color = selected ? .black : .white.opacity(0.8)
+        let background: Color = selected ? Palette.yellow : .clear
         return Button { camera.setZoom(stop) } label: {
             Text(label).font(.system(size: 12, weight: selected ? .semibold : .regular))
-                .foregroundStyle(foreground).frame(width: 36, height: 36)
+                .foregroundStyle(foreground).frame(width: 34, height: 34)
                 .background(background, in: Circle())
-        }.disabled(demo || controlsBusy).accessibilityLabel("Zoom \(zoomLabel(stop))")
+        }.buttonStyle(CameraPressStyle()).disabled(demo || controlsBusy).accessibilityLabel("Zoom \(zoomLabel(stop))")
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var captureButtons: some View {
@@ -571,33 +567,29 @@ struct CameraView: View {
             shutterButton
             Spacer()
             guidanceButton
-        }.padding(.horizontal, 54).frame(height: 80)
+        }.padding(.horizontal, 30).frame(height: 88)
     }
 
     private var shutterButton: some View {
         Button(action: shoot) {
             ZStack {
-                Circle().stroke(Color.white, lineWidth: 2).frame(width: 62, height: 62)
-                Circle().fill(Color.white).frame(width: 52, height: 52)
+                Circle().stroke(Color.white, lineWidth: 2.5).frame(width: 72, height: 72)
+                Circle().fill(Color.white).frame(width: 62, height: 62)
                 if saving || camera.isCapturing { ProgressView().tint(Color.black) }
-            }.frame(width: 70, height: 70)
-        }.disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
+            }.frame(width: 80, height: 80)
+        }.buttonStyle(CameraPressStyle()).disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
     }
 
-    private var rescanAvailable: Bool { source == .iPhone && settings.guide && camera.framingPhase == .framed }
-    private var scanning: Bool { source == .iPhone && settings.guide && camera.framingPhase.isPreparing }
     private var guidanceButton: some View {
-        Button {
-            if rescanAvailable { smartGate.reset(); camera.findSubject() }
-            else { settings.guide.toggle() }
-        } label: {
-            Image(systemName: rescanAvailable ? "arrow.clockwise" : scanning ? "xmark" : "sparkles")
-                .font(.system(size: 20)).foregroundStyle(scanning ? Color.white : settings.guide ? Color.black : Palette.yellow)
-                .frame(width: 48, height: 48).background(scanning ? Color(white: 0.07) : settings.guide ? Palette.yellow : Color(white: 0.07), in: Circle())
-                .overlay(Circle().stroke(Palette.yellow.opacity(scanning ? 0 : settings.guide ? 1 : 0.6), lineWidth: 1))
-        }.accessibilityLabel(rescanAvailable ? "Find another frame" : scanning ? "Cancel AI framing" : "AI Guidance")
+        Button { settings.guide.toggle(); UIImpactFeedbackGenerator(style: .soft).impactOccurred() } label: {
+            Image(systemName: "sparkles").font(.system(size: 21, weight: .medium))
+                .foregroundStyle(settings.guide ? .black : Palette.yellow)
+                .frame(width: 48, height: 48).background(settings.guide ? Palette.yellow : .black, in: Circle())
+                .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.55), lineWidth: 1.5))
+                .shadow(color: Palette.yellow.opacity(settings.guide ? 0.17 : 0), radius: 7)
+        }.buttonStyle(CameraPressStyle()).accessibilityLabel("AI Guidance")
             .accessibilityValue(settings.guide ? "On" : "Off")
-            .accessibilityHint(rescanAvailable ? "Restart subject selection and automatic framing" : "Toggle subject selection and guidance")
+            .accessibilityHint("Toggle composition guidance and automatic zoom")
             .animation(.easeInOut(duration: 0.18), value: settings.guide)
     }
 
@@ -636,7 +628,7 @@ struct CameraView: View {
 
     private func pauseActiveSource() { camera.stop(); sony.pause() }
     private func resume() {
-        guard visible,scenePhase == .active,reviewPhoto == nil else { return }
+        guard visible,scenePhase == .active,reviewPhoto == nil,!showCameraPanel else { return }
         if source == .iPhone { if !demo { camera.start() } }
         else { sony.resume() }
     }

@@ -1,17 +1,17 @@
-Focal 1.10, build 13
-PASS: Reviewed phone acquisition/steady-hold coupling, object classification gates, person short-circuit, stage failure isolation and tracker recovery.
-PASS: Lexical delimiter balance in 60 Swift files (46 app, 14 test). This is not a Swift grammar or type check.
-PASS: All sources/resources registered; Info/privacy plists, shared test scheme, asset images and caption font inspected.
+Focal 1.11, build 14
+PASS: Supplied 12-state design compared against existing SwiftUI/services; mapping and preservation audit documented.
+PASS: Lexical delimiter balance in 64 Swift files (49 app, 15 test). Not a Swift grammar/type check.
+PASS: All sources/resources registered; plists/shared scheme, assets and fonts inspected.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: Both cloud workflows and shell syntax checked; native test step still precedes archive and unsigned IPA packaging.
-PASS: 163 native XCTest functions registered (13 new); none executed here.
-PASS: Numerical scoring spot checks for low-contrast desk, natural tree texture, existing challenger margin and anonymous texture rejection. These are calculations, not Swift executions.
+PASS: Cloud workflows/shell syntax checked; native tests remain before archive and unsigned IPA packaging.
+PASS: 176 native XCTest functions registered (13 new); none executed here.
 PASS: git diff --check.
-ATTEMPTED: xcodebuild -list -project Focal.xcodeproj returned exit 127: xcodebuild: command not found.
-PENDING: Swift syntax/type checking, native build and all 163 XCTest executions in Codemagic.
-PENDING: Actual Vision crop labels/boundaries for furniture/trees/products, phone handheld acquisition, steady focus/zoom, source changes, tracking recovery and false-positive checks.
-PENDING: Inference latency, preview cadence, device heat, fast-OCR title accuracy, stage failure/retry and soft-budget behavior on actual hardware.
-PENDING: Sony live view/shutter/reconnect regressions and phone RAW/editor regressions. A7 III/A6100 behavior requires hardware retesting.
-LIMITS: Apple Vision cannot identify every item in every view. Object names require real local proposals and repeated evidence; scene labels do not fabricate object boxes. The soft classification budget does not cancel an already-running Vision request. Unknown names/lost boundaries may still produce search rather than guidance.
-No Swift compiler, Apple SDK, Xcode, simulator or physical devices were used here. Structural checks do not verify native compilation, model accuracy, rendering or runtime performance.
-See docs/BROAD-SUBJECT-GUIDANCE.md and prior validation/device reports.
+ATTEMPTED: Xcode simulator build and simulator test; both exited 127, xcodebuild: command not found.
+PENDING: Native syntax/type checking/build and all 176 XCTest executions in Codemagic.
+PENDING: Actual visual comparison on iPhone 16 Pro Max, safe areas, Dynamic Island/home indicator, larger text, sheet navigation/press/transitions and all twelve states.
+PENDING: Capture/RAW/focus/white balance/lens/pinch/editor/gallery/permissions/lifecycle and AI feature-switch regressions; measured hold progress and manual-zoom priority after menu dismissal.
+PENDING: A7 III connection/dashboard/live telemetry/capture/touch focus/reconnect/shared AI; A6100 remains planned and independently unverified.
+PENDING: Inference/preview cadence and heat with tracking on/off, real recognition labels/bounds and false positives.
+LIMITS: No fake live-feed photography or demo state timers. Sony status uses only reported model/real stream data; battery/storage/signal metrics are not populated from the mockup. Native camera symbol is used in setup. Sony full-frame aspect is retained. Recognition remains probabilistic. Phone-only editing restrictions remain.
+No Swift compiler, Apple SDK, Xcode, simulator or devices were used. Structural checks do not establish native compilation, visual matching or runtime behavior.
+See docs/TWELVE-SCREEN-DESIGN.md.

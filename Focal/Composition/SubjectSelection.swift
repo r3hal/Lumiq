@@ -1,5 +1,13 @@
 import Foundation
 
+struct SubjectAnalysisFeatures: Equatable {
+    var petDetection = true
+    var subjectTracking = true
+    var smartSelection = true
+    func allowsAcquisition(manual: Bool) -> Bool { smartSelection || manual }
+    func allowsAutomaticZoom(requested: Bool) -> Bool { requested && subjectTracking }
+}
+
 struct SubjectSelectionConfiguration {
     var threshold: Double = 0.68
     var minimumConfidence: Double = 0.55

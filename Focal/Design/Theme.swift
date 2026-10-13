@@ -4,8 +4,16 @@ enum Palette {
     static let ink = Color.black
     static let panel = Color(white: 0.12)
     static let paper = Color(red: 0.95, green: 0.94, blue: 0.90)
-    static let mint = Color(red: 0.19, green: 0.78, blue: 0.35)
-    static let yellow = Color(red: 1, green: 0.84, blue: 0.04)
+    static let mint = Color(red: 76.0 / 255, green: 217.0 / 255, blue: 100.0 / 255)
+    static let yellow = Color(red: 1, green: 211.0 / 255, blue: 42.0 / 255)
+}
+
+struct CameraPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
 }
 
 struct Eyebrow: View {

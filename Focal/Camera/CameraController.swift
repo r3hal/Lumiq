@@ -23,6 +23,7 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var canMuteShutter = false
     @Published private(set) var scanData: Data?
     @Published private(set) var framingPhase: FramingPhase = .off
+    @Published private(set) var framingHoldProgress: Double = 0
     @Published private(set) var guidance = GuidanceMessage()
     @Published private(set) var telemetry = CameraTelemetry()
     @Published private(set) var previewFPS: Double?
@@ -101,6 +102,7 @@ final class CameraController: NSObject, ObservableObject {
     private var wantsScan = true
     private var preferredTarget: UnitPoint2D?
     private var analysisPaused = false
+    private var interfacePaused = false
     private var manualInferenceResumeAfter: TimeInterval = 0 // Analysis queue only.
     private var ignoreFramesUntil: TimeInterval = 0
     private var focusCandidate: UnitPoint2D?
@@ -244,7 +246,35 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setHoldDuration(_ duration: Double) {
-        analysisQueue.async { self.holdDuration = max(0.5,min(2,duration)); self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone) }
+        analysisQueue.async { self.holdDuration = max(0.5,min(3,duration)); self.framing.reset(enabled:self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone) }
+    }
+
+    func setSubjectFeatures(pets: Bool, tracking: Bool, smartSelection: Bool) {
+        guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled); guidanceLock.unlock()
+        tracker.cancelInference()
+        queue.async {
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.tracker.configure(pets: pets, tracking: tracking, smartSelection: smartSelection)
+                self.autoFrameEnabled = self.tracker.features.allowsAutomaticZoom(requested: self.autoFrameEnabled)
+                self.resetAnalysis()
+            }
+        }
+    }
+
+    func setInterfacePaused(_ paused: Bool) {
+        queue.async {
+            self.cancelZoomRamp()
+            self.analysisQueue.async {
+                self.interfacePaused = paused
+                if !paused {
+                    // Closing a menu must not override manual pinch priority or
+                    // repeatedly zoom a shot that has already been framed.
+                    let shouldRearm = self.framing.phase.isPreparing
+                    self.resetAnalysis(armFraming: shouldRearm)
+                }
+            }
+        }
     }
 
     func setAnalysisSource(_ source: CameraSource) {
@@ -366,8 +396,8 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
-                self.autoFrameEnabled = enabled
-                self.framing.reset(enabled: enabled && self.guidanceEnabled && self.analysisSource == .iPhone)
+                self.autoFrameEnabled = self.tracker.features.allowsAutomaticZoom(requested: enabled)
+                self.framing.reset(enabled: self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.ignoreFramesUntil = 0
                 self.publishFraming()
             }
@@ -405,7 +435,8 @@ final class CameraController: NSObject, ObservableObject {
 
     private func publishFraming() {
         let phase = framing.phase
-        DispatchQueue.main.async { self.framingPhase = phase }
+        let progress = framing.holdProgress
+        DispatchQueue.main.async { self.framingPhase = phase; self.framingHoldProgress = progress }
     }
 
     func setTarget(_ target: UnitPoint2D?) {
@@ -885,7 +916,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 
     private func processFrame(_ fullBuffer: CVPixelBuffer, sourceAspect: Double? = nil) {
-        guard !analysisPaused else { return }
+        guard !analysisPaused, !interfacePaused else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard now >= ignoreFramesUntil,now-lastAnalysis > 0.2 else { return }
         lastAnalysis = now
@@ -1046,7 +1077,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             zoomAvailable:automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering)
         let label = tracker.label
         let phase = framing.phase
-        publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.levelReliable = reliable; self.guidance = message }
+        let progress = framing.holdProgress
+        publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message }
     }
 
     private func smallAnalysisBuffer(from fullBuffer: CVPixelBuffer) -> CVPixelBuffer? {

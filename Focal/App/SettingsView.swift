@@ -22,7 +22,7 @@ struct SettingsView: View {
                         .frame(width: 34, height: 34).background(Palette.panel, in: Circle())
                 }.accessibilityLabel("Close settings")
             }
-            .padding(.horizontal, 22).padding(.top, 72).padding(.bottom, 18)
+            .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 18)
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     Button { showGuide = true } label: {
@@ -35,34 +35,17 @@ struct SettingsView: View {
                     section("CAMERA") {
                         settingToggle("AI Guidance", value: $settings.guide)
                         separator
+                        NavigationLink { AIPhotographyView(source: source) } label: { navigationRow("AI Photography") }
+                        separator
                         subjectSelectivity
                         separator
                         settingToggle("Optional grid", value: $settings.grid)
                         separator
-                        settingToggle("Optional level", value: $settings.level)
-                        separator
-                        settingToggle("Automatic zoom", value: $settings.autoFrame).disabled(source == .sony)
-                        separator
-                        VStack(alignment:.leading) {
-                            Text(String(format:"Hold steady: %.1f s",settings.holdDuration)).font(.subheadline)
-                            Slider(value:$settings.holdDuration,in:0.5...2,step:0.1).tint(Palette.yellow)
-                        }.padding(15).disabled(source == .sony)
-                        separator
-                        settingToggle("Review single shots", value: $settings.reviewAfterCapture).disabled(source == .sony)
-                        separator
-                        settingToggle("Smart shutter",value: $settings.smartShutter).disabled(source == .sony)
-                        separator
+                        if source == .iPhone { settingToggle("Optional level", value: $settings.level); separator }
+                        phoneAutomationControls
                         settingToggle("Measured coach",value: $settings.coach)
                         separator
-                        Picker("Photo series",selection: $settings.burstCount) {
-                            Text("Single").tag(1); Text("3 shots").tag(3); Text("5 shots").tag(5)
-                        }.padding(15)
-                        separator
-                        settingToggle("Shutter Sound", value: Binding(
-                            get: { camera.canMuteShutter ? settings.shutterSound : true },
-                            set: { settings.shutterSound = $0 }
-                        )).disabled(!camera.canMuteShutter || source == .sony)
-                        separator
+                        phoneCaptureControls
                         settingToggle("Save the scan", value: $settings.saveScan)
                         separator
                         VStack(alignment: .leading, spacing: 10) {
@@ -89,7 +72,7 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
                     }
                     if source == .sony { Text("Sony mode uses actual received frames and advertised controls. Lens zoom and exposure adjustment remain on the camera; iPhone capture options do not control Sony.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
-                    Text("Optional grid/level guides are off by default. AI Guidance starts off for iPhone and turns on when you select Sony. The yellow footer button turns it off/on. Subject recognition combines crop classification, readable text and measured boundaries; uncertain regions stay unlabelled. Pan in the arrow direction to place the subject on the target mark. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
+                    Text("Optional grid/level guides are off by default. AI Guidance is controlled by the same on/off button for either camera source. The yellow footer button turns it off/on. Subject recognition combines crop classification, readable text and measured boundaries; uncertain regions stay unlabelled. Pan in the arrow direction to place the subject on the target mark. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. Core guidance measures subject light and background clutter. The optional coach adds scene/pose checks. All analysis runs locally.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text(previewDiagnosticText)
@@ -97,8 +80,7 @@ struct SettingsView: View {
                     section("LIBRARY") {
                         settingToggle("Also Save to Photos", value: $settings.autoSaveToPhotos)
                         separator
-                        settingToggle("Keep RAW originals", value: $settings.keepRAW)
-                        separator
+                        if source == .iPhone { settingToggle("Keep RAW originals", value: $settings.keepRAW); separator }
                         HStack {
                             Text("Storage")
                             Spacer()
@@ -112,7 +94,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.10 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.11 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -131,6 +113,34 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private var phoneAutomationControls: some View {
+        if source == .iPhone {
+                        settingToggle("Automatic zoom", value: Binding(get: { source == .iPhone && settings.autoFrame && settings.subjectTracking }, set: { settings.autoFrame = $0 })).disabled(source == .sony || !settings.subjectTracking)
+                        separator
+                        VStack(alignment:.leading) {
+                            Text(String(format:"Hold steady: %.1f s",settings.holdDuration)).font(.subheadline)
+                            Slider(value:$settings.holdDuration,in:0.5...3,step:0.1).tint(Palette.yellow)
+                        }.padding(15).disabled(source == .sony || !settings.subjectTracking)
+                        separator
+                        settingToggle("Review single shots", value: $settings.reviewAfterCapture).disabled(source == .sony)
+                        separator
+                        settingToggle("Smart shutter",value: $settings.smartShutter).disabled(source == .sony)
+                        separator
+        }
+    }
+    @ViewBuilder private var phoneCaptureControls: some View {
+        if source == .iPhone {
+                        Picker("Photo series",selection: $settings.burstCount) {
+                            Text("Single").tag(1); Text("3 shots").tag(3); Text("5 shots").tag(5)
+                        }.padding(15)
+                        separator
+                        settingToggle("Shutter Sound", value: Binding(
+                            get: { camera.canMuteShutter ? settings.shutterSound : true },
+                            set: { settings.shutterSound = $0 }
+                        )).disabled(!camera.canMuteShutter || source == .sony)
+                        separator
+        }
+    }
     private var separator: some View { Divider().overlay(Color.white.opacity(0.06)).padding(.horizontal, 15) }
     private func settingToggle(_ title: String, value: Binding<Bool>) -> some View {
         Toggle(title, isOn: value).padding(.horizontal, 15).frame(minHeight: 44)

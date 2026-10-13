@@ -65,6 +65,9 @@ final class CameraSettings: ObservableObject {
     @Published var raw = false { didSet { defaults.set(raw, forKey: "camera.raw") } }
     @Published var holdDuration: Double = 0.9 { didSet { defaults.set(holdDuration,forKey: "camera.holdDuration") } }
     @Published var autoFrame = true { didSet { defaults.set(autoFrame, forKey: "camera.autoFrame") } }
+    @Published var petDetection = true { didSet { defaults.set(petDetection, forKey: "camera.petDetection") } }
+    @Published var subjectTracking = true { didSet { defaults.set(subjectTracking, forKey: "camera.subjectTracking") } }
+    @Published var smartSelection = true { didSet { defaults.set(smartSelection, forKey: "camera.smartSelection") } }
     @Published var reviewAfterCapture = true { didSet { defaults.set(reviewAfterCapture, forKey: "camera.reviewAfterCapture") } }
     @Published var smartShutter = false { didSet { defaults.set(smartShutter, forKey: "camera.smart") } }
     @Published var burstCount = 1 { didSet { defaults.set(burstCount, forKey: "camera.burst") } }
@@ -87,13 +90,17 @@ final class CameraSettings: ObservableObject {
             defaults.set(1, forKey: "camera.intentionalGuidanceVersion")
         }
         defaults.register(defaults: ["camera.grid": false, "camera.level": false, "camera.holdDuration":0.9, "camera.scan": true,
-                                    "camera.keepRAW": true, "camera.guide": false, "camera.subjectThreshold": 0.68, "camera.autoFrame": true, "camera.reviewAfterCapture": true])
+                                    "camera.keepRAW": true, "camera.guide": false, "camera.subjectThreshold": 0.68, "camera.autoFrame": true, "camera.reviewAfterCapture": true,
+                                    "camera.petDetection": true, "camera.subjectTracking": true, "camera.smartSelection": true])
+        petDetection = defaults.bool(forKey: "camera.petDetection")
+        subjectTracking = defaults.bool(forKey: "camera.subjectTracking")
+        smartSelection = defaults.bool(forKey: "camera.smartSelection")
         reviewAfterCapture = defaults.bool(forKey: "camera.reviewAfterCapture")
         smartShutter = defaults.bool(forKey: "camera.smart")
         burstCount = [1, 3, 5].contains(defaults.integer(forKey: "camera.burst")) ? defaults.integer(forKey: "camera.burst") : 1
         coach = defaults.bool(forKey: "camera.coach")
         challenge = defaults.string(forKey: "camera.challenge") ?? ""
-        holdDuration = max(0.5,min(2,defaults.double(forKey:"camera.holdDuration")))
+        holdDuration = max(0.5,min(3,defaults.double(forKey:"camera.holdDuration")))
         grid = defaults.bool(forKey: "camera.grid")
         level = defaults.bool(forKey: "camera.level")
         shutterSound = defaults.bool(forKey: "camera.sound")

@@ -3,6 +3,18 @@ import CoreVideo
 import CoreImage
 import Foundation
 
+struct SubjectObservation {
+    let boundingBox: CGRect
+    /// Tracking confidence, or measured proposal support after selection dwell.
+    let confidence: Float
+    init(_ observation: VNDetectedObjectObservation) {
+        boundingBox = observation.boundingBox; confidence = observation.confidence
+    }
+    init(candidate: SubjectCandidate) {
+        boundingBox = candidate.bounds; confidence = Float(min(1, max(0, candidate.confidence)))
+    }
+}
+
 /// Real detectors propose regions; relevance and temporal evidence select one.
 /// Tracking retains it; tap intent bypasses automatic relevance, never boundaries.
 final class SubjectTracker {
@@ -23,6 +35,14 @@ final class SubjectTracker {
     private(set) var label = "Auto subject"
     private(set) var scene: SubjectScene?
     private(set) var isRecovering = false
+    private(set) var features = SubjectAnalysisFeatures()
+    private var petDetection: Bool { features.petDetection }
+    private var trackingEnabled: Bool { features.subjectTracking }
+
+    func configure(pets: Bool, tracking: Bool, smartSelection: Bool) {
+        features = SubjectAnalysisFeatures(petDetection: pets, subjectTracking: tracking, smartSelection: smartSelection)
+        reset()
+    }
 
     func cancelInference(includeTracking: Bool = true) {
         requestLock.lock(); let requests = activeRequests; requestLock.unlock()
@@ -59,7 +79,7 @@ final class SubjectTracker {
     }
 
     func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval,
-                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, canContinue: () -> Bool = { true }) -> VNDetectedObjectObservation? {
+                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, canContinue: () -> Bool = { true }) -> SubjectObservation? {
         isRecovering = false
         guard canContinue() else { return nil }
         var retained: VNDetectedObjectObservation?
@@ -81,9 +101,11 @@ final class SubjectTracker {
         }
         // During a lens ramp, only verify the chosen subject. No new acquisition
         // or semantic switching can silently redirect an automatic zoom.
-        if trackingOnly { return retained }
-        let interval: TimeInterval = retained == nil ? 0.65 : 1.1
-        guard timestamp - lastDetection >= interval, !manual || retained == nil else { return retained }
+        if trackingOnly { return retained.map { SubjectObservation($0) } }
+        // Manual tap remains available when automatic selection is disabled.
+        guard features.allowsAcquisition(manual: manual) else { return retained.map { SubjectObservation($0) } }
+        let interval: TimeInterval = !trackingEnabled ? 0 : retained == nil ? 0.65 : 1.1
+        guard timestamp - lastDetection >= interval, !manual || retained == nil else { return retained.map { SubjectObservation($0) } }
         lastDetection = timestamp
         let detected = detect(in: buffer, detailBuffer: detailBuffer ?? buffer, timestamp: timestamp, visibleRegion: visibleRegion, canContinue: canContinue)
         guard canContinue() else { return nil }
@@ -93,9 +115,16 @@ final class SubjectTracker {
             start(detected[index])
             // A saliency proposal may have no detector confidence. Verify it
             // with the tracker before displaying it or arming automatic zoom.
-            return detected[index].observation.confidence >= 0.4 ? detected[index].observation : nil
+            if !trackingEnabled { return SubjectObservation(candidate: detected[index].candidate) }
+            return detected[index].observation.confidence >= 0.4 ? SubjectObservation(detected[index].observation) : nil
         }
-        return retained
+        if !trackingEnabled, let trackedCandidate,
+           let verified = detected.first(where: { $0.candidate.continuesIdentity(trackedCandidate) }) {
+            self.trackedCandidate = verified.candidate
+            return SubjectObservation(candidate: verified.candidate)
+        }
+        if !trackingEnabled { self.trackedCandidate = nil; label = manual ? "Your subject" : "Auto subject" }
+        return retained.map { SubjectObservation($0) }
     }
 
     private func detect(in buffer: CVPixelBuffer, detailBuffer: CVPixelBuffer, timestamp: TimeInterval, visibleRegion: CGRect, canContinue: () -> Bool) -> [Detection] {
@@ -117,8 +146,10 @@ final class SubjectTracker {
             } catch { return false }
         }
         // An unsupported/failed request must not discard other detector stages.
-        if !run([faces, people, animals]), canContinue() {
-            for request in [faces as VNRequest, people, animals] where canContinue() { _ = run([request]) }
+        var semanticRequests: [VNRequest] = [faces, people]
+        if petDetection { semanticRequests.append(animals) }
+        if !run(semanticRequests), canContinue() {
+            for request in semanticRequests where canContinue() { _ = run([request]) }
         }
         guard canContinue() else { return [] }
         if !run([objectness, attention, rectangles]), canContinue() {
@@ -145,7 +176,7 @@ final class SubjectTracker {
         }
         for person in people.results ?? [] { append(person, category: .person, label: "Person", semanticConfidence: Double(person.confidence)) }
         for face in faces.results ?? [] { append(face, category: .face, label: "Person", semanticConfidence: Double(face.confidence)) }
-        for animal in animals.results ?? [] {
+        for animal in petDetection ? animals.results ?? [] : [] {
             guard let recognized = animal.labels.first, recognized.confidence >= 0.55 else { continue }
             append(animal, category: .pet, label: recognized.identifier.capitalized, semanticConfidence: Double(recognized.confidence))
         }
@@ -288,7 +319,7 @@ final class SubjectTracker {
         sequence = VNSequenceRequestHandler(); health.reset()
         let seed = VNDetectedObjectObservation(boundingBox: detection.observation.boundingBox)
         let request = VNTrackObjectRequest(detectedObjectObservation: seed)
-        request.trackingLevel = .accurate; tracking = request
+        request.trackingLevel = .accurate; tracking = trackingEnabled ? request : nil
         trackedCandidate = detection.candidate; label = detection.candidate.label
     }
     func reseed(bounds: CGRect, label: String, manual: Bool) {
