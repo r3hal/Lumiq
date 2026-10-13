@@ -21,6 +21,8 @@ struct CameraView: View {
     @State private var showExposureAdjustment = false
     @State private var captureTask: Task<Void,Never>?
     @State private var captureGeneration = UUID()
+    @State private var reviewPhoto: SavedPhoto?
+    @State private var reviewAutoSave = false
     @State private var showSettings = false
     @State private var showLibrary = false
     @State private var mode: CompositionMode = .centered
@@ -104,6 +106,9 @@ struct CameraView: View {
             .fullScreenCover(isPresented: $showSettings, onDismiss: resume) {
                 SettingsView(camera: camera, source: source, sonyResolution: sony.resolution, sonyModel: sony.model, sonyPreviewInfo: sonyPreviewInfo)
             }
+            .fullScreenCover(item: $reviewPhoto, onDismiss: resume) { photo in
+                PhotoEditorView(photo: photo, captureReview: true, autoSaveOnReview: reviewAutoSave)
+            }
             .sheet(isPresented: $showLibrary, onDismiss: resume) { LibraryView() }
             .sheet(isPresented: $showReference, onDismiss: resume) {
                 ReferenceOverlayView(image: $reference, opacity: $referenceOpacity)
@@ -138,7 +143,7 @@ struct CameraView: View {
     }
 
     private func handleScenePhase(_ phase: ScenePhase) {
-        if phase == .active && visible && !showSettings && !showLibrary && !showReference && !showExplore {
+        if phase == .active && visible && !showSettings && !showLibrary && !showReference && !showExplore && reviewPhoto == nil {
             resume()
         } else { pauseActiveSource() }
     }
@@ -163,7 +168,7 @@ struct CameraView: View {
             try? await Task.sleep(for: interval)
             guard !Task.isCancelled else { return }
             let active: Bool = visible && scenePhase == .active && !demo && source == .iPhone
-                && !showSettings && !showLibrary && !showReference && !showExplore
+                && !showSettings && !showLibrary && !showReference && !showExplore && reviewPhoto == nil
             let ready: Bool = reading.state == .ready && camera.guidance.kind == .ready && !camera.framingPhase.isPreparing
             let shouldCapture: Bool = smartGate.shouldCapture(
                 enabled: settings.smartShutter && settings.guide, ready: ready,
@@ -523,7 +528,7 @@ struct CameraView: View {
         guard settings.guide else { return Color.secondary }
         switch camera.guidance.kind {
         case .searching, .scene: return Color.secondary
-        case .ready: return Palette.mint
+        case .ready, .framing: return Palette.mint
         default: return Palette.yellow
         }
     }
@@ -579,18 +584,21 @@ struct CameraView: View {
         }.disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
     }
 
+    private var rescanAvailable: Bool { source == .iPhone && settings.guide && camera.framingPhase == .framed }
+    private var scanning: Bool { source == .iPhone && settings.guide && camera.framingPhase.isPreparing }
     private var guidanceButton: some View {
-        Button { settings.guide.toggle() } label: {
-            Image(systemName: "sparkles").font(.system(size: 20))
-                .foregroundStyle(settings.guide ? Color.black : Palette.yellow)
-                .frame(width: 48, height: 48)
-                .background(settings.guide ? Palette.yellow : Color(white: 0.07), in: Circle())
-                .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.6), lineWidth: 1))
-        }
-        .accessibilityLabel("AI Guidance")
-        .accessibilityValue(settings.guide ? "On" : "Off")
-        .accessibilityHint("Toggle subject selection, composition guidance and automatic framing")
-        .animation(.easeInOut(duration: 0.18), value: settings.guide)
+        Button {
+            if rescanAvailable { smartGate.reset(); camera.findSubject() }
+            else { settings.guide.toggle() }
+        } label: {
+            Image(systemName: rescanAvailable ? "arrow.clockwise" : scanning ? "xmark" : "sparkles")
+                .font(.system(size: 20)).foregroundStyle(scanning ? Color.white : settings.guide ? Color.black : Palette.yellow)
+                .frame(width: 48, height: 48).background(scanning ? Color(white: 0.07) : settings.guide ? Palette.yellow : Color(white: 0.07), in: Circle())
+                .overlay(Circle().stroke(Palette.yellow.opacity(scanning ? 0 : settings.guide ? 1 : 0.6), lineWidth: 1))
+        }.accessibilityLabel(rescanAvailable ? "Find another frame" : scanning ? "Cancel AI framing" : "AI Guidance")
+            .accessibilityValue(settings.guide ? "On" : "Off")
+            .accessibilityHint(rescanAvailable ? "Restart subject selection and automatic framing" : "Toggle subject selection and guidance")
+            .animation(.easeInOut(duration: 0.18), value: settings.guide)
     }
 
     private var libraryThumbnail: some View {
@@ -628,7 +636,7 @@ struct CameraView: View {
 
     private func pauseActiveSource() { camera.stop(); sony.pause() }
     private func resume() {
-        guard visible,scenePhase == .active else { return }
+        guard visible,scenePhase == .active,reviewPhoto == nil else { return }
         if source == .iPhone { if !demo { camera.start() } }
         else { sony.resume() }
     }
@@ -645,6 +653,7 @@ struct CameraView: View {
         let capturedDemo = demo && source == .iPhone
         let operation = UUID(); captureGeneration = operation
         let count = capturedDemo || source == .sony ? 1 : settings.burstCount
+        let wantsReview = capturedSource == .iPhone && count == 1 && settings.reviewAfterCapture
         let burst = count > 1 ? UUID() : nil
         let aspect = settings.aspect, caption = settings.caption
         let preserveSonyFrame = source == .sony && sonyFullFrame
@@ -679,17 +688,22 @@ struct CameraView: View {
                     try Task.checkCancellation()
                     let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: capturedDemo,
                         rawData: keepRAW ? capture.raw : nil,originalData: rendered.0 == capture.processed ? nil : capture.processed,
-                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst)
+                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst,cameraOrigin: capturedSource.rawValue)
                     added.append(photo)
                     if index+1 < count { try await Task.sleep(for: .milliseconds(180)) }
                 }
-                if autoSave {
+                if autoSave && !wantsReview {
                     for photo in added {
                         do { try await library.saveToPhotos(photo) }
                         catch { camera.errorMessage = "Saved in Focal. Photos export: \(error.localizedDescription)"; break }
                     }
                 }
-                if operation == captureGeneration { saved = !added.isEmpty }
+                if operation == captureGeneration {
+                    saved = !added.isEmpty
+                    if wantsReview, let photo = added.first {
+                        reviewAutoSave = autoSave; pauseActiveSource(); reviewPhoto = photo
+                    }
+                }
             } catch {
                 guard operation == captureGeneration,!Task.isCancelled else { return }
                 camera.errorMessage = (added.isEmpty ? "" : "Earlier shots are saved. ") + error.localizedDescription

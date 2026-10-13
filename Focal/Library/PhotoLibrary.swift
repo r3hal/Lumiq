@@ -6,7 +6,7 @@ import Photos
 
 struct SavedPhoto: Identifiable, Codable, Equatable {
     let id: UUID
-    let filename: String
+    var filename: String
     let createdAt: Date
     let mode: String
     let isDemo: Bool
@@ -22,6 +22,11 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     var challenge: String? = nil
     var burstID: UUID? = nil
     var measurements: PhotoMeasurements? = nil
+    var cameraOrigin: String? = nil
+    var editingRecipe: EditRecipe? = nil
+    var editingSourceFilename: String? = nil
+    var developedFromRAW: Bool? = nil
+    var canUsePhoneEditor: Bool { cameraOrigin == CameraSource.iPhone.rawValue || (isDemo && cameraOrigin != CameraSource.sony.rawValue) }
 
     var resolutionLabel: String? {
         guard let width = pixelWidth, let height = pixelHeight else { return nil }
@@ -47,6 +52,15 @@ final class PhotoLibrary: ObservableObject {
             if let bytes = try? Data(contentsOf: collectionFile), let stored = try? JSONDecoder().decode([String].self,from: bytes) { collections = stored }
             if FileManager.default.fileExists(atPath: manifest.path) {
                 photos = try JSONDecoder().decode([SavedPhoto].self, from: Data(contentsOf: manifest))
+                for index in photos.indices where photos[index].cameraOrigin == nil {
+                    let file = self.directory.appendingPathComponent(photos[index].filename)
+                    guard let image = CGImageSourceCreateWithURL(file as CFURL, nil),
+                          let values = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any],
+                          let tiff = values[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
+                          let model = tiff[kCGImagePropertyTIFFModel] as? String else { continue }
+                    if model.lowercased().contains("iphone") { photos[index].cameraOrigin = CameraSource.iPhone.rawValue }
+                    else if (tiff[kCGImagePropertyTIFFMake] as? String)?.lowercased().contains("sony") == true { photos[index].cameraOrigin = CameraSource.sony.rawValue }
+                }
                 collections = Array(Set(collections + photos.compactMap(\.collection))).sorted()
             }
         } catch {
@@ -59,6 +73,7 @@ final class PhotoLibrary: ObservableObject {
     func rawURL(for photo: SavedPhoto) -> URL? { photo.rawFilename.map { directory.appendingPathComponent($0) } }
     func originalURL(for photo: SavedPhoto) -> URL? { photo.originalFilename.map { directory.appendingPathComponent($0) } }
     func scanURL(for photo: SavedPhoto) -> URL? { photo.scanFilename.map { directory.appendingPathComponent($0) } }
+    func editingSourceURL(for photo: SavedPhoto) -> URL? { photo.editingSourceFilename.map { directory.appendingPathComponent($0) } }
 
     var storageBytes: Int64 {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory,includingPropertiesForKeys: nil)) ?? []
@@ -71,7 +86,7 @@ final class PhotoLibrary: ObservableObject {
     @discardableResult
     func add(data: Data, mode: String, isDemo: Bool = false, rawData: Data? = nil,
              originalData: Data? = nil, scanData: Data? = nil, aspect: String? = nil, subject: String? = nil,
-             challenge: String? = nil, burstID: UUID? = nil) async throws -> SavedPhoto {
+             challenge: String? = nil, burstID: UUID? = nil, cameraOrigin: String? = nil, editingRecipe: EditRecipe? = nil, developedFromRAW: Bool? = nil) async throws -> SavedPhoto {
         guard canWrite else { throw LibraryError.unavailable }
         var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + ".jpg", createdAt: Date(),
                                mode: mode, isDemo: isDemo, isFavorite: false)
@@ -79,6 +94,9 @@ final class PhotoLibrary: ObservableObject {
         photo.subject = subject
         photo.challenge = challenge
         photo.burstID = burstID
+        photo.cameraOrigin = cameraOrigin
+        photo.editingRecipe = editingRecipe
+        photo.developedFromRAW = developedFromRAW
         photo.measurements = await Task.detached { PhotoMeasurements.from(data: data) }.value
         if rawData != nil { photo.rawFilename = UUID().uuidString + ".dng" }
         if originalData != nil { photo.originalFilename = UUID().uuidString + ".jpg" }
@@ -112,6 +130,34 @@ final class PhotoLibrary: ObservableObject {
             throw error
         }
         return photo
+    }
+
+    /// Replace only the review derivative; keep camera JPEG, edit baseline and
+    /// RAW under their existing names. Commit the manifest before removing files.
+    func finishPhoneReview(_ photo: SavedPhoto, data: Data, recipe: EditRecipe, developedFromRAW: Bool) async throws -> SavedPhoto {
+        guard canWrite, photo.canUsePhoneEditor, let index = photos.firstIndex(where: { $0.id == photo.id }) else { throw LibraryError.unavailable }
+        guard photos[index].canUsePhoneEditor else { throw LibraryError.unavailable }
+        if recipe.normalized == .original && !developedFromRAW && photos[index].editingRecipe == nil { return photos[index] }
+        var nextPhoto = photos[index]
+        let oldName = nextPhoto.filename
+        if nextPhoto.editingSourceFilename == nil { nextPhoto.editingSourceFilename = oldName }
+        if nextPhoto.originalFilename == nil { nextPhoto.originalFilename = oldName }
+        nextPhoto.filename = UUID().uuidString + ".jpg"
+        nextPhoto.editingRecipe = recipe.normalized; nextPhoto.developedFromRAW = developedFromRAW
+        nextPhoto.aspect = recipe.crop?.rawValue ?? nextPhoto.aspect
+        if let source = CGImageSourceCreateWithData(data as CFData, nil), let values = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+            nextPhoto.pixelWidth = values[kCGImagePropertyPixelWidth] as? Int; nextPhoto.pixelHeight = values[kCGImagePropertyPixelHeight] as? Int
+        }
+        nextPhoto.measurements = await Task.detached { PhotoMeasurements.from(data: data) }.value
+        let destination = url(for: nextPhoto)
+        try await Task.detached { try data.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen]) }.value
+        guard let currentIndex = photos.firstIndex(where: { $0.id == photo.id }), photos[currentIndex].filename == oldName else { try? FileManager.default.removeItem(at: destination); throw LibraryError.unavailable }
+        var next = photos; next[currentIndex] = nextPhoto
+        do { try persist(next); photos = next }
+        catch { try? FileManager.default.removeItem(at: destination); throw error }
+        let kept = [nextPhoto.filename, nextPhoto.originalFilename, nextPhoto.editingSourceFilename].compactMap { $0 }
+        if !kept.contains(oldName) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(oldName)) }
+        return nextPhoto
     }
 
     func createCollection(_ name: String) throws {
@@ -149,7 +195,7 @@ final class PhotoLibrary: ObservableObject {
         photos = next
         // A failed file removal only leaves an unreferenced file, never a broken manifest.
         var failure: Error?
-        for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo)].compactMap({ $0 }) {
+        for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo), editingSourceURL(for: photo)].compactMap({ $0 }) {
             guard FileManager.default.fileExists(atPath: file.path) else { continue }
             do { try FileManager.default.removeItem(at: file) } catch { failure = error }
         }

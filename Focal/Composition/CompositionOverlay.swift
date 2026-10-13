@@ -35,13 +35,19 @@ struct CompositionOverlay: View {
                 FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady)
                 let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
                 if !rect.isNull && rect.width > 0 && rect.height > 0 {
-                    RoundedRectangle(cornerRadius:6).stroke(Palette.yellow,lineWidth:1.3)
-                        .frame(width:rect.width*geometry.size.width,height:rect.height*geometry.size.height)
-                        .position(x:rect.midX*geometry.size.width,y:rect.midY*geometry.size.height)
-                        .transition(.opacity)
+                    let compact = framingPhase == .zooming || framingPhase == .framed
+                    if !compact {
+                        RoundedRectangle(cornerRadius:6).stroke(Palette.yellow,lineWidth:1.3)
+                            .frame(width:rect.width*geometry.size.width,height:rect.height*geometry.size.height)
+                            .position(x:rect.midX*geometry.size.width,y:rect.midY*geometry.size.height)
+                            .transition(.opacity)
+                    }
                     if let name = SubjectIdentity.name(subjectLabel) {
-                        Text(name.lowercased()).font(.system(size:11,weight:.medium)).lineLimit(2)
-                        .foregroundStyle(Palette.yellow).padding(.horizontal,7).padding(.vertical,4)
+                        HStack(spacing: 5) {
+                            Circle().fill(compact ? Palette.mint : Palette.yellow).frame(width: 4, height: 4)
+                            Text(name.lowercased()).font(.system(size:11,weight:.medium)).lineLimit(2)
+                        }
+                        .foregroundStyle(compact ? Palette.mint : Palette.yellow).padding(.horizontal,7).padding(.vertical,4)
                         .background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:5))
                         .position(x:min(geometry.size.width-65,max(65,rect.midX*geometry.size.width)),
                                   y:min(geometry.size.height-18,max(18,rect.maxY*geometry.size.height+14)))
@@ -71,9 +77,14 @@ private struct FramingDirectionOverlay: View {
                         .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
                 ZStack {
-                    Circle().stroke(color, lineWidth: 1.6).frame(width: 25, height: 25)
-                    if ready { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(color) }
-                    else { Circle().fill(color).frame(width: 4, height: 4) }
+                    if phase != .off {
+                        Rectangle().fill(color).frame(width: 15, height: 1.5)
+                        Rectangle().fill(color).frame(width: 1.5, height: 15)
+                    } else {
+                        Circle().stroke(color, lineWidth: 1.6).frame(width: 25, height: 25)
+                        if ready { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(color) }
+                        else { Circle().fill(color).frame(width: 4, height: 4) }
+                    }
                 }.position(x: cue.target.x * geometry.size.width, y: cue.target.y * geometry.size.height)
             }
         }

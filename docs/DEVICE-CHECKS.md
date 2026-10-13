@@ -1,3 +1,5 @@
+Latest reference video/editor/guidance checks: [1.9 retest](REFERENCE-VIDEO-UPDATE.md). Native execution and hardware retests remain pending.
+
 Latest capture/disconnect/OCR checks: [1.8 retest](SONY-CAPTURE-RECOGNITION.md). The user supplies Sony 5/40400 screenshot feedback; it does not validate the new correction.
 
 # Native acceptance checks — Focal 1.8

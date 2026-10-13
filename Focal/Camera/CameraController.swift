@@ -417,13 +417,21 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func findSubject() {
-        guard guidanceSnapshot().enabled else { return }
+        guidanceLock.lock()
+        guard activation.snapshot.enabled else { guidanceLock.unlock(); return }
+        let snapshot = activation.set(true)
+        guidanceLock.unlock()
+        tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
+                guard self.guidanceSnapshot() == snapshot else { return }
                 self.resetAnalysis()
                 self.ignoreFramesUntil = 0
-                DispatchQueue.main.async { self.subjectLabel = "Auto subject"; self.reading = CompositionReading() }
+                self.publishAnalysis(snapshot) {
+                    self.subjectLabel = "Auto subject"; self.reading = CompositionReading()
+                    self.guidance = GuidanceMessage(kind: .searching, text: "Finding your shot…")
+                }
             }
         }
     }
@@ -680,7 +688,12 @@ final class CameraController: NSObject, ObservableObject {
                 }
                 configured = true
             }
-            if !session.isRunning { session.startRunning() }
+            if !session.isRunning {
+                session.startRunning()
+                // A new session after capture review needs a fresh scan. An
+                // already-running session retains manual zoom/cancel intent.
+                self.analysisQueue.async { self.resetAnalysis() }
+            }
             output.setPreparedPhotoSettingsArray([photoSettings()], completionHandler: nil)
             if motion.isDeviceMotionAvailable {
                 motion.deviceMotionUpdateInterval = 0.15

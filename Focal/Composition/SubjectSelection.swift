@@ -85,7 +85,10 @@ struct SubjectCandidate {
         let sizeQuality = min(1, area / 0.035) * max(0, min(1, (0.85 - area) / 0.25))
         let score = 0.35 * confidence + 0.2 * category.priority + 0.15 * classificationConfidence
             + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.03 * centerPreference - (textConfidence >= 0.65 ? 0.06 : 0.22) * textureDensity
-        return max(0, min(1, score))
+        // Small peripheral people should not eclipse an isolated foreground
+        // product. A central portrait keeps its normal semantic priority.
+        let peripheralPenalty = category.semantic && area < 0.035 ? (1 - centerPreference) * 0.12 : 0
+        return max(0, min(1, score - peripheralPenalty))
     }
     var manuallySelectable: Bool {
         validBoundary && confidence >= 0.5 && (category.semantic || (detail >= 0.015 && (isolation >= 0.15 || prominence >= 0.5)))

@@ -2,6 +2,18 @@ import XCTest
 @testable import Focal
 
 final class SubjectSelectionTests: XCTestCase {
+    func testIsolatedForegroundChairCanOutrankTinyPeripheralPerson() throws {
+        let chair = SubjectCandidate(bounds: CGRect(x: 0.35, y: 0.25, width: 0.3, height: 0.4), confidence: 0.9,
+            category: .object, label: "Chair", classificationConfidence: 0.9, prominence: 0.9, isolation: 0.85, detail: 0.08)
+        let person = SubjectCandidate(bounds: CGRect(x: 0.02, y: 0.7, width: 0.09, height: 0.16), confidence: 0.9,
+            category: .person, label: "Person", classificationConfidence: 0.9, prominence: 0.6, isolation: 0.4, detail: 0.08)
+        let config = SubjectSelectionConfiguration()
+        XCTAssertGreaterThan(try XCTUnwrap(chair.score(configuration: config)), try XCTUnwrap(person.score(configuration: config)))
+        var selector = SubjectSelector()
+        XCTAssertNil(selector.select([person, chair], timestamp: 0))
+        XCTAssertNil(selector.select([person, chair], timestamp: 0.6))
+        XCTAssertEqual(selector.select([person, chair], timestamp: 1.3), 1)
+    }
     private func candidate(_ category: SubjectCategory = .object, confidence: Double = 0.9,
                            bounds: CGRect = CGRect(x: 0.35, y: 0.35, width: 0.3, height: 0.3)) -> SubjectCandidate {
         SubjectCandidate(bounds: bounds, confidence: confidence, category: category, label: "Test subject",

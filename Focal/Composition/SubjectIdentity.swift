@@ -36,6 +36,7 @@ enum SubjectIdentity {
         if words.contains("cards") { return "Keep the whole deck visible; show its printed face" }
         if words.contains("print") { return "Square up to the printed face" }
         if words.contains("keyboard") { return "Isolate the keys; catch the light" }
+        if words.contains("chair") { return "Isolate the chair’s shape; keep its edges clear" }
         if words.contains("person") { return "Leave space above the head" }
         if words.contains("dog") || words.contains("cat") { return "Get down to eye level" }
         if ["flower", "plant", "rose"].contains(where: { words.contains($0) }) { return "Separate the petals from the background" }
@@ -65,5 +66,12 @@ struct CompositionCue {
     }
     func instruction(subjectName: String) -> String {
         "Pan \(direction) · place the \(subjectName.lowercased()) on the mark"
+    }
+    var phoneInstruction: String {
+        let dx = subject.x - target.x, dy = subject.y - target.y
+        var directions = [String]()
+        if abs(dx) > 0.03 { directions.append(dx > 0 ? "right" : "left") }
+        if abs(dy) > 0.025 { directions.append(dy > 0 ? "down" : "up") }
+        return directions.isEmpty ? "Hold your phone steady" : "Move your phone " + directions.joined(separator: " & ")
     }
 }

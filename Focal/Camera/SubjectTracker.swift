@@ -122,7 +122,11 @@ final class SubjectTracker {
             }
             // A confidently detected person/pet needs no product classifiers.
             // This keeps acquisition cheap for the most common subjects.
-            if detections.contains(where: { ($0.candidate.score(configuration: selector.configuration) ?? 0) >= selector.configuration.threshold }) { return detections }
+            if detections.contains(where: {
+                let candidate = $0.candidate
+                return candidate.category.semantic && candidate.centerPreference >= 0.65 && candidate.visibleArea >= 0.08
+                    && (candidate.score(configuration: selector.configuration) ?? 0) >= selector.configuration.threshold
+            }) { return detections }
             try performRequests([saliency], canContinue: canContinue) {
                 try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([saliency])
             }
@@ -144,7 +148,12 @@ final class SubjectTracker {
             for object in objects.prefix(3) {
                 guard canContinue() else { return [] }
                 // Face/person/pet detectors already provide semantic boundaries.
-                guard !detections.contains(where: { $0.candidate.category.semantic && $0.candidate.bounds.intersects(object.boundingBox) }) else { continue }
+                guard !detections.contains(where: {
+                    let candidate = $0.candidate
+                    let overlap = candidate.bounds.intersection(object.boundingBox)
+                    let area = object.boundingBox.width * object.boundingBox.height
+                    return candidate.category.semantic && !overlap.isNull && area > 0 && overlap.width * overlap.height / area > 0.6
+                }) else { continue }
                 let request = VNClassifyImageRequest()
                 // Classify actual crop pixels, with a little context, rather
                 // than interpreting a whole-room label as the small subject.

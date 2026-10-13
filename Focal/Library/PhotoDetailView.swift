@@ -56,10 +56,11 @@ struct PhotoDetailView: View {
                         .accessibilityLabel(current.isFavorite ? "Remove from favorites" : "Add to favorites")
                     }
                     HStack {
-                        Button("Edit photo",systemImage: "slider.horizontal.3") { showEditor = true }.disabled(variant != "Photo")
+                        Button("Edit photo",systemImage: "slider.horizontal.3") { showEditor = true }.disabled(variant != "Photo" || !current.canUsePhoneEditor)
                         Spacer()
                         Button("Full screen",systemImage: "arrow.up.left.and.arrow.down.right") { showViewer = true }
                     }.foregroundStyle(Palette.yellow)
+                    if !current.canUsePhoneEditor { Text("Looks, adjustments, effects and frames are available for iPhone captures.").font(.caption).foregroundStyle(.secondary) }
                     Picker("Collection",selection: Binding(get: { current.collection ?? "" },set: { library.setCollection($0.isEmpty ? nil : $0,for: current) })) {
                         Text("No collection").tag("")
                         ForEach(library.collections,id: \.self) { Text($0).tag($0) }

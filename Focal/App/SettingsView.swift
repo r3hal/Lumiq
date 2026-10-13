@@ -48,6 +48,8 @@ struct SettingsView: View {
                             Slider(value:$settings.holdDuration,in:0.5...2,step:0.1).tint(Palette.yellow)
                         }.padding(15).disabled(source == .sony)
                         separator
+                        settingToggle("Review single shots", value: $settings.reviewAfterCapture).disabled(source == .sony)
+                        separator
                         settingToggle("Smart shutter",value: $settings.smartShutter).disabled(source == .sony)
                         separator
                         settingToggle("Measured coach",value: $settings.coach)
@@ -110,7 +112,7 @@ struct SettingsView: View {
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                     }
-                    Text("Focal 1.8 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 1.9 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)

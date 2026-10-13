@@ -1,17 +1,17 @@
-Focal 1.8, build 11
-PASS: Swift grammar parsed 53 source files (41 app, 12 test).
-PASS: Xcode project parsed; all source/resource references present.
-PASS: Info/privacy plists, shared test scheme and purpose strings parsed.
-PASS: Asset catalogs and bundled caption font files present.
-PASS: Both cloud workflows parsed; native test step remains before IPA packaging; all shell scripts passed bash -n.
+Focal 1.9, build 12
+PASS: Both user-supplied reference recordings inspected frame by frame.
+PASS: Lexical delimiter balance in 59 Swift files (46 app, 13 test). This is not a Swift grammar or type check.
+PASS: All app/test sources registered; generated Xcode source/resource paths exist.
+PASS: Info/privacy plists, shared test scheme, asset images and caption font inspected.
 PASS: Python generator syntax and deterministic project/resource regeneration.
-PASS: 130 native XCTest functions registered (19 new Sony control/reconnect/printed guidance functions; none executed here).
+PASS: Both cloud workflows parsed; shell scripts passed bash -n; native test step still precedes unsigned IPA packaging.
+PASS: 150 native XCTest functions registered (20 new); none executed here.
 PASS: git diff --check.
-ATTEMPTED: Xcode build returned exit 127: xcodebuild: command not found.
-PENDING: Swift type checking, native build and all 130 XCTest executions in Codemagic.
-PENDING: A7 III autofocus/half-press/release, mode readiness, pending capture, camera-card/transfer failure, reconnect and lifecycle tests.
-PENDING: Actual card-box OCR/classification, false labels, acquisition latency, subject lighting/clutter, quality/readiness and crop/guide mapping tests.
-PENDING: iPhone 16 Pro Max shared guidance and native zoom/focus/RAW regressions; A6100 remains separately unverified.
-The user confirms Sony 5/40400 occur on the shutter and reports an intermittent disconnect without exact wording. That feedback does not verify this 1.8 correction or identify a physical shooting-failure cause.
-No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks are not native compilation, model-accuracy or runtime/performance tests.
-See docs/SONY-CAPTURE-RECOGNITION.md.
+ATTEMPTED: xcodebuild -list -project Focal.xcodeproj returned exit 127: xcodebuild: command not found.
+PENDING: Swift syntax/type checking, native build and all 150 XCTest executions in Codemagic.
+PENDING: iPhone guidance/acquisition/centering/real zoom/manual cancel/rescan and lifecycle tests.
+PENDING: JPEG/RAW development, native effect/frame/color rendering, saved-original retention, no cumulative re-editing, review Delete/Save/Photos denial and performance tests.
+PENDING: Sony capture/reconnect regressions and proof that phone-only editing remains inaccessible for Sony photos; A6100 remains separately unverified.
+LIMITS: Independent tonal recipes and border layouts; not proprietary Framed LUTs, frame assets or generative scene model. Curve is S-curve strength; grading/calibration use grouped parameter rulers. Unknown older camera origins remain disabled unless metadata identifies an iPhone. RAW development falls back to the camera JPEG if unsupported.
+No Apple SDK, Swift compiler, Xcode, simulator or physical devices were used here. Structural checks do not verify native compilation, model accuracy, rendering or runtime performance.
+See docs/REFERENCE-VIDEO-UPDATE.md and previous Sony/device reports.

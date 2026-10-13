@@ -23,6 +23,7 @@ struct AutomaticGuidance {
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }) else {
             reset()
+            if autoEnabled { shown = GuidanceMessage(kind: .searching, text: "Finding your shot…") }
             if let scene, scene.isLandscape, timestamp - scene.timestamp <= 6 {
                 let text: String
                 if rollReliable && abs(reading.rollDegrees) > 5 { text = "Keep the camera level" }
@@ -42,7 +43,7 @@ struct AutomaticGuidance {
         if detectedSince == nil { detectedSince = timestamp }
         let name = subjectLabel.flatMap(SubjectIdentity.name)
         let desired: GuidanceMessage
-        if phase == .zooming { desired = GuidanceMessage(kind:.framing,text:"Adjusting framing…") }
+        if phase == .zooming { desired = GuidanceMessage(kind:.framing,text:"Framing your shot…") }
         else if timestamp-(detectedSince ?? timestamp) < 0.45 { desired = GuidanceMessage(kind:.detected,text:name.map { "\($0) detected" } ?? "Subject detected") }
         else if speed > 0.25 { desired = GuidanceMessage(kind:.steady,text:"Keep the subject in view") }
         else if bounds.width > 0.85 || bounds.height > 0.85 || bounds.minX < -0.02 || bounds.maxX > 1.02 || bounds.minY < -0.02 || bounds.maxY > 1.02 {
@@ -55,14 +56,15 @@ struct AutomaticGuidance {
             if hypot(dx,dy/max(0.1,previewAspect)) > tolerance {
                 let text = abs(dx) > abs(dy)/max(0.1,previewAspect) ? (dx > 0 ? "Move slightly right" : "Move slightly left") : (dy > 0 ? "Lower the camera" : "Raise the camera")
                 let specific = name.flatMap { label in CompositionCue(reading: reading, previewAspect: previewAspect)?.instruction(subjectName: label) }
-                desired = GuidanceMessage(kind:.adjustment,text:specific ?? text)
+                let phoneText = autoEnabled && phase.isPreparing ? CompositionCue(reading: reading, previewAspect: previewAspect)?.phoneInstruction : nil
+                desired = GuidanceMessage(kind:.adjustment,text:phoneText ?? specific ?? text)
             } else if max(bounds.width,bounds.height) < 0.16 && (!autoEnabled || !zoomAvailable || phase == .framed) {
                 desired = GuidanceMessage(kind:.adjustment,text:name.map { "Move closer to the \($0.lowercased())" } ?? "Move closer")
             } else if let measurements = subjectMeasurements, let advice = measuredAdvice(measurements, name: name) {
                 desired = GuidanceMessage(kind: .adjustment, text: advice)
             } else if stable && reading.state == .ready && !phase.isPreparing {
                 desired = GuidanceMessage(kind:.ready,text:name.map { "Great framing · \(SubjectIdentity.tip(for: $0))" } ?? "Great framing")
-            } else { desired = GuidanceMessage(kind:.steady,text:"Hold steady") }
+            } else { desired = GuidanceMessage(kind:.steady,text:autoEnabled && phase == .settling && stable ? "Centered — framing up…" : "Hold steady") }
         }
         // Loss and actual zoom transitions are immediate; movement text must persist.
         if desired.kind == .framing || shown.kind == .searching || desired.kind == .detected || (desired.kind == .steady && shown.kind == .detected) {

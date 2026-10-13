@@ -50,8 +50,8 @@ final class AutomaticGuidanceTests: XCTestCase {
     func testRealZoomTransitionIsImmediateAndCompletionCanBecomeReady() {
         var guide = AutomaticGuidance()
         XCTAssertEqual(update(&guide,reading(),at:0,phase:.settling).text,"Subject detected")
-        XCTAssertEqual(update(&guide,reading(),at:0.6,phase:.settling).text,"Hold steady")
-        XCTAssertEqual(update(&guide,reading(),at:0.7,phase:.zooming).text,"Adjusting framing…")
+        XCTAssertEqual(update(&guide,reading(),at:0.6,phase:.settling).text,"Centered — framing up…")
+        XCTAssertEqual(update(&guide,reading(),at:0.7,phase:.zooming).text,"Framing your shot…")
         _ = update(&guide,reading(x:0.55),at:1.7,phase:.framed)
         XCTAssertEqual(update(&guide,reading(x:0.55),at:2.4,phase:.framed).text,"Great framing")
     }
@@ -81,6 +81,27 @@ final class AutomaticGuidanceTests: XCTestCase {
         XCTAssertNil(reading.subjectBounds)
         XCTAssertEqual(guide.update(reading: reading, phase: .searching, stable: true, rollReliable: true,
                                    autoEnabled: true, zoomAvailable: true, timestamp: 8, scene: scene).kind, .searching)
+    }
+
+    func testPhoneScanSearchDoesNotInventSubjectOrReadyState() {
+        var guide = AutomaticGuidance()
+        let result = guide.update(reading: CompositionReading(), phase: .searching, stable: true, rollReliable: true,
+                                  autoEnabled: true, zoomAvailable: true, timestamp: 0)
+        XCTAssertEqual(result.kind, .searching); XCTAssertEqual(result.text, "Finding your shot…")
+    }
+    func testPhonePanCombinesBothPhysicalDirectionsFromActualBounds() throws {
+        let cue = try XCTUnwrap(CompositionCue(reading: reading(x: 0.3, y: 0.3), previewAspect: 0.75))
+        XCTAssertEqual(cue.phoneInstruction, "Move your phone left & up")
+        var guide = AutomaticGuidance()
+        let offset = reading(x: 0.3, y: 0.3)
+        _ = update(&guide, offset, at: 0, phase: .aligning)
+        _ = update(&guide, offset, at: 0.5, phase: .aligning)
+        XCTAssertEqual(update(&guide, offset, at: 1.2, phase: .aligning).text, cue.phoneInstruction)
+    }
+    func testSettlingCannotDescribeMovingPhoneAsCentered() {
+        var guide = AutomaticGuidance()
+        _ = update(&guide, reading(), at: 0, phase: .settling, stable: false)
+        XCTAssertEqual(update(&guide, reading(), at: 0.6, phase: .settling, stable: false).text, "Hold steady")
     }
 
 }

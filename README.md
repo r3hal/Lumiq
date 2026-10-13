@@ -1,6 +1,6 @@
 # Focal — a little perspective
 
-A native iPhone camera app inspired by Framed’s **enable guidance → select → compose → capture** workflow, with Focal branding and a camera layout based on the supplied reference screenshots. SwiftUI, AVFoundation, Apple Vision, and Core Motion. No third-party SDKs, account, API key, or backend. AI starts off and uses the existing bottom-right button as its On/Off control.
+A native iPhone camera app inspired by Framed’s **enable guidance → select → compose → capture** workflow, with Focal branding and a camera layout based on the supplied reference screenshots. SwiftUI, AVFoundation, Apple Vision, and Core Motion. No third-party SDKs, account, API key, or backend. AI starts off. The bottom-right button enables guidance, cancels a scan or restarts framing after a completed scan.
 
 **No Mac or paid developer membership?** Follow [INSTALL-FOR-FREE.md](INSTALL-FOR-FREE.md) for Windows + AltStore Classic personal sideloading. The `ios-sideload` cloud workflow runs regression tests, then builds an unsigned IPA for AltStore to sign. Only the free `ios-sideload` and `ios-check` workflows are included.
 
@@ -23,11 +23,11 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 99 XCTest regression tests covering composition, preview geometry, crops, scan captions, persistence and settings.
+- Privacy manifest, app icon, shared scheme, and 150 XCTest functions covering composition, preview geometry, Sony protocol/capture, editing, persistence and settings (native execution pending).
 
 ## Validation status
 
-This project was authored in a Linux workspace without Xcode, an Apple SDK, or an iOS simulator. **It has not been compiled or run on iOS here.** Swift syntax, resource references, plist/scheme validity, and project structure are checked separately; these checks do not replace an Xcode build or device testing.
+This project was authored in a Linux workspace without Xcode, an Apple SDK, or an iOS simulator. **It has not been compiled or run on iOS here.** Resource references, plist/scheme validity, lexical delimiter balance, and project structure are checked separately; these checks do not replace an Xcode build or device testing.
 
 On a Mac, run:
 
@@ -51,7 +51,7 @@ Device checks before distribution:
 
 ## Scope and behavior
 
-The optional guide uses Apple Vision human/face/cat/dog detection and saliency, a weighted relevance threshold and sustained acquisition to select a subject, then tracks that region. No selection is an expected result; saliency alone is not treated as object recognition. It suggests a stable thirds intersection or the center and lets you select another corner. With AI Guidance on, tap attempts real subject selection; Automatic subject selection in the menu resets manual intent. With AI off, taps focus without inference or subject boxes. It is a composition heuristic, not an aesthetic scoring system. It can miss or misidentify subjects. Readiness means the detected subject is near that point and the phone is level; it does not certify focus, sharpness, or artistic quality. Core Motion estimates phone roll, not a visual horizon. Rear virtual cameras use the available ultra-wide/wide/telephoto lenses where supported. Displayed zoom is relative to the wide lens; pinch zoom is capped at 6×. Intermediate and high zoom can crop the image and reduce detail. Portrait orientation is supported. No subscriptions or cloud analysis. Front/rear switching and Camera Source are available from the three-dot menu. Film presets and editing are available in photo detail; the camera preview remains unfiltered.
+The optional guide uses Apple Vision human/face/cat/dog detection and saliency, a weighted relevance threshold and sustained acquisition to select a subject, then tracks that region. No selection is an expected result; saliency alone is not treated as object recognition. It suggests a stable thirds intersection or the center and lets you select another corner. With AI Guidance on, tap attempts real subject selection; Automatic subject selection in the menu resets manual intent. With AI off, taps focus without inference or subject boxes. It is a composition heuristic, not an aesthetic scoring system. It can miss or misidentify subjects. Readiness means the detected subject is near that point and the phone is level; it does not certify focus, sharpness, or artistic quality. Core Motion estimates phone roll, not a visual horizon. Rear virtual cameras use the available ultra-wide/wide/telephoto lenses where supported. Displayed zoom is relative to the wide lens; pinch zoom is capped at 6×. Intermediate and high zoom can crop the image and reduce detail. Portrait orientation is supported. No subscriptions or cloud analysis. Front/rear switching and Camera Source are available from the three-dot menu. Phone-only looks, adjustments, effects and frames are available after single captures and in photo detail; the camera preview remains unfiltered.
 
 Photo capture requests the highest dimensions advertised by the active capture format and uses `.quality` processing for JPEG and ProRAW (Bayer RAW uses `.speed`). Actual dimensions depend on the device, lens, scene and AVFoundation. Photo detail displays the saved file dimensions. The default 3:4 JPEG and RAW files retain their captured bytes. Other aspect ratios create a full-resolution centered JPEG crop and retain the uncropped original. Scan references are separate, downsampled images (up to 1600 pixels) with a selected caption style. Gallery thumbnails and Vision analysis do not affect saved photo quality. This does not reproduce every Apple Camera feature such as its dedicated Night mode.
 
@@ -110,7 +110,7 @@ See [audit](docs/AUTO-FRAMING-AUDIT.md), [implementation and acceptance report](
 - Top aperture button expands real mode/shutter/ISO/EV at the preview bottom. ISO/shutter are read-only, EV is adjustable on iPhone and aperture is fixed. Camera Source lives in **…**, while the yellow footer button remains Scan.
 - Experimental, capability-discovered Sony wireless adapter with real received JPEG live view, shared Vision analysis, supported touch AF/capture and reported telemetry. It never substitutes iPhone video or sends Sony lens zoom commands. A7 III/A6100 firmware compatibility and transfer quality require independent physical testing.
 
-Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 99 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
+Build the refreshed `main` branch with Codemagic `ios-sideload`, download `Focal-unsigned.ipa`, and install over Focal with AltStore Classic. Keep the app installed to preserve its local library. Structural validation passed; Xcode compilation and all 150 native tests still need the cloud build. No iPhone/Sony device checks were performed here.
 
 ## Compilation correction (1.5.1, build 7)
 
@@ -147,3 +147,11 @@ Sony capture now refreshes actual state, prepares supported autofocus, waits for
 Guidance adds high-resolution crop classification, synonym consensus and local text/rectangle evidence for printed products. Subject-region exposure and background clutter now inform the footer, while searching/ready colors reflect actual guidance state. Unknown regions still do not receive invented names. These are offline recognition heuristics, not unlimited visual understanding.
 
 See [implementation, limits and hardware retest](docs/SONY-CAPTURE-RECOGNITION.md). There are 130 native tests (19 new); none executed in this Linux workspace. Rebuild latest main with Codemagic ios-sideload, then install over Focal in AltStore. Native compilation and device results remain pending.
+
+## Reference recordings update (1.9, build 12)
+
+Phone guidance now follows search → confirmed subject → combined movement directions → centered steady hold → actual zoom → compact subject label, with cancel and restart controls. Foreground subjects can be evaluated in scenes containing peripheral people. Recognition remains on-device and confidence-gated; it is not Framed’s proprietary model.
+
+Single iPhone captures open a black Looks / Adjust / Effects / Frames review screen with thumbnail looks, grouped HSL/grading/calibration, parameter rulers, grain/motion/light leak/scratches/halation/dust/glow/fringe/vignette, bordered frames and date stamp, undo/redo, Delete and Save. Retained supported RAW is actually developed; camera originals remain intact. Disable Review single shots in Settings to save directly. New editing is restricted to known iPhone captures and demo images, including when reopening library photos; Sony photos retain their existing capture and guidance flow.
+
+See [reference features, limits and retest steps](docs/REFERENCE-VIDEO-UPDATE.md). All 150 native tests need Codemagic execution. Build latest main with ios-sideload and install over Focal using AltStore Classic.
