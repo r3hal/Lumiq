@@ -1,4 +1,6 @@
-# Focal 2.0 / build 16 — professional camera upgrade
+# Focal 2.0.1 / build 17 — professional camera upgrade
+
+Build 17 corrects the two `Section` initializers in Precision settings to use explicit content, header and footer closures. Codemagic reported that build 16 did not compile because its title-plus-footer calls selected no supported SwiftUI initializer. The correction awaits a fresh native build; existing functionality and test requirements are preserved.
 
 ## Outcome and verification status
 

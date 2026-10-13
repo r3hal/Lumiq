@@ -1,4 +1,6 @@
-Focal 2.0, build 16 — professional upgrade
+Focal 2.0.1, build 17 — Precision settings compilation fix
+REPORTED: Codemagic build 16 failed compiling PrecisionSettingsView with Section initializer errors (missing content label, String passed where a content closure was expected, uninferred Content).
+FIXED IN SOURCE: Both titled sections with footers now use explicit content/header/footer closures supported by SwiftUI. Awaiting native build verification.
 PASS: Existing providers/capture/library/editor/detection/zoom/Sony audit and preservation mapping documented.
 PASS: Lexical delimiters across 81 Swift files (64 app, 17 test); not a Swift grammar/type check.
 PASS: All app/test sources and resources registered; deterministic project generation.
