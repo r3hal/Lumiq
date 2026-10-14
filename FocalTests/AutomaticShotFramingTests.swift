@@ -80,16 +80,14 @@ final class AutomaticShotFramingTests: XCTestCase {
         XCTAssertTrue(planner.shotVerified); XCTAssertEqual(planner.phase,.framed)
         XCTAssertNil(planner.update(bounds:subject,confidence:1,roll:0,timestamp:3,currentZoom:2,maximumZoom:4))
     }
-    func testAchievedGeometryCanStopBeforePlannedMaximumZoom() throws {
+    func testAchievedGeometryCannotCompleteBeforeActualTargetZoom() throws {
         let plan = try shot(); var planner = ramp(plan)
-        // The subject becomes larger during the ramp. Preserve the desired shot
-        // instead of blindly finishing the originally computed motor travel.
-        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:1.7,stable:true,fresh:true,timestamp:2,previewAspect:1),.holding)
-        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:1.7,stable:true,fresh:true,timestamp:2.3,previewAspect:1),.achieved)
+        // Geometry alone must not acknowledge a target the device never applied.
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:1.7,stable:true,fresh:true,timestamp:2,previewAspect:1),.continuing)
+        XCTAssertFalse(planner.shotVerified)
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:2,stable:true,fresh:true,timestamp:2.3,previewAspect:1),.holding)
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:2,stable:true,fresh:true,timestamp:2.6,previewAspect:1),.achieved)
         XCTAssertTrue(planner.shotVerified)
-        var interrupted = ramp(plan)
-        XCTAssertEqual(interrupted.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:1.7,stable:true,fresh:true,timestamp:2,previewAspect:1),.holding)
-        XCTAssertEqual(interrupted.verifyShot(bounds:subject,label:"Cat",confidence:0.9,zoom:1.7,stable:true,fresh:true,timestamp:2.3,previewAspect:1),.cancel)
     }
     func testTrackingLossAndIdentityChangeCancelRamp() throws {
         let plan = try shot(); var planner = ramp(plan)
@@ -138,4 +136,115 @@ final class AutomaticShotFramingTests: XCTestCase {
             subjectLabel:"Cat",compositionPlan:composition(),shotVerified:true)
         XCTAssertEqual(result.text,"Shot ready"); XCTAssertFalse(result.showsDirection)
     }
+    func testCenteredUndersizedShotStartsZoomInsteadOfCompleting() throws {
+        var planner = FramingPlanner()
+        let plan = try shot()
+        for time in [0.0,1.0] {
+            let requested = planner.update(bounds:subject,confidence:0.95,roll:0,timestamp:time,currentZoom:1,maximumZoom:4,
+                plannedScale:2,zoomDestination:.init(x:0.5,y:0.5),requiresShotPlan:true)
+            if time == 1 { XCTAssertEqual(requested,2) }
+        }
+        planner.commitShot(plan)
+        XCTAssertEqual(planner.directorState(hasPlan:true),.autoZooming)
+        XCTAssertFalse(ShotReadiness.permitsReady(required:true,shotVerified:planner.shotVerified,currentFrameVerified:planner.currentFrameVerified))
+    }
+    func testTemporaryZoomGateDoesNotConsumeAlignedShot() {
+        var planner = FramingPlanner()
+        for time in [0.0,1.0,2.0] {
+            XCTAssertNil(planner.update(bounds:subject,confidence:1,roll:0,timestamp:time,currentZoom:1,maximumZoom:4,
+                allowZoom:false,plannedScale:2,zoomDestination:.init(x:0.5,y:0.5),requiresShotPlan:true))
+            XCTAssertNotEqual(planner.phase,.framed)
+        }
+        XCTAssertNil(planner.update(bounds:subject,confidence:1,roll:0,timestamp:3,currentZoom:1,maximumZoom:4,
+            plannedScale:2,zoomDestination:.init(x:0.5,y:0.5),requiresShotPlan:true))
+        XCTAssertEqual(planner.update(bounds:subject,confidence:1,roll:0,timestamp:4,currentZoom:1,maximumZoom:4,
+            plannedScale:2,zoomDestination:.init(x:0.5,y:0.5),requiresShotPlan:true),2)
+    }
+    func testMissingShotCannotCompleteFromStabilityAlone() {
+        var planner = FramingPlanner()
+        for time in [0.0,1.0,2.0] {
+            XCTAssertNil(planner.update(bounds:subject,confidence:1,roll:0,timestamp:time,currentZoom:1,maximumZoom:4,requiresShotPlan:true))
+        }
+        XCTAssertFalse(planner.currentFrameVerified); XCTAssertNotEqual(planner.directorState(hasPlan:false),.ready)
+    }
+    func testActualMotorMustStopBeforeFinalVerification() throws {
+        let plan = try shot(); var planner = ramp(plan)
+        for time in [2.0,2.3] {
+            XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,fresh:true,timestamp:time,
+                previewAspect:1,cameraRamping:true),.holding)
+            XCTAssertFalse(planner.shotVerified); XCTAssertEqual(planner.directorState(hasPlan:true),.verifyingFraming)
+        }
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,fresh:true,timestamp:2.6,
+            previewAspect:1,cameraRamping:false),.holding)
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,fresh:true,timestamp:2.9,
+            previewAspect:1,cameraRamping:false),.achieved)
+    }
+    func testStaleCameraTelemetryCannotAcknowledgeAppliedTarget() throws {
+        let plan = try shot(); var planner = ramp(plan)
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,fresh:true,timestamp:2,
+            previewAspect:1,cameraFresh:false),.cancel)
+        XCTAssertFalse(planner.shotVerified)
+    }
+    func testPendingZoomPlanCannotProduceReadyGuidance() {
+        var guide = AutomaticGuidance()
+        let reading = CompositionReading(state:.ready,subjectBounds:subject,subjectConfidence:0.95)
+        for time in [0.0,1.0,2.0] {
+            let message = guide.update(reading:reading,phase:.framed,stable:true,rollReliable:false,autoEnabled:true,zoomAvailable:true,
+                timestamp:time,subjectLabel:"Cat",compositionPlan:composition(),requireShotCompletion:true)
+            XCTAssertNotEqual(message.kind,.ready)
+        }
+    }
+    func testRequestedZoomStillShowsFramingUntilApplied() {
+        var guide = AutomaticGuidance()
+        let reading = CompositionReading(state:.ready,subjectBounds:subject,subjectConfidence:0.95)
+        for phase in [FramingPhase.zooming,.verifying] {
+            let message = guide.update(reading:reading,phase:phase,stable:true,rollReliable:false,autoEnabled:true,zoomAvailable:true,
+                timestamp:1,subjectLabel:"Cat",compositionPlan:composition(),requireShotCompletion:true)
+            XCTAssertEqual(message.kind,.framing); XCTAssertNotEqual(message.reasoningState,.readyToShoot)
+        }
+    }
+    func testAlreadyGoodMeasuredFrameNeedsStableDwell() {
+        var planner = FramingPlanner()
+        planner.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:1)
+        XCTAssertFalse(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:true,timestamp:1,holdDuration:1)
+        XCTAssertTrue(planner.currentFrameVerified); XCTAssertEqual(planner.directorState(hasPlan:true),.ready)
+        planner.confirmCurrentFrame(eligible:false,timestamp:1.1,holdDuration:1)
+        XCTAssertFalse(planner.currentFrameVerified); XCTAssertEqual(planner.phase,.searching)
+    }
+    func testSmallSubjectCannotBeDeclaredOptimalByCurrentFrameLabel() {
+        var current = composition(scale:1); current.selected.isCurrentFrame = true
+        let bounds = CGRect(x:0.45,y:0.45,width:0.1,height:0.1)
+        let facts = CompositionAssessment.evaluate(bounds:bounds,confidence:1,label:"Cat",intent:.pet,stable:true,exposure:nil,evidence:nil)
+        XCTAssertFalse(ShotReadiness.measuredCurrentFrame(plan:current,assessment:facts,label:"Cat",timestamp:1,stable:true))
+        XCTAssertFalse(ShotReadiness.measuredCurrentFrame(plan:nil,assessment:facts,label:"Cat",timestamp:1,stable:true))
+    }
+    func testGoodMeasuredFrameRejectsStaleOrUnstableDecision() {
+        var current = composition(scale:1); current.selected.isCurrentFrame = true
+        let bounds = CGRect(x:0.3,y:0.3,width:0.4,height:0.4)
+        let facts = CompositionAssessment.evaluate(bounds:bounds,confidence:1,label:"Cat",intent:.pet,stable:true,exposure:nil,evidence:nil)
+        XCTAssertTrue(ShotReadiness.measuredCurrentFrame(plan:current,assessment:facts,label:"Cat",timestamp:1,stable:true))
+        XCTAssertFalse(ShotReadiness.measuredCurrentFrame(plan:current,assessment:facts,label:"Cat",timestamp:3,stable:true))
+        XCTAssertFalse(ShotReadiness.measuredCurrentFrame(plan:current,assessment:facts,label:"Cat",timestamp:1,stable:false))
+    }
+    func testVirtualCameraZoomUnitsDoNotTreatNativeTwoPointFiveAsDisplayed() throws {
+        let sample = CameraZoomObservation(hardwareFactor:2.5,multiplier:2,ramping:false,timestamp:1)
+        XCTAssertEqual(sample.displayedFactor,1.25)
+        XCTAssertEqual(try XCTUnwrap(CameraZoomObservation.hardwareTarget(displayed:2.5,multiplier:2,minimum:1,maximum:10)),5)
+        XCTAssertNil(CameraZoomObservation.hardwareTarget(displayed:6,multiplier:2,minimum:1,maximum:10))
+    }
+    func testStartingAtDisplayedTwoPointFiveStillSupportsGeometricTarget() throws {
+        let plan = try shot(scale:1.35,start:2.5)
+        XCTAssertEqual(plan.targetZoom,3.375,accuracy:0.00001)
+        XCTAssertTrue(CameraZoomObservation(hardwareFactor:5,multiplier:2,ramping:false,timestamp:1).fresh(at:1.2))
+        XCTAssertFalse(CameraZoomObservation(hardwareFactor:5,multiplier:2,ramping:false,timestamp:1).fresh(at:1.5))
+    }
+
+    func testUnmeasuredLandscapeCannotBypassReadyGate() {
+        var guide = AutomaticGuidance()
+        let message = guide.update(reading:.init(),phase:.searching,stable:true,rollReliable:false,autoEnabled:true,zoomAvailable:false,
+            timestamp:1,intent:.landscape,requireShotCompletion:true)
+        XCTAssertNotEqual(message.reasoningState,.readyToShoot)
+    }
+
 }

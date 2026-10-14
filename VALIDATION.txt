@@ -1,7 +1,8 @@
-Focal 2.5.1 / build 24 — Intelligence 5.1 automatic shot framing
-PASS: deterministic generated project; 84 app/25 test sources; module-level duplicate-name audit; lexical delimiters; resource JSON/plist/XML/assets; YAML/build shell syntax; frozen source hashes; Sony sources unchanged; whitespace.
-REGISTERED: 357 XCTest functions, 18 new automatic framing cases. Native executions: zero.
-ATTEMPTED: simulator test and Release device archive; both exit 127, xcodebuild: command not found.
-LIMIT: structure checks do not parse/type-check Swift. Codemagic native compilation/tests remain required.
-DEVICE: no physical iPhone 16 Pro Max or Sony validation performed here. No measured smoothness, zoom accuracy or performance gain claimed.
-REPORT: docs/intelligence/AUTO-FRAMING-5.1.md
+Focal 2.5.2 / build 25 — automatic zoom readiness fix
+PASS: deterministic project; 85 app/25 test sources; duplicate module types; lexical delimiters; resources; YAML/build shell syntax; frozen source hashes; Sony sources unchanged; whitespace.
+REGISTERED: 370 XCTest functions; 13 new readiness/zoom regressions. Native executions for this change: zero.
+PRIOR USER EVIDENCE: 357 tests executed, 356 passed, one failed (highlight fixture corrected separately in 9594b5d; rerun not supplied).
+ATTEMPTED: simulator build exits 127, xcodebuild: command not found.
+LIMIT: structural checks do not parse/type-check Swift. All native tests/build remain required in Codemagic.
+DEVICE: physical iPhone 16 Pro Max zoom/retention/readiness/capture matching unverified here.
+REPORT: docs/intelligence/READY-ZOOM-FIX-2.5.2.md

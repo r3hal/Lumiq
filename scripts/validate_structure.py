@@ -55,6 +55,6 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','--name-only','--','Focal/Sony').strip(),'Sony connectivity changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==357,count
+assert count==370,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony source unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. Not executed. Swift grammar/type checking and native build remain pending.')

@@ -43,7 +43,7 @@ struct AutomaticGuidance {
                          compositionPlan: SceneCompositionPlan? = nil, sceneEvidence: SceneCompositionEvidence? = nil,
                          intent: PhotographyIntent = .auto, manualSubject: Bool = false,
                          manualComposition: Bool = false, anatomy: SubjectAnatomy? = nil,
-                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false) -> GuidanceMessage {
+                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false, requireShotCompletion:Bool = false, currentFrameVerified:Bool = false) -> GuidanceMessage {
         guard timestamp.isFinite else { reset(); return GuidanceMessage() }
         if let observedScene, !observedScene.fresh { reset(); return .init(kind:.searching,text:"") }
         guard let bounds = reading.guidanceBounds ?? reading.subjectBounds, reading.subjectConfidence >= 0.4,
@@ -56,6 +56,10 @@ struct AutomaticGuidance {
                 measurements:sceneMeasurements,evidence:sceneEvidence,timestamp:timestamp,previewAspect:previewAspect,architecture:architecture) {
                 if subject != "Scene" { reset(); subject = "Scene" }
                 let retained = memory.update(decision,bounds:nil,label:architecture ? "Architecture" : "Landscape",intent:intent,timestamp:timestamp)
+                if requireShotCompletion, retained.action == .none,
+                   !stable || sceneEvidence?.isFresh(at:timestamp) != true || sceneMeasurements == nil {
+                    return .init(kind:.framing,text:"Evaluating the scene…")
+                }
                 return .init(kind:.scene,text:retained.text,action:retained.action)
             }
             reset()
@@ -74,7 +78,7 @@ struct AutomaticGuidance {
         sharedScene?.deviceStable = stable && relativeSpeed <= 0.25
         let assessment = sharedScene?.assessment ?? CompositionAssessment.evaluate(bounds:bounds,confidence:trustedConfidence,label:label,
             intent:intent,stable:stable && relativeSpeed <= 0.25,exposure:subjectMeasurements,evidence:sceneEvidence,others:others,anatomy:anatomy,timestamp:timestamp)
-        if phase == .zooming { return .init(kind:.framing,text:"Refining the evaluated crop…") }
+        if phase.isAutoFraming { return .init(kind:.framing,text:phase == .verifying ? "Checking the final framing…" : "Refining the evaluated crop…") }
         if assessment.confidence < 0.55 || !assessment.assessmentReliable { memory.reset(); return .init(kind:.searching,text:"") }
         if shotVerified, stable, reading.state == .ready, !assessment.touchesEdge {
             memory.reset()
@@ -91,6 +95,10 @@ struct AutomaticGuidance {
         if retained.action == .hold { return .init(kind:.steady,text:retained.text,action:.hold) }
         if retained.action == .none {
             if phase.isPreparing && autoEnabled { return .init(kind:.steady,text:"Hold steady",action:.hold) }
+            if !ShotReadiness.permitsReady(required:requireShotCompletion,shotVerified:shotVerified,currentFrameVerified:currentFrameVerified) {
+                if phase == .off { return .init(kind:.steady,text:"Automatic framing paused",action:.hold) }
+                return .init(kind:.framing,text:compositionPlan == nil ? "Evaluating the shot…" : "Checking the selected framing…")
+            }
             if reading.state != .ready { return .init(kind:.steady,text:"Hold steady",action:.hold) }
             return .init(kind:.ready,text:"Ready to shoot",action:GuidanceAction.none)
         }

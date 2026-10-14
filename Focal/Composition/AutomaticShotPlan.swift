@@ -3,6 +3,7 @@ import Foundation
 /// Frozen geometry for one real camera ramp. Coordinates are the visible preview,
 /// so projection/mirroring is performed once by the existing camera pipeline.
 struct AutomaticShotPlan {
+    let id = UUID().uuidString
     let subjectLabel: String
     let initialBounds: CGRect
     let desiredBounds: CGRect
@@ -68,7 +69,7 @@ struct AutomaticShotPlan {
         guard Self.valid(bounds), previewAspect > 0 else { return false }
         let sizeError = max(abs(Double(bounds.width/desiredBounds.width)-1),abs(Double(bounds.height/desiredBounds.height)-1))
         let positionError = hypot(Double(bounds.midX-desiredBounds.midX),Double(bounds.midY-desiredBounds.midY)/previewAspect)
-        return zoom >= startingZoom*1.01 && zoom <= targetZoom*1.02 && sizeError <= 0.08 && positionError <= 0.05
+        return zoom >= targetZoom*0.98 && zoom <= targetZoom*1.02 && sizeError <= 0.08 && positionError <= 0.05
     }
     static func valid(_ rect:CGRect) -> Bool {
         !rect.isNull && [rect.minX,rect.minY,rect.width,rect.height].allSatisfy(\.isFinite) && rect.width > 0 && rect.height > 0
