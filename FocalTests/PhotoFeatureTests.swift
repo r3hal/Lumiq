@@ -45,6 +45,8 @@ final class PhotoFeatureTests: XCTestCase {
         {"id":"12345678-1234-1234-1234-123456789012","filename":"photo.jpg","createdAt":0,"mode":"Thirds","isDemo":false,"isFavorite":false}
         """.utf8)
         let photo = try JSONDecoder().decode(SavedPhoto.self, from: data)
+        XCTAssertNil(photo.framingSession)
+        XCTAssertNil(photo.widePreviewFilename)
         XCTAssertNil(photo.rawFilename)
         XCTAssertNil(photo.scanFilename)
         XCTAssertNil(photo.originalFilename)

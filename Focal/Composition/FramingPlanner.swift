@@ -48,6 +48,14 @@ struct FramingPlanner {
         holdProgress = 0
     }
     mutating func finish() { phase = .framed }
+    mutating func revalidateCompletedShot(bounds:CGRect?,label:String,confidence:Float,zoom:Double,aspect:Double) {
+        guard shotVerified, let shotPlan else { return }
+        guard let bounds, label == shotPlan.subjectLabel, confidence >= 0.65,
+              shotPlan.achieved(bounds:bounds,zoom:zoom,previewAspect:aspect),
+              shotPlan.safeRemainingCrop(bounds:bounds,zoom:zoom,observedRegions:[],projectToTarget:false) else {
+            reset(enabled:false); return
+        }
+    }
     mutating func confirmCurrentFrame(eligible:Bool,timestamp:TimeInterval,holdDuration:Double) {
         guard !phase.isAutoFraming, !shotVerified, phase != .off else { return }
         guard eligible, timestamp.isFinite else {

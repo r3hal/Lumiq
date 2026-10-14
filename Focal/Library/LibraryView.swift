@@ -79,6 +79,9 @@ struct LibraryView: View {
                                                     .padding(9).background(.black.opacity(0.25), in: Circle()).padding(8)
                                             }
                                         }
+                                        if photo.widePreviewFilename != nil {
+                                            Label("Wide preview included",systemImage:"square.stack").font(.caption2).foregroundStyle(Palette.mint)
+                                        }
                                         HStack {
                                             Text(photo.isDemo ? "Demo frame" : photo.mode)
                                                 .font(.caption.weight(.medium))

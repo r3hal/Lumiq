@@ -17,20 +17,40 @@ struct PhotoDetailView: View {
     @State private var photosDenied = false
     private var current: SavedPhoto { library.photos.first { $0.id == photo.id } ?? photo }
     private var imageURL: URL {
-        if variant == "Scan", let scan = library.scanURL(for: photo) { return scan }
-        if variant == "Original", let original = library.originalURL(for: photo) { return original }
-        return library.url(for: photo)
+        if variant == "Wide preview", let wide = library.widePreviewURL(for:current) { return wide }
+        if variant == "Scan", let scan = library.scanURL(for: current) { return scan }
+        if variant == "Original", let original = library.originalURL(for: current) { return original }
+        return library.url(for: current)
+    }
+
+    @ViewBuilder
+    private var framingSessionDetails: some View {
+    if let session = current.framingSession {
+        VStack(alignment:.leading,spacing:5) {
+            Label("AI framing session",systemImage:"square.stack").font(.caption.weight(.medium)).foregroundStyle(Palette.yellow)
+            if variant == "Wide preview" {
+                if let resolution = session.previewResolutionLabel { Text(resolution).font(.system(.caption2,design:.monospaced)) }
+                Text("An earlier live preview, retained before AI zoom. Lower resolution than the captured photo.")
+                if let date = session.widePreviewObservedAt { Text(date,format:.dateTime.hour().minute().second()) }
+            } else if variant == "Original" {
+                Text("The unedited camera capture at the final zoom.")
+            } else if current.widePreviewFilename == nil {
+                Text("Wide preview unavailable. Your framed photo is saved.")
+            } else { Text("This shot includes an earlier wide preview in the same entry.") }
+        }.font(.caption).foregroundStyle(.secondary)
+    }
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    if photo.scanFilename != nil || photo.originalFilename != nil {
+                    if current.scanFilename != nil || current.originalFilename != nil || current.widePreviewFilename != nil {
                         Picker("Image", selection: $variant) {
-                            Text("Photo").tag("Photo")
+                            Text(current.framingSession == nil ? "Photo" : "AI frame").tag("Photo")
                             if photo.scanFilename != nil { Text("Scan").tag("Scan") }
-                            if photo.originalFilename != nil { Text("Original").tag("Original") }
+                            if current.originalFilename != nil { Text(current.framingSession == nil ? "Original" : "Source").tag("Original") }
+                            if current.widePreviewFilename != nil { Text("Wide preview").tag("Wide preview") }
                         }.pickerStyle(.segmented)
                     }
                     PhotoImage(url: imageURL, maxPixels: 4096)
@@ -44,7 +64,7 @@ struct PhotoDetailView: View {
                                 .font(.title2)
                             Text("\(photo.mode) composition · \(photo.createdAt.formatted(date: .omitted, time: .shortened))")
                                 .font(.caption).foregroundStyle(.secondary)
-                            if variant == "Photo", let resolution = photo.resolutionLabel {
+                            if variant == "Photo", let resolution = current.resolutionLabel {
                                 Text(resolution).font(.system(.caption2, design: .monospaced)).foregroundStyle(Palette.mint)
                             }
                             if variant == "Photo", let aspect = photo.aspect { Text("Aspect \(aspect)").font(.caption).foregroundStyle(.secondary) }
@@ -56,6 +76,7 @@ struct PhotoDetailView: View {
                         }
                         .accessibilityLabel(current.isFavorite ? "Remove from favorites" : "Add to favorites")
                     }
+                    framingSessionDetails
                     HStack {
                         Button("Edit photo",systemImage: "slider.horizontal.3") { showEditor = true }.disabled(variant != "Photo" || !current.canUsePhoneEditor)
                         Spacer()
@@ -80,7 +101,7 @@ struct PhotoDetailView: View {
                     Button {
                         exporting = true; photosDenied = false
                         Task {
-                            do { try await library.saveToPhotos(photo, imageURL: imageURL); message = "Saved to your iPhone photo library." }
+                            do { try await library.saveToPhotos(current, imageURL: imageURL); message = "Saved to your iPhone photo library." }
                             catch {
                                 if let libraryError = error as? PhotoLibrary.LibraryError, case .photosDenied = libraryError { photosDenied = true }
                                 message = error.localizedDescription
@@ -132,7 +153,7 @@ struct PhotoDetailView: View {
             }
             .confirmationDialog("Delete this photo from Focal?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete photo", role: .destructive) {
-                    do { try library.delete(photo); dismiss() }
+                    do { try library.delete(current); dismiss() }
                     catch { message = error.localizedDescription }
                 }
             } message: { Text("Copies saved to Photos or shared elsewhere will remain.") }

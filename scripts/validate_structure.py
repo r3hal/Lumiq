@@ -55,6 +55,12 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','--name-only','--','Focal/Sony').strip(),'Sony connectivity changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==370,count
+assert count==386,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony source unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. Not executed. Swift grammar/type checking and native build remain pending.')
+
+# AI framing must never release the shutter from readiness polling.
+cameraView=(ROOT/'Focal/Camera/CameraView.swift').read_text()
+assert 'monitorSmartShutter' not in cameraView and 'shouldCapture(' not in cameraView
+assert 'Button(action: shoot)' in cameraView
+assert len(re.findall(r'\bshoot\s*\(',cameraView))==1,'Unexpected programmatic shutter trigger'

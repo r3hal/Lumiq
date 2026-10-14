@@ -52,6 +52,7 @@ struct CaptureOptions {
 struct CameraCapture {
     let processed: Data
     let raw: Data?
+    var framing: FramedCapture? = nil
 }
 
 @MainActor

@@ -17,7 +17,6 @@ struct CameraView: View {
     @State private var showExplore = false
     @State private var reference: UIImage?
     @State private var referenceOpacity = 0.35
-    @State private var smartGate = SmartShutterGate()
     @State private var seriesProgress = ""
     @State private var showExposureAdjustment = false
     @State private var captureTask: Task<Void,Never>?
@@ -35,7 +34,7 @@ struct CameraView: View {
     @State private var saving = false
     @State private var saved = false
     private var reading: CompositionReading { camera.reading }
-    private var canShoot: Bool { (source == .sony ? sony.canCapture : (demo || camera.isRunning)) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && camera.framingPhase != .zooming && !showCameraPanel && reviewPhoto == nil }
+    private var canShoot: Bool { (source == .sony ? sony.canCapture : (demo || camera.isRunning)) && !saving && !camera.isCapturing && !camera.isSwitchingCamera && !camera.framingPhase.isAutoFraming && !showCameraPanel && reviewPhoto == nil }
     private var subjectName: String { SubjectIdentity.name(camera.subjectLabel) ?? "Selected subject" }
     private var viewfinderAspect: Double {
         if source == .sony && sonyFullFrame { return sony.imageAspect }
@@ -48,7 +47,6 @@ struct CameraView: View {
     // layout, every observer and every presentation as one enormous expression.
     var body: some View {
         presentedCamera
-            .task { await monitorSmartShutter() }
             .alert("Camera", isPresented: cameraErrorPresented) {
                 Button("OK") { camera.errorMessage = nil }
             } message: {
@@ -100,18 +98,17 @@ struct CameraView: View {
             .onChange(of: settings.subjectTracking) { _, _ in configureSubjectFeatures(); camera.setAutoFraming(settings.autoFrame && settings.subjectTracking) }
             .onChange(of: settings.smartSelection) { _, _ in configureSubjectFeatures() }
             .onChange(of: settings.coach) { _, value in camera.setCoach(value) }
-            .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
-            .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
-            .onChange(of: settings.compositionPlanning) { _, value in smartGate.reset(); camera.setCompositionPlanning(value) }
-            .onChange(of: settings.petFraming) { _, value in smartGate.reset(); camera.setPetFraming(value) }
-            .onChange(of: settings.intent) { _, value in smartGate.reset(); camera.setIntent(value) }
+            .onChange(of: mode) { _, value in camera.setMode(value) }
+            .onChange(of: settings.compositionPlanning) { _, value in camera.setCompositionPlanning(value) }
+            .onChange(of: settings.petFraming) { _, value in camera.setPetFraming(value) }
+            .onChange(of: settings.intent) { _, value in camera.setIntent(value) }
     }
 
     private var compositionCamera: some View {
         preferenceCamera
             .onChange(of: settings.guide) { _, value in changeGuidance(to: value) }
-            .onChange(of: settings.autoFrame) { _, value in smartGate.reset(); camera.setAutoFraming(value && settings.subjectTracking) }
-            .onChange(of: viewfinderAspect) { _, value in smartGate.reset(); camera.setPreviewAspect(value) }
+            .onChange(of: settings.autoFrame) { _, value in camera.setAutoFraming(value && settings.subjectTracking) }
+            .onChange(of: viewfinderAspect) { _, value in camera.setPreviewAspect(value) }
             .onChange(of: corner) { _, value in changeCorner(to: value) }
             .onChange(of: reading.state) { old, new in
                 if old != .ready && new == .ready && settings.guide {
@@ -187,7 +184,6 @@ struct CameraView: View {
     }
 
     private func changeGuidance(to enabled: Bool) {
-        smartGate.reset()
         camera.setGuidance(enabled)
         if enabled && demo { demo = false; camera.start() }
     }
@@ -205,30 +201,14 @@ struct CameraView: View {
     private func changeSource(to value: CameraSource) {
         captureGeneration = UUID(); captureTask?.cancel(); saving = false; seriesProgress = ""
         camera.stop(); sony.disconnect(); demo = false; showExposure = false
-        smartGate.reset(); camera.setAnalysisSource(value)
+        camera.setAnalysisSource(value)
         if value == .iPhone { if !showCameraPanel { camera.start() } }
         else { sonyFullFrame = true }
     }
 
     private func changeCorner(to value: Int?) {
-        smartGate.reset()
         let target: UnitPoint2D? = value.map { CompositionEngine.thirdsTargets[$0] }
         camera.setTarget(target)
-    }
-
-    @MainActor private func monitorSmartShutter() async {
-        while !Task.isCancelled {
-            let interval: Duration = settings.smartShutter ? .milliseconds(250) : .milliseconds(1000)
-            try? await Task.sleep(for: interval)
-            guard !Task.isCancelled else { return }
-            let active: Bool = visible && scenePhase == .active && !demo && source == .iPhone
-                && !showCameraPanel && !showLibrary && !showReference && !showExplore && reviewPhoto == nil
-            let ready: Bool = reading.state == .ready && camera.guidance.kind == .ready && !camera.framingPhase.isPreparing
-            let shouldCapture: Bool = smartGate.shouldCapture(
-                enabled: settings.smartShutter && settings.guide, ready: ready,
-                active: active, busy: !canShoot, zooming: camera.framingPhase == .zooming)
-            if shouldCapture { shoot() }
-        }
     }
 
     private var toolbar: some View {
@@ -359,7 +339,7 @@ struct CameraView: View {
     private var nativePreview: some View {
         CameraPreview(
             session: camera.session, onFocus: { camera.focus(at: $0) },
-            onSelect: { smartGate.reset(); camera.selectSubject(at: $0) },
+            onSelect: { camera.selectSubject(at: $0) },
             onZoom: { camera.setZoom($0) }, zoom: camera.zoom,
             onPinchBegin: { camera.beginManualZoom(completion: $0) }, mirrored: camera.isFrontCamera,
             showTapIndicator:camera.controls.canTapFocus && !camera.controls.manualFocus)
@@ -688,13 +668,12 @@ struct CameraView: View {
 
     private func shoot() {
         guard canShoot else { return }
-        smartGate.consume()
         showAspect = false; showExposure = false; saving = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         let capturedSource = source
         let capturedDemo = demo && source == .iPhone
         let operation = UUID(); captureGeneration = operation
-        let count = capturedDemo || source == .sony ? 1 : settings.burstCount
+        let count = capturedDemo || source == .sony ? 1 : UserShutterPolicy.count(guidanceEnabled:settings.guide,requestedSeries:settings.burstCount)
         let wantsReview = capturedSource == .iPhone && count == 1 && settings.reviewAfterCapture
         let burst = count > 1 ? UUID() : nil
         let aspect = settings.aspect, caption = settings.caption
@@ -731,7 +710,7 @@ struct CameraView: View {
                     try Task.checkCancellation()
                     let photo = try await library.add(data: rendered.0,mode: capturedMode,isDemo: capturedDemo,
                         rawData: keepRAW ? capture.raw : nil,originalData: rendered.0 == capture.processed ? nil : capture.processed,
-                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst,cameraOrigin: capturedSource.rawValue,photographyIntent:capturedIntent)
+                        scanData: rendered.1,aspect: savedAspect,subject: label,challenge: challenge,burstID: burst,cameraOrigin: capturedSource.rawValue,photographyIntent:capturedIntent,framedCapture:capture.framing)
                     added.append(photo)
                     if index+1 < count { try await Task.sleep(for: .milliseconds(180)) }
                 }

@@ -153,6 +153,8 @@ final class CameraController: NSObject, ObservableObject {
     private var lastAutomaticFocus: TimeInterval = 0
     private var lastFocusedPoint: UnitPoint2D?
     private var zoomMultiplier: CGFloat = 1 // Capture zoom that corresponds to the wide lens's 1×.
+    private var shotCapture = ShotCaptureSession() // Analysis queue.
+    private var pendingFramingCapture: FramedCapture? // Camera queue, frozen on shutter press.
     private var captureCompletion: ((Result<CameraCapture, Error>) -> Void)?
     private var pendingProcessed: Data?
     private var pendingRAW: Data?
@@ -536,7 +538,7 @@ final class CameraController: NSObject, ObservableObject {
             automaticZoomBlocked = true
             analysisQueue.async {
                 self.automaticShotArmed = false
-                if !preserveVerifiedShot { self.framing.reset(enabled:false); self.publishFraming() }
+                if !preserveVerifiedShot { self.framing.reset(enabled:false); self.shotCapture.cancel(); self.publishFraming() }
             }
         }
         zoomGeneration += 1
@@ -673,6 +675,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func resetAnalysis(armFraming: Bool = true) {
+        shotCapture.cancel()
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics = GuidanceDiagnostics()
         DispatchQueue.main.async { self.guidancePerformance = nil }
@@ -729,27 +732,43 @@ final class CameraController: NSObject, ObservableObject {
             return
         }
         isCapturing = true
-        analysisQueue.async { self.analysisPaused = true }
-        queue.async {
-            guard self.session.isRunning, self.device?.isRampingVideoZoom != true else {
+        analysisQueue.async {
+            // Recheck authoritative state: the published UI phase can lag this queue.
+            guard !self.framing.phase.isAutoFraming else {
                 DispatchQueue.main.async {
                     self.isCapturing = false
                     completion(.failure(CameraError.notRunning))
                 }
-                self.analysisQueue.async { self.analysisPaused = false }
                 return
             }
-            self.captureCompletion = completion
-            self.pendingProcessed = nil
-            self.pendingRAW = nil
-            self.pendingError = nil
-            let settings = self.photoSettings(options: options)
-            self.pendingCaptureID = settings.uniqueID
-            let captureID = settings.uniqueID
-            self.output.capturePhoto(with: settings, delegate: self)
-            self.queue.asyncAfter(deadline: .now() + 30) {
-                guard self.pendingCaptureID == captureID, self.captureCompletion != nil else { return }
-                self.finishCapture(.failure(CameraError.timeout))
+            let capturedFraming = self.shotCapture.userCapture(at:ProcessInfo.processInfo.systemUptime,
+                guidanceEnabled:self.guidanceSnapshot().enabled && self.analysisSource == .iPhone)
+            self.analysisPaused = true
+            self.queue.async {
+                guard self.session.isRunning, self.device?.isRampingVideoZoom != true else {
+                    DispatchQueue.main.async {
+                        self.isCapturing = false
+                        completion(.failure(CameraError.notRunning))
+                    }
+                    self.analysisQueue.async { self.analysisPaused = false }
+                    return
+                }
+                self.captureCompletion = completion
+                let actualZoom = self.device.map { Double($0.videoZoomFactor/self.zoomMultiplier) } ?? 0
+                let eligible = capturedFraming?.matchesCamera(zoom:actualZoom,enabled:self.guidanceSnapshot().enabled && self.guidanceSnapshot().source == .iPhone,
+                    ramping:self.device?.isRampingVideoZoom ?? true) ?? false
+                self.pendingFramingCapture = eligible ? capturedFraming : nil
+                self.pendingProcessed = nil
+                self.pendingRAW = nil
+                self.pendingError = nil
+                let settings = self.photoSettings(options: options)
+                self.pendingCaptureID = settings.uniqueID
+                let captureID = settings.uniqueID
+                self.output.capturePhoto(with: settings, delegate: self)
+                self.queue.asyncAfter(deadline: .now() + 30) {
+                    guard self.pendingCaptureID == captureID, self.captureCompletion != nil else { return }
+                    self.finishCapture(.failure(CameraError.timeout))
+                }
             }
         }
     }
@@ -1570,6 +1589,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                 queue.async { self.abortAutomaticZoom(generation:generation) }
             }
         }
+        if analysisSource == .iPhone {
+            framing.revalidateCompletedShot(bounds:bounds,label:tracker.label,confidence:confidence,zoom:analysisZoom,aspect:previewAspect)
+        }
         let currentFrameEligible = ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:stable)
         if analysisSource == .iPhone {
             framing.confirmCurrentFrame(eligible:currentFrameEligible,timestamp:evaluatedAt,holdDuration:holdDuration)
@@ -1589,11 +1611,20 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                     regions:protectedContext,anatomy:zoomAnatomy,previewAspect:previewAspect),
                abs(shot.targetZoom-targetZoom) < 0.01 {
                 framing.commitShot(shot)
+                let previewDate = Date().addingTimeInterval(observationTime-ProcessInfo.processInfo.systemUptime)
+                let wide = PhotoRenderer.widePreview(CIImage(cvPixelBuffer:fullBuffer),aspect:previewAspect,mirrored:analysisFrontCamera,
+                    observedAt:previewDate,context:imageContext)
+                shotCapture.select(shot,preview:wide)
+                ShotFramingDiagnostics.log("WIDE_PREVIEW_RETAINED","shot=\(shot.id) available=\(wide != nil) width=\(wide?.pixelWidth ?? 0) height=\(wide?.pixelHeight ?? 0)")
                 performAutomaticZoom(to:shot.targetZoom,generation:analysisZoomGeneration,observedAt:observationTime)
             } else {
                 ShotFramingDiagnostics.log("PLAN_REJECTED","subject=\(tracker.label) reason=protected_geometry_or_target_mismatch zoom=\(analysisZoom)")
                 framing.reset(enabled:automaticShotArmed && autoFrameEnabled)
             }
+        }
+        if analysisSource == .iPhone {
+            shotCapture.observe(plan:framing.shotPlan,verified:framing.shotVerified,bounds:bounds,label:tracker.label,
+                confidence:confidence,zoom:analysisZoom,stable:stable,timestamp:evaluatedAt,aspect:previewAspect)
         }
         let tolerance = autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing ? FramingPlanner.alignmentTolerance(plannedScale:plan?.selected.zoomScale,destination:preparingZoom ? plan?.target : nil) : 0.065
         var result = engine.update(subject: subject, rollDegrees: roll, mode: mode, timestamp: evaluatedAt,
@@ -1735,7 +1766,7 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
             if let error { self.pendingError = error }
             if let error = self.pendingError { self.finishCapture(.failure(error)) }
             else if let processed = self.pendingProcessed {
-                self.finishCapture(.success(CameraCapture(processed: processed, raw: self.pendingRAW)))
+                self.finishCapture(.success(CameraCapture(processed: processed, raw: self.pendingRAW,framing:self.pendingFramingCapture)))
             } else { self.finishCapture(.failure(CameraError.missingPhoto)) }
         }
     }
@@ -1759,7 +1790,7 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
             let completion = self.captureCompletion
             self.captureCompletion = nil
             self.pendingCaptureID = nil
-            self.pendingProcessed = nil; self.pendingRAW = nil; self.pendingError = nil
+            self.pendingProcessed = nil; self.pendingRAW = nil; self.pendingError = nil; self.pendingFramingCapture = nil
             guard let completion else { return }
             self.analysisQueue.async { self.analysisPaused = false }
             DispatchQueue.main.async {

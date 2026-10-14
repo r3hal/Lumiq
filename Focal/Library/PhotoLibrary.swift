@@ -27,6 +27,8 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     var editingRecipe: EditRecipe? = nil
     var editingSourceFilename: String? = nil
     var developedFromRAW: Bool? = nil
+    var framingSession: FramingCaptureMetadata? = nil
+    var widePreviewFilename: String? = nil
     var canUsePhoneEditor: Bool { cameraOrigin == CameraSource.iPhone.rawValue || (isDemo && cameraOrigin != CameraSource.sony.rawValue) }
 
     var resolutionLabel: String? {
@@ -73,6 +75,7 @@ final class PhotoLibrary: ObservableObject {
     func url(for photo: SavedPhoto) -> URL { directory.appendingPathComponent(photo.filename) }
     func rawURL(for photo: SavedPhoto) -> URL? { photo.rawFilename.map { directory.appendingPathComponent($0) } }
     func originalURL(for photo: SavedPhoto) -> URL? { photo.originalFilename.map { directory.appendingPathComponent($0) } }
+    func widePreviewURL(for photo: SavedPhoto) -> URL? { photo.widePreviewFilename.map { directory.appendingPathComponent($0) } }
     func scanURL(for photo: SavedPhoto) -> URL? { photo.scanFilename.map { directory.appendingPathComponent($0) } }
     func editingSourceURL(for photo: SavedPhoto) -> URL? { photo.editingSourceFilename.map { directory.appendingPathComponent($0) } }
 
@@ -87,7 +90,7 @@ final class PhotoLibrary: ObservableObject {
     @discardableResult
     func add(data: Data, mode: String, isDemo: Bool = false, rawData: Data? = nil,
              originalData: Data? = nil, scanData: Data? = nil, aspect: String? = nil, subject: String? = nil,
-             challenge: String? = nil, burstID: UUID? = nil, cameraOrigin: String? = nil, editingRecipe: EditRecipe? = nil, developedFromRAW: Bool? = nil, photographyIntent:String? = nil) async throws -> SavedPhoto {
+             challenge: String? = nil, burstID: UUID? = nil, cameraOrigin: String? = nil, editingRecipe: EditRecipe? = nil, developedFromRAW: Bool? = nil, photographyIntent:String? = nil,framedCapture:FramedCapture? = nil) async throws -> SavedPhoto {
         guard canWrite else { throw LibraryError.unavailable }
         var photo = SavedPhoto(id: UUID(), filename: UUID().uuidString + "." + Self.fileExtension(data), createdAt: Date(),
                                mode: mode, isDemo: isDemo, isFavorite: false)
@@ -97,6 +100,9 @@ final class PhotoLibrary: ObservableObject {
         photo.burstID = burstID
         photo.cameraOrigin = cameraOrigin
         photo.photographyIntent = photographyIntent
+        let paired = cameraOrigin == CameraSource.iPhone.rawValue && !isDemo ? framedCapture : nil
+        photo.framingSession = paired?.metadata
+        if paired?.widePreview != nil { photo.widePreviewFilename = UUID().uuidString + "-wide-preview.jpg" }
         photo.editingRecipe = editingRecipe
         photo.developedFromRAW = developedFromRAW
         photo.measurements = await Task.detached { PhotoMeasurements.from(data: data) }.value
@@ -117,6 +123,7 @@ final class PhotoLibrary: ObservableObject {
         if let rawData, let file = rawURL(for: photo) { files[file] = rawData }
         if let originalData, let file = originalURL(for: photo) { files[file] = originalData }
         if let scanData, let file = scanURL(for: photo) { files[file] = scanData }
+        if let preview = paired?.widePreview, let file = widePreviewURL(for:photo) { files[file] = preview.data }
         let capturedFiles = files
         do {
             try await Task.detached(priority: .userInitiated) {
@@ -202,7 +209,7 @@ final class PhotoLibrary: ObservableObject {
         photos = next
         // A failed file removal only leaves an unreferenced file, never a broken manifest.
         var failure: Error?
-        for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo), editingSourceURL(for: photo)].compactMap({ $0 }) {
+        for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo), editingSourceURL(for: photo), widePreviewURL(for:photo)].compactMap({ $0 }) {
             guard FileManager.default.fileExists(atPath: file.path) else { continue }
             do { try FileManager.default.removeItem(at: file) } catch { failure = error }
         }
@@ -213,11 +220,17 @@ final class PhotoLibrary: ObservableObject {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else { throw LibraryError.photosDenied }
         let file = imageURL ?? url(for: photo)
-        let raw = file == scanURL(for: photo) ? nil : rawURL(for: photo)
+        let raw = file == scanURL(for: photo) || file == widePreviewURL(for:photo) ? nil : rawURL(for: photo)
+        let wide = imageURL == nil ? widePreviewURL(for:photo) : nil
         let separateRAW = file == url(for: photo) && photo.originalFilename != nil
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
             request.addResource(with: .photo, fileURL: file, options: nil)
+            if let wide {
+                let previewRequest = PHAssetCreationRequest.forAsset()
+                previewRequest.creationDate = photo.framingSession?.widePreviewObservedAt
+                previewRequest.addResource(with:.photo,fileURL:wide,options:nil)
+            }
             if let raw {
                 if separateRAW {
                     // A cropped JPEG and full-sensor DNG have different framing. Export as

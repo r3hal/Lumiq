@@ -2,6 +2,23 @@ import UIKit
 import CoreImage
 
 enum PhotoRenderer {
+    static func widePreview(_ image:CIImage,aspect:Double,mirrored:Bool,observedAt:Date,context:CIContext) -> WideScenePreview? {
+        guard aspect.isFinite, aspect > 0, image.extent.width > 0, image.extent.height > 0 else { return nil }
+        let size = image.extent.size
+        let width = floor(min(size.width,size.height*aspect))
+        let height = floor(min(size.height,size.width/aspect))
+        guard width > 0, height > 0 else { return nil }
+        let crop = CGRect(x:floor(image.extent.midX-width/2),y:floor(image.extent.midY-height/2),width:width,height:height).intersection(image.extent)
+        var frame = image.cropped(to:crop)
+        if mirrored { frame = frame.transformed(by:CGAffineTransform(scaleX:-1,y:1)) }
+        frame = frame.transformed(by:CGAffineTransform(translationX:-frame.extent.minX,y:-frame.extent.minY))
+        // Match the existing analysis preview budget, never upscale.
+        let scale = min(1,1600/max(frame.extent.width,frame.extent.height))
+        frame = frame.transformed(by:CGAffineTransform(scaleX:scale,y:scale))
+        guard let pixels = context.createCGImage(frame,from:CGRect(x:0,y:0,width:floor(frame.extent.width),height:floor(frame.extent.height))),
+              let data = UIImage(cgImage:pixels).jpegData(compressionQuality:0.93) else { return nil }
+        return .init(data:data,pixelWidth:pixels.width,pixelHeight:pixels.height,observedAt:observedAt)
+    }
     /// Only the selected-aspect derivative is cropped; the original camera JPEG is retained.
     static func crop(_ data: Data, to aspect: PhotoAspect) throws -> Data {
         guard let image = CIImage(data: data, options: [.applyOrientationProperty: true]) else { throw RenderError.invalidImage }

@@ -73,7 +73,7 @@ struct SettingsView: View {
                     }
                     if source == .sony { Text("Sony mode uses actual received frames and advertised controls. Lens zoom and exposure adjustment remain on the camera; iPhone capture options do not control Sony.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
                     Text("Optional grid/level guides are off by default. AI Guidance is controlled by the same on/off button for either camera source. The yellow footer button turns it off/on. Subject recognition combines crop classification, readable text and measured boundaries; uncertain regions stay unlabelled. Pan in the arrow direction to place the subject on the target mark. Coach analysis runs only while AI Guidance is on. Pinch always takes control. ISO, shutter and lens aperture in the expanded camera strip are read-only; only iPhone EV is adjustable.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
-                    Text("Smart shutter is off by default and takes one shot/series per armed AI session when the guide is ready. Photo series are sequential full-quality captures, not a high-speed burst. Core guidance measures subject light and background clutter. The optional coach adds scene/pose checks. All analysis runs locally.")
+                    Text("The shutter is always yours. AI frames the shot; press once to save the photo and an earlier wide preview when available. Photo series are available with AI Guidance off and use sequential full-quality captures. Core guidance measures subject light and background clutter. The optional coach adds scene/pose checks. All analysis runs locally.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal,15)
                     Text(previewDiagnosticText)
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 15)
@@ -98,7 +98,7 @@ struct SettingsView: View {
                         NavigationLink { EvaluationLabView(camera:camera).toolbar(.visible,for:.navigationBar) } label: { navigationRow("Developer Intelligence Lab") }
                         #endif
                     }
-                    Text("Focal 2.5.2 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 2.6.0 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -128,15 +128,14 @@ struct SettingsView: View {
                         separator
                         settingToggle("Review single shots", value: $settings.reviewAfterCapture).disabled(source == .sony)
                         separator
-                        settingToggle("Smart shutter",value: $settings.smartShutter).disabled(source == .sony)
-                        separator
         }
     }
     @ViewBuilder private var phoneCaptureControls: some View {
         if source == .iPhone {
                         Picker("Photo series",selection: $settings.burstCount) {
                             Text("Single").tag(1); Text("3 shots").tag(3); Text("5 shots").tag(5)
-                        }.padding(15)
+                        }.padding(15).disabled(settings.guide)
+                        if settings.guide { Text("AI Guidance saves one shot per shutter press.").font(.caption).foregroundStyle(.secondary).padding(.horizontal,15) }
                         separator
                         settingToggle("Shutter Sound", value: Binding(
                             get: { camera.canMuteShutter ? settings.shutterSound : true },
