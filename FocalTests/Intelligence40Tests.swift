@@ -75,7 +75,9 @@ final class Intelligence40ReasoningTests: XCTestCase {
     func testSevereHighlightsTakePriorityOverMinorLevelAndPan() {
         var measured = facts
         measured.exposure = .init(brightness:0.8,shadowFraction:0,highlightFraction:0.3,detail:0.1,backgroundEdges:nil)
-        let decision = PhotographicReasoner.evaluate(assessment:measured,reading:.init(subjectBounds:box,target:.init(x:0.7,y:0.7),rollDegrees:6),intent:.pet,plan:nil,rollReliable:true,previewAspect:1,manualComposition:true)
+        let reading = CompositionReading(state:.adjusting,subjectBounds:box,subjectConfidence:Float(measured.confidence),
+                                         target:.init(x:0.7,y:0.7),rollDegrees:6)
+        let decision = PhotographicReasoner.evaluate(assessment:measured,reading:reading,intent:.pet,plan:nil,rollReliable:true,previewAspect:1,manualComposition:true)
         XCTAssertEqual(decision.selected.action,.reduceExposure)
         XCTAssertTrue(decision.candidates.contains { $0.guidance.action == .level })
         XCTAssertTrue(decision.candidates.contains { $0.guidance.showsDirection })
