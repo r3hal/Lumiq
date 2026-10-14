@@ -8,6 +8,15 @@ def run(*args): return subprocess.check_output(args,cwd=ROOT,text=True)
 project=ROOT/'Focal.xcodeproj/project.pbxproj'
 first=project.read_bytes();run('python3','scripts/generate_project.py');assert project.read_bytes()==first,'Project generation is not deterministic'
 app=list((ROOT/'Focal').rglob('*.swift'));tests=list((ROOT/'FocalTests').glob('*.swift'))
+# This source-style check catches copied module-level types before Xcode.
+# It deliberately does not claim to parse all Swift syntax/conditional branches.
+declarations={}
+pattern=r'^(?:(?:private|fileprivate|internal|public|final|indirect)\s+)*(?:struct|enum|class|actor|protocol|typealias)\s+(\w+)'
+for p in app:
+ for name in re.findall(pattern,p.read_text(),re.M):
+  declarations.setdefault(name,[]).append(str(p.relative_to(ROOT)))
+collisions={name:paths for name,paths in declarations.items() if len(paths)>1}
+assert not collisions,f'Duplicate module-level type declarations: {collisions}'
 text=project.read_text()
 for p in app+tests: assert str(p.relative_to(ROOT)) in text,p
 for p in ROOT.rglob('*.json'):
@@ -42,5 +51,5 @@ assert not run('git','diff','--name-only','--','Focal/Sony').strip(),'Sony conne
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
 assert count==314,count
-print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony source unchanged; whitespace.')
+print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony source unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. Not executed. Swift grammar/type checking and native build remain pending.')

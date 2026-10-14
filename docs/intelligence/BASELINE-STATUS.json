@@ -16,7 +16,7 @@
   "physicalDeviceResults": null,
   "status": "Awaiting native build and user-confirmed image evaluation; no benchmark improvement claimed",
   "baselineSourceManifest": "BASELINE-22-SOURCES.json",
-  "version": "2.3/build 20",
+  "version": "2.3.1/build 21",
   "staticCropProposalMistakes": null,
   "realAutoZoomMistakes": null,
   "groundTruthTrackingAccuracy": null,
@@ -24,5 +24,6 @@
     "baselineGuidanceSourceSHA256": "ed98003f4e4eab4ba1d2e995b5d2343fba21548af0ea1792f873cec2863848d8",
     "baselinePlannerSourceSHA256": "1fafbdae4065a8f292cc88ae8e8acf4b02e3e869c480b57751f34b6faa9ecb2d",
     "baselineSubjectScoringSourceSHA256": "526062cf2973438e5ba9c0900b07b0ba06f73001f89eb3e51f4460f72542f034"
-  }
+  },
+  "buildFix": "Frozen baseline FeasibleGuidance renamed to BaselineFeasibleGuidance22; duplicate-type regression reproduced then corrected."
 }

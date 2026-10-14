@@ -124,7 +124,7 @@ struct BaselineMeasurements22: Codable, Sendable {
     }
 }
 
-struct FeasibleGuidance: Equatable {
+struct BaselineFeasibleGuidance22: Equatable {
     var action: GuidanceAction
     var text: String
     var confidence: Double
@@ -134,7 +134,7 @@ struct FeasibleGuidance: Equatable {
 
 enum BaselineFeasibility22 {
     static func sceneRecommendation(landscape: Bool, stable: Bool, roll: Double, rollReliable: Bool, measurements: PhotoMeasurements?,
-                                    evidence: SceneCompositionEvidence?, timestamp: TimeInterval, previewAspect: Double) -> FeasibleGuidance? {
+                                    evidence: SceneCompositionEvidence?, timestamp: TimeInterval, previewAspect: Double) -> BaselineFeasibleGuidance22? {
         guard landscape else { return nil }
         if !stable { return .init(action:.hold,text:"Hold steady",confidence:0,issue:0) }
         if rollReliable && abs(roll) > 5 { return .init(action:.level,text:"Keep the camera level",confidence:0,issue:min(1,abs(roll)/20)) }
@@ -149,8 +149,8 @@ enum BaselineFeasibility22 {
     }
     static func recommend(assessment: BaselineAssessment22, reading: CompositionReading, intent: PhotographyIntent,
                           plan: SceneCompositionPlan?, rollReliable: Bool, previewAspect: Double,
-                          manualComposition: Bool = false, autoPreparing: Bool = false) -> FeasibleGuidance {
-        func decision(_ action:GuidanceAction,_ text:String,_ issue:Double) -> FeasibleGuidance {
+                          manualComposition: Bool = false, autoPreparing: Bool = false) -> BaselineFeasibleGuidance22 {
+        func decision(_ action:GuidanceAction,_ text:String,_ issue:Double) -> BaselineFeasibleGuidance22 {
             .init(action:action,text:text,confidence:assessment.confidence,issue:issue)
         }
         guard assessment.confidence.isFinite, assessment.confidence >= 0.55, assessment.subjectArea != nil else {
@@ -187,9 +187,9 @@ struct BaselineMemory22 {
         (a == .panLeft && b == .panRight) || (a == .panRight && b == .panLeft)
             || (a == .panUp && b == .panDown) || (a == .panDown && b == .panUp)
     }
-    private var shown: FeasibleGuidance?
+    private var shown: BaselineFeasibleGuidance22?
     private var shownAt: TimeInterval = 0
-    private var pending: FeasibleGuidance?
+    private var pending: BaselineFeasibleGuidance22?
     private var pendingAt: TimeInterval = 0
     private var pendingSamples = 0
     private var previousBounds: CGRect?
@@ -200,7 +200,7 @@ struct BaselineMemory22 {
     private var reconsiderUntil: TimeInterval = 0
     private var worseningSamples = 0
     mutating func reset() { self = Self() }
-    mutating func update(_ decision: FeasibleGuidance, bounds: CGRect?, label: String, intent: PhotographyIntent, timestamp: TimeInterval) -> FeasibleGuidance {
+    mutating func update(_ decision: BaselineFeasibleGuidance22, bounds: CGRect?, label: String, intent: PhotographyIntent, timestamp: TimeInterval) -> BaselineFeasibleGuidance22 {
         guard timestamp.isFinite else { reset(); return .init(action:.none,text:"No reliable adjustment identified",confidence:0,issue:0) }
         if subject != label || self.intent != intent || previousTime.map({ timestamp < $0 || timestamp-$0 > 2.5 }) == true { reset() }
         defer { previousBounds = bounds; previousIssue = decision.issue; previousTime = timestamp; subject = label; self.intent = intent }
