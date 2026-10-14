@@ -1,8 +1,7 @@
-Focal 2.4 / build 23 — Intelligence 4.0
-
-PASS: deterministic generated project; 83 app/24 test sources registered; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; frozen baseline source hashes; Sony source unchanged; whitespace.
-REGISTERED: 339 XCTest functions, 25 new in this update. Native executions: zero.
+Focal 2.5.1 / build 24 — Intelligence 5.1 automatic shot framing
+PASS: deterministic generated project; 84 app/25 test sources; module-level duplicate-name audit; lexical delimiters; resource JSON/plist/XML/assets; YAML/build shell syntax; frozen source hashes; Sony sources unchanged; whitespace.
+REGISTERED: 357 XCTest functions, 18 new automatic framing cases. Native executions: zero.
 ATTEMPTED: simulator test and Release device archive; both exit 127, xcodebuild: command not found.
-LIMIT: structural validation does not parse/type-check Swift. Compilation remains pending on Codemagic.
-BENCHMARK: no real before/after accuracy, tracking, autozoom, inference or iPhone performance result. Null metrics recorded in docs/intelligence/BASELINE-STATUS.json.
-SEE: docs/intelligence/INTELLIGENCE-4.0.md for the audit, implementation, model investigation, scenario coverage and exact iPhone instructions.
+LIMIT: structure checks do not parse/type-check Swift. Codemagic native compilation/tests remain required.
+DEVICE: no physical iPhone 16 Pro Max or Sony validation performed here. No measured smoothness, zoom accuracy or performance gain claimed.
+REPORT: docs/intelligence/AUTO-FRAMING-5.1.md

@@ -83,7 +83,7 @@ struct CameraGuidanceCard: View {
         case .guiding: return instruction
         case .holding: return "Stability check"
         case .zooming: return "Crop adjustment"
-        case .ready: return "Ready to shoot"
+        case .ready: return instruction == "Shot ready" ? "Shot ready" : "Ready to shoot"
         }
     }
 }

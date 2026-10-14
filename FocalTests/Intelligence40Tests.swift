@@ -35,7 +35,7 @@ final class Intelligence40PetTests: XCTestCase {
         let measured = facts(CGRect(x:0.1,y:0.1,width:0.8,height:0.8),style:.closeUp)
         XCTAssertFalse(measured.assessmentReliable)
         XCTAssertTrue(advice(measured).text.isEmpty)
-        XCTAssertFalse(PetFramingStyle.closeUp.permitsAutomaticZoom)
+        XCTAssertFalse(measured.permitsAutomaticCrop)
     }
     func testCloseUpDoesNotUseExpiredPose() {
         let measured = facts(CGRect(x:0.1,y:0.1,width:0.8,height:0.8),style:.closeUp,

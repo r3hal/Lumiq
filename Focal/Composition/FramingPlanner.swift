@@ -8,6 +8,27 @@ enum FramingPhase: Equatable {
 /// A scan produces at most one zoom. Manual zoom cancels it until the next scan.
 struct FramingPlanner {
     private(set) var phase: FramingPhase = .searching
+    private(set) var shotPlan: AutomaticShotPlan?
+    private(set) var shotVerified = false
+    private var completionSince: TimeInterval?
+    private var lastVerification: TimeInterval?
+    enum ShotProgress: Equatable { case continuing, holding, achieved, cancel }
+    mutating func commitShot(_ plan:AutomaticShotPlan) { shotPlan = plan; shotVerified = false; completionSince = nil; lastVerification = nil }
+    mutating func verifyShot(bounds:CGRect?,label:String,confidence:Float,zoom:Double,stable:Bool,fresh:Bool,
+                             timestamp:TimeInterval,previewAspect:Double,regions:[CGRect] = []) -> ShotProgress {
+        guard phase == .zooming, let shotPlan, let bounds, label == shotPlan.subjectLabel,
+              confidence.isFinite, confidence >= 0.65, stable, fresh, timestamp.isFinite else { return .cancel }
+        let achieved = shotPlan.achieved(bounds:bounds,zoom:zoom,previewAspect:previewAspect)
+        guard shotPlan.safeRemainingCrop(bounds:bounds,zoom:zoom,observedRegions:regions,projectToTarget:!achieved) else { return .cancel }
+        if let lastVerification, timestamp <= lastVerification { return completionSince == nil ? .continuing : .holding }
+        lastVerification = timestamp
+        if achieved {
+            if completionSince == nil { completionSince = timestamp }
+            if timestamp-(completionSince ?? timestamp) >= 0.2 { shotVerified = true; finish(); return .achieved }
+            return .holding
+        } else if completionSince != nil { return .cancel }
+        return .continuing
+    }
     private var stableSince: TimeInterval?
     private var previous: CGRect?
     private var anchor: CGRect?
@@ -15,6 +36,7 @@ struct FramingPlanner {
 
     mutating func reset(enabled: Bool) {
         phase = enabled ? .searching : .off
+        shotPlan = nil; shotVerified = false; completionSince = nil; lastVerification = nil
         stableSince = nil
         previous = nil; anchor = nil
         holdProgress = 0
@@ -63,7 +85,7 @@ struct FramingPlanner {
             let target = currentZoom*scale
             let projected = Self.zoomedRect(bounds,scale:scale)
             let margin = CGRect(x:0.025,y:0.025,width:0.95,height:0.95)
-            let supported = Self.availableScales(currentZoom:currentZoom,maximumZoom:maximumZoom,detailZoomLimit:detailZoomLimit ?? maximumZoom,nativeStops:nativeStops,maximumScale:scale)
+            let supported = Self.availableScales(currentZoom:currentZoom,maximumZoom:maximumZoom,detailZoomLimit:detailZoomLimit ?? maximumZoom,nativeStops:nativeStops,maximumScale:scale,desiredScale:scale)
             guard preZoom.distance(to:alignmentTarget) < 0.001, margin.contains(projected),
                   hypot(Double(projected.midX)-destination.x,(Double(projected.midY)-destination.y)/max(0.1,previewAspect)) <= 0.065,
                   supported.contains(where: { abs($0-scale) < 0.001 }), target > currentZoom*1.12, target <= maximumZoom+0.001 else { phase = .framed; return nil }
@@ -99,10 +121,10 @@ struct FramingPlanner {
         guard destination != nil, let scale = plannedScale, scale.isFinite, scale > 1 else { return 0.04 }
         return min(0.04,0.06/scale)
     }
-    static func availableScales(currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double, nativeStops: [Double], maximumScale: Double) -> [Double] {
+    static func availableScales(currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double, nativeStops: [Double], maximumScale: Double, desiredScale:Double? = nil) -> [Double] {
         guard [currentZoom,maximumZoom,detailZoomLimit,maximumScale].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, maximumScale >= 1 else { return [1] }
         let native = nativeStops.filter { $0.isFinite && $0 > currentZoom }.map { $0/currentZoom }
-        let proposals = [1.0,1.15,1.35,1.6,2.0,2.5,3.0] + native
+        let proposals = [1.0,1.15,1.35,1.6,2.0,2.5,3.0] + native + [desiredScale].compactMap { $0 }
         return Array(Set(proposals.filter { scale in
             scale >= 1 && scale <= maximumScale && currentZoom*scale <= maximumZoom+0.001
                 && (scale == 1 || currentZoom*scale <= detailZoomLimit+0.001 || native.contains(where: { abs($0-scale) < 0.001 }))

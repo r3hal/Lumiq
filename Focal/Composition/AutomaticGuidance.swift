@@ -43,7 +43,7 @@ struct AutomaticGuidance {
                          compositionPlan: SceneCompositionPlan? = nil, sceneEvidence: SceneCompositionEvidence? = nil,
                          intent: PhotographyIntent = .auto, manualSubject: Bool = false,
                          manualComposition: Bool = false, anatomy: SubjectAnatomy? = nil,
-                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil) -> GuidanceMessage {
+                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false) -> GuidanceMessage {
         guard timestamp.isFinite else { reset(); return GuidanceMessage() }
         if let observedScene, !observedScene.fresh { reset(); return .init(kind:.searching,text:"") }
         guard let bounds = reading.guidanceBounds ?? reading.subjectBounds, reading.subjectConfidence >= 0.4,
@@ -76,6 +76,10 @@ struct AutomaticGuidance {
             intent:intent,stable:stable && relativeSpeed <= 0.25,exposure:subjectMeasurements,evidence:sceneEvidence,others:others,anatomy:anatomy,timestamp:timestamp)
         if phase == .zooming { return .init(kind:.framing,text:"Refining the evaluated crop…") }
         if assessment.confidence < 0.55 || !assessment.assessmentReliable { memory.reset(); return .init(kind:.searching,text:"") }
+        if shotVerified, stable, reading.state == .ready, !assessment.touchesEdge {
+            memory.reset()
+            return .init(kind:.ready,text:"Shot ready",action:GuidanceAction.none)
+        }
         let evaluated = PhotographicReasoner.evaluate(assessment:assessment,reading:reading,intent:intent,plan:compositionPlan,
             rollReliable:rollReliable,previewAspect:previewAspect,manualComposition:manualComposition,
             autoPreparing:autoEnabled && phase.isPreparing && compositionPlan?.permitsZoom == true)
@@ -90,7 +94,7 @@ struct AutomaticGuidance {
             if reading.state != .ready { return .init(kind:.steady,text:"Hold steady",action:.hold) }
             return .init(kind:.ready,text:"Ready to shoot",action:GuidanceAction.none)
         }
-        if phase == .settling && retained.action == .tighterCrop { return .init(kind:.steady,text:"Hold steady for the evaluated crop",action:.hold) }
+        if phase == .settling && retained.action == .tighterCrop { return .init(kind:.steady,text:"Hold steady",action:.hold) }
         return .init(kind:.adjustment,text:retained.text,action:retained.action)
     }
 }

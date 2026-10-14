@@ -1,0 +1,13 @@
+{
+  "version": "2.5.1/build 24",
+  "baselineCommit": "852c8610c4be51a53dbba7443d7c55f407767273",
+  "structuralValidation": "passed; not Swift grammar or type checking",
+  "registeredNativeTests": 357,
+  "newNativeTests": 18,
+  "executedNativeTests": 0,
+  "nativeBuild": "xcodebuild unavailable, exit 127",
+  "physicalIPhoneValidation": null,
+  "hardwareRampMeasurements": null,
+  "simulatorTestResults": null,
+  "scope": "Existing iPhone AI framing/AVFoundation ramp only; Sony source unchanged"
+}

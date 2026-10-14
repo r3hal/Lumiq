@@ -67,10 +67,7 @@ struct SceneCompositionPlanner {
         }
         if plan?.subjectLabel != label || previousBounds.map({ hypot(Double($0.midX-subject.midX),Double($0.midY-subject.midY)) > 0.3 }) == true { reset() }
         previousBounds = subject; lastSeen = timestamp
-        if freeze, var retained = plan, !retained.selected.isCurrentFrame {
-            retained.selected.target = Self.safeTarget(retained.target,subject:subject)
-            plan = retained; return retained
-        }
+        if freeze, let retained = plan, !retained.selected.isCurrentFrame { return retained }
         guard let evidence, evidence.isFresh(at:timestamp) else {
             if var retained = plan, timestamp >= retained.timestamp, timestamp-retained.timestamp < 2.5 {
                 retained.selected.target = Self.safeTarget(retained.target,subject:subject)
