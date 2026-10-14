@@ -42,11 +42,12 @@ struct GuidanceSceneSnapshot {
     var imageEvidence: SceneCompositionEvidence?
     var relativeSpeed: Double?
     var deviceStable: Bool
+    var petStyle: PetFramingStyle = .balanced
     var fresh: Bool { GuidanceObservationPolicy.fresh(capturedAt:observedAt,evaluatedAt:evaluatedAt) }
     var assessment: CompositionAssessment {
         CompositionAssessment.evaluate(bounds:selectedBounds,confidence:confidence,label:label,intent:intent,
             stable:deviceStable && relativeSpeed.map { $0 <= 0.25 } != false,exposure:measurements,
-            evidence:imageEvidence,others:surroundingSubjects,anatomy:anatomy,timestamp:evaluatedAt)
+            evidence:imageEvidence,others:surroundingSubjects,anatomy:anatomy,timestamp:evaluatedAt,petStyle:petStyle)
     }
 }
 
@@ -57,8 +58,12 @@ import OSLog
 struct GuidanceDiagnostics {
     private let logger = Logger(subsystem:"app.focal",category:"Guidance")
     private var lastLog: TimeInterval = -.infinity
+    private(set) var timings = GuidanceTimingAccumulator()
+    mutating func rejectStale() { timings.staleRejections += 1 }
     mutating func record(scene:GuidanceSceneSnapshot, plan:SceneCompositionPlan?, message:GuidanceMessage,
-                         previous:GuidanceAction?, memoryOutcome:String, phase:FramingPhase) {
+                         previous:GuidanceAction?, memoryOutcome:String, phase:FramingPhase,
+                         reasoning:PhotographicDecision?,inferenceMS:Double,decisionMS:Double,finishedAt:TimeInterval) {
+        timings.record(inferenceMS:inferenceMS,decisionMS:decisionMS,latencyMS:(finishedAt-scene.observedAt)*1000,at:finishedAt)
         guard scene.evaluatedAt-lastLog >= 1 else { return }
         lastLog = scene.evaluatedAt
         let facts = scene.assessment
@@ -67,7 +72,9 @@ struct GuidanceDiagnostics {
             return "\(candidate.technique.rawValue): gain=\(candidate.measuredImprovement), scale=\(candidate.zoomScale), \(reason)"
         }.joined(separator:"; ")
         let summary = "subject=\(scene.label), confidence=\(scene.confidence), intent=\(scene.intent.rawValue), fresh=\(scene.fresh), ageMs=\((scene.evaluatedAt-scene.observedAt)*1000), area=\(String(describing:facts.subjectArea)), margin=\(String(describing:facts.minimumMargin)), headroom=\(String(describing:facts.headroom)), motion=\(String(describing:scene.relativeSpeed)), context=\(scene.surroundingSubjects.count), positionPenalty=\(facts.positionPenalty), sizePenalty=\(facts.sizePenalty), candidates=[\(candidates)], previous=\(String(describing:previous)), current=\(String(describing:message.action)), phase=\(phase), outcome=\(memoryOutcome), reason=\(message.text)"
-        logger.debug("\(summary, privacy: .private)")
+        let candidateReasons = reasoning?.candidates.map { "\($0.guidance.action.rawValue):support=\($0.support.value),gain=\($0.expectedGain),\($0.rejection ?? $0.evidence)" }.joined(separator:"; ") ?? ""
+        let timing = "state=\(message.reasoningState.rawValue), inferenceMeanMS=\(timings.inferenceMean), decisionMeanMS=\(timings.decisionMean), ageMeanMS=\(timings.latencyMean), updateHz=\(String(describing:timings.updateHz)), stale=\(timings.staleRejections), candidates=\(candidateReasons)"
+        logger.debug("\(summary, privacy: .private); \(timing, privacy: .private)")
     }
 }
 #endif

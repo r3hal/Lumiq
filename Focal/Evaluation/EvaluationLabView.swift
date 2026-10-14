@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct EvaluationLabView: View {
     @StateObject private var store = EvaluationStore()
+    @ObservedObject var camera: CameraController
     @State private var picker: PhotosPickerItem?
     @State private var editing: EvaluationSample?
     @State private var importing = false
@@ -18,10 +19,20 @@ struct EvaluationLabView: View {
                 Button("Import evaluation JSON") { importing = true }.disabled(store.running)
                 Button(store.running ? "Cancel evaluation" : "Evaluate labeled examples") { if store.running { store.cancel() } else { store.evaluate() } }
                 if store.running { ProgressView("Running paired on-device analysis…") }
-                Button("Prepare self-contained JSON export") { Task { do { exportURL = try await store.export() } catch { store.message = error.localizedDescription } } }.disabled(store.running)
+                Button("Prepare self-contained JSON export") { Task { do { exportURL = try await store.export(performance:camera.guidancePerformance) } catch { store.message = error.localizedDescription } } }.disabled(store.running)
                 if let exportURL { ShareLink("Share images, labels and results",item:exportURL) }
                 if let message = store.message { Text(message).font(.caption).foregroundStyle(.red) }
             } header: { Text("Focal Intelligence Lab") }
+            if let timing = camera.guidancePerformance {
+                Section {
+                    Text("\(timing.source) · \(timing.sampleCount) real analysis updates").font(.caption)
+                    if let ms = timing.meanInferenceMilliseconds { Text(String(format:"Vision mean %.1f ms",ms)).font(.caption) }
+                    if let ms = timing.meanObservationAgeMilliseconds { Text(String(format:"Observation age mean %.1f ms",ms)).font(.caption) }
+                    if let hz = timing.updatesPerSecond { Text(String(format:"Guidance %.2f updates/second",hz)).font(.caption) }
+                    Text("Stale results rejected: \(timing.staleRejections) · thermal: \(timing.thermalState)").font(.caption)
+                    Text(timing.notes).font(.caption2)
+                } header: { Text("Measured live diagnostics") }
+            }
             Section {
                 ForEach(store.samples) { sample in
                     Button { editing = sample } label: {
@@ -35,7 +46,11 @@ struct EvaluationLabView: View {
                     }.disabled(store.running)
                 }
             } header: { Text("Examples (\(store.samples.count))") }
-            if let report = store.report { EvaluationResultsSection(report:report) }
+            if let report = store.report {
+                EvaluationResultsSection(report:report,feedback:{ id,label in
+                    do { try store.addFeedback(label,for:id); exportURL = nil } catch { store.message = error.localizedDescription }
+                }).disabled(store.running)
+            }
         }.scrollContentBackground(.hidden).background(Palette.ink).foregroundStyle(Palette.text).tint(Palette.yellow)
             .navigationTitle("Intelligence Lab").navigationBarTitleDisplayMode(.inline)
             .sheet(item:$editing) { sample in EvaluationAnnotationView(sample:sample,directory:store.directory,save:{ annotation in
@@ -96,6 +111,11 @@ private struct EvaluationAnnotationView: View {
                     Toggle("Intentional unconventional framing",isOn:Binding(get:{ annotation.intentionallyUnconventional ?? false },set:{ annotation.intentionallyUnconventional = $0 }))
                     TextField("Main subject",text:$annotation.mainSubject).disabled(annotation.expectsNoObject)
                     Picker("Intent",selection:$annotation.intent) { ForEach(PhotographyIntent.allCases) { Text($0.rawValue).tag($0) } }
+                    if annotation.intent == .pet {
+                        Picker("Pet framing input",selection:Binding(get:{ annotation.petStyle ?? .balanced },set:{ annotation.petStyle = $0 })) {
+                            ForEach(PetFramingStyle.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                    }
                     Picker("Acceptable composition",selection:Binding(get:{ annotation.acceptableComposition.map { $0 ? 1 : 2 } ?? 0 },set:{ annotation.acceptableComposition = $0 == 0 ? nil : $0 == 1 })) {
                         Text("Unlabeled").tag(0); Text("Yes").tag(1); Text("No").tag(2)
                     }
@@ -143,9 +163,10 @@ private struct EvaluationAnnotationView: View {
 
 private struct EvaluationResultsSection: View {
     let report: EvaluationReport
+    let feedback: (UUID,EvaluationFeedbackLabel) -> Void
     var body: some View {
         Section {
-            Text("Focal 2.2 / Intelligence 3.0").font(.headline)
+            Text("Intelligence 3.0 / 4.0 recommendations").font(.headline)
             if let rate = report.updatedMetrics.autoZoomMistakes {
                 Text("Unwanted static crop proposals: \(rate.numerator)/\(rate.denominator)").font(.caption)
             }
@@ -166,7 +187,13 @@ private struct EvaluationResultsSection: View {
                 let result = report.updated[index]
                 VStack(alignment:.leading,spacing:4) {
                     Text(result.selected?.label ?? "Scene / no selected object").font(.caption.weight(.semibold))
-                    Text("New: "+result.text).font(.caption)
+                    Text("New: "+(result.text.isEmpty ? "No recommendation" : result.text)).font(.caption)
+                    if let time = result.pairedDecisionMilliseconds { Text(String(format:"Paired decision stages %.2f ms",time)).font(.caption2) }
+                    Menu("Label this evaluated recommendation") {
+                        ForEach(EvaluationFeedbackLabel.allCases) { label in
+                            Button(label.rawValue) { feedback(result.sampleID,label) }
+                        }
+                    }
                     if let old = report.baseline.first(where: { $0.sampleID == result.sampleID }) { Text("Old: "+old.text).font(.caption).foregroundStyle(Palette.muted) }
                 }
             }

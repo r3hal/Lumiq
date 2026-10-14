@@ -66,6 +66,7 @@ final class CameraSettings: ObservableObject {
     @Published var raw = false { didSet { defaults.set(raw, forKey: "camera.raw") } }
     @Published var holdDuration: Double = 0.9 { didSet { defaults.set(holdDuration,forKey: "camera.holdDuration") } }
     @Published var autoFrame = true { didSet { defaults.set(autoFrame, forKey: "camera.autoFrame") } }
+    @Published var petFraming: PetFramingStyle = .balanced { didSet { defaults.set(petFraming.rawValue,forKey:"camera.petFraming") } }
     @Published var petDetection = true { didSet { defaults.set(petDetection, forKey: "camera.petDetection") } }
     @Published var subjectTracking = true { didSet { defaults.set(subjectTracking, forKey: "camera.subjectTracking") } }
     @Published var smartSelection = true { didSet { defaults.set(smartSelection, forKey: "camera.smartSelection") } }
@@ -101,6 +102,7 @@ final class CameraSettings: ObservableObject {
                                     "camera.keepRAW": true, "camera.guide": false, "camera.subjectThreshold": 0.68, "camera.autoFrame": true, "camera.reviewAfterCapture": true,
                                     "camera.petDetection": true, "camera.subjectTracking": true, "camera.smartSelection": true, "camera.compositionPlanning":true])
         compositionPlanning = defaults.bool(forKey:"camera.compositionPlanning")
+        petFraming = PetFramingStyle(rawValue:defaults.string(forKey:"camera.petFraming") ?? "") ?? .balanced
         petDetection = defaults.bool(forKey: "camera.petDetection")
         subjectTracking = defaults.bool(forKey: "camera.subjectTracking")
         smartSelection = defaults.bool(forKey: "camera.smartSelection")

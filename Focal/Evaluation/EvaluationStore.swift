@@ -29,6 +29,8 @@ import CryptoKit
         sample.imageFile == sample.id.uuidString+".jpg" && sample.imageSHA256.count == 64
             && (sample.annotation.expectedBounds?.valid ?? true) && (sample.annotation.manualSelection?.valid ?? true)
             && (sample.annotation.sequenceTime.map { $0.isFinite && $0 >= 0 } ?? true)
+            && (sample.feedback?.count ?? 0) <= 100
+            && (sample.feedback?.allSatisfy { $0.sampleID == sample.id && $0.imageSHA256 == sample.imageSHA256 && $0.result.sampleID == sample.id } ?? true)
     }
     func addImage(_ data:Data,provenance:String = "User photo import") async throws {
         guard samples.count < 100, data.count <= 32*1024*1024 else { throw EvaluationError.limit }
@@ -76,7 +78,20 @@ import CryptoKit
         }
     }
     func cancel() { job?.cancel() }
-    func export() async throws -> URL {
+    func addFeedback(_ label:EvaluationFeedbackLabel,for id:UUID) throws {
+        guard !running else { throw EvaluationError.busy }
+        guard let index = samples.firstIndex(where:{ $0.id == id }),
+              let result = report?.updated.first(where:{ $0.sampleID == id }) else { return }
+        var sample = samples[index]
+        var labels = sample.feedback ?? []
+        guard labels.count < 100 else { throw EvaluationError.limit }
+        labels.append(.init(label:label,sampleID:id,imageSHA256:sample.imageSHA256,intent:sample.annotation.intent,
+                            petStyle:sample.annotation.petStyle,result:result))
+        sample.feedback = labels; samples[index] = sample
+        try persist()
+        message = "Feedback saved locally. Prepare a new export to include it. No training or upload."
+    }
+    func export(performance:GuidancePerformanceReport? = nil) async throws -> URL {
         let input = samples, results = report, location = directory
         return try await Task.detached(priority:.utility) {
             var copies = input, total = 0
@@ -87,7 +102,7 @@ import CryptoKit
                 copies[index].imageData = data
             }
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted,.sortedKeys]
-            let data = try encoder.encode(EvaluationDataset(samples:copies,report:results))
+            let data = try encoder.encode(EvaluationDataset(samples:copies,report:results,livePerformance:performance))
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("Focal-intelligence-evaluation.json")
             try data.write(to:url,options:.atomic)
             return url

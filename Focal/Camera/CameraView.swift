@@ -103,6 +103,7 @@ struct CameraView: View {
             .onChange(of: settings.smartShutter) { _, _ in smartGate.reset() }
             .onChange(of: mode) { _, value in smartGate.reset(); camera.setMode(value) }
             .onChange(of: settings.compositionPlanning) { _, value in smartGate.reset(); camera.setCompositionPlanning(value) }
+            .onChange(of: settings.petFraming) { _, value in smartGate.reset(); camera.setPetFraming(value) }
             .onChange(of: settings.intent) { _, value in smartGate.reset(); camera.setIntent(value) }
     }
 
@@ -160,6 +161,7 @@ struct CameraView: View {
         camera.setCoach(settings.coach)
         camera.setMode(mode)
         camera.setCompositionPlanning(settings.compositionPlanning)
+        camera.setPetFraming(settings.petFraming)
         camera.setIntent(settings.intent)
         camera.setPrecisionOptions(precisionOptions)
         configureSubjectFeatures()

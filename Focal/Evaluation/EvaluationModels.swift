@@ -18,6 +18,7 @@ struct EvaluationAnnotation: Codable, Equatable, Sendable {
     var mainSubject = ""
     var expectsNoObject = false
     var intent: PhotographyIntent = .auto
+    var petStyle: PetFramingStyle? = nil // Explicit engine input, not a reference label.
     var expectedBounds: EvaluationRect?
     var acceptableComposition: Bool?
     var framingIssue = "Unlabeled"
@@ -36,6 +37,7 @@ struct EvaluationSample: Codable, Identifiable, Sendable {
     var imageSHA256: String
     var provenance: String
     var annotation = EvaluationAnnotation()
+    var feedback: [EvaluationFeedback]? = nil
     var imageData: Data? = nil // Self-contained export only; not the local manifest.
 }
 struct EvaluationOutcome: Codable, Sendable {
@@ -51,6 +53,7 @@ struct EvaluationOutcome: Codable, Sendable {
     var assessment: AssessmentMeasurements? = nil
     var proposedZoomScale: Double? = nil // Static proposal only; not a real ramp.
     var previousSelectionOverlap: Double? = nil // Consecutive images only; not tracking ground truth.
+    var pairedDecisionMilliseconds: Double? = nil // Both recommendation stages, excluding shared image analysis.
 }
 struct EvaluationRate: Codable, Sendable {
     var numerator = 0
@@ -93,7 +96,7 @@ struct EvaluationMetrics: Codable, Sendable {
             if let appropriate = label.automaticZoomAppropriate {
                 let proposes = (outcome.proposedZoomScale ?? 1) > 1.12
                 // Baselines without proposal instrumentation cannot supply this metric.
-                if outcome.algorithm == "Focal Intelligence 3.0" {
+                if ["Focal Intelligence 3.0","Focal Intelligence 4.0"].contains(outcome.algorithm) {
                     if result.autoZoomMistakes == nil { result.autoZoomMistakes = EvaluationRate() }
                     result.autoZoomMistakes?.count(proposes && !appropriate)
                 }
@@ -118,7 +121,7 @@ struct EvaluationMetrics: Codable, Sendable {
 }
 struct EvaluationReport: Codable, Sendable {
     var schemaVersion = 1
-    var baselineCommit = "254d84ee5907a5dfa81ebbb33b61cab77b41178b"
+    var baselineCommit = "3766b6c5ebd351ff788b86e739ba5c88dee9760e"
     var createdAt = Date()
     var baseline: [EvaluationOutcome]
     var updated: [EvaluationOutcome]
@@ -127,11 +130,13 @@ struct EvaluationReport: Codable, Sendable {
     var errors: [String]
     var heldOutBaselineMetrics: EvaluationMetrics? = nil
     var heldOutUpdatedMetrics: EvaluationMetrics? = nil
-    var notes = "Paired Focal 2.2/Intelligence 3.0 decisions share current native detections, with separately frozen/new subject scoring at the default 0.68 selection threshold. Inference time is the current shared analyzer time, not a measured historical runtime. Static crop proposals do not measure real auto-zoom mistakes; the added mistake rate is human-labeled proposal error only. Sequence overlap is a continuity diagnostic, not ground-truth tracking accuracy. Sequence metrics require distinct timestamped images; a still image does not measure tracking accuracy, gyro shake, autofocus, RAW quality or live frame cadence. Expected labels are never inputs to automatic detection/selection. Apple aesthetics is supplementary and never creates movement directions."
+    var notes = "Paired Intelligence 3.0/4.0 recommendation and temporal-memory stages ONLY. Both use the current shared native detector, selection, assessment and candidate plans; this is not a historical full-pipeline benchmark. Pet style is an explicit input. Reference labels never drive predictions. Analysis latency is measured only for the shared current analyzer. Paired decision latency includes both recommendation stages. Crop proposals are not real zoom ramps; sequence box overlap is not tracking ground truth. Still images cannot validate live motion, gyro, autofocus, RAW, preview cadence or thermal behavior. No training or automatic learning."
+
 }
 struct EvaluationDataset: Codable, Sendable {
     var schemaVersion = 1
     var samples: [EvaluationSample]
     var report: EvaluationReport?
+    var livePerformance: GuidancePerformanceReport? = nil
 }
 #endif

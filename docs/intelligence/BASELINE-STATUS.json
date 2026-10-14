@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "baselineCommit": "254d84ee5907a5dfa81ebbb33b61cab77b41178b",
+  "baselineCommit": "3766b6c5ebd351ff788b86e739ba5c88dee9760e",
   "baselineSourcesFrozenBeforeChanges": true,
-  "registeredNativeTests": 314,
-  "newNativeTests": 20,
+  "registeredNativeTests": 339,
+  "newNativeTests": 25,
   "executedNativeTests": 0,
   "realLandscapeStarterExamples": 1,
   "userConfirmedStarterLabels": false,
@@ -15,8 +15,8 @@
   "inferenceMilliseconds": null,
   "physicalDeviceResults": null,
   "status": "Awaiting native build and user-confirmed image evaluation; no benchmark improvement claimed",
-  "baselineSourceManifest": "BASELINE-22-SOURCES.json",
-  "version": "2.3.2/build 22",
+  "baselineSourceManifest": "BASELINE-30-SOURCES.json",
+  "version": "2.4/build 23",
   "staticCropProposalMistakes": null,
   "realAutoZoomMistakes": null,
   "groundTruthTrackingAccuracy": null,
@@ -25,5 +25,7 @@
     "baselinePlannerSourceSHA256": "1fafbdae4065a8f292cc88ae8e8acf4b02e3e869c480b57751f34b6faa9ecb2d",
     "baselineSubjectScoringSourceSHA256": "526062cf2973438e5ba9c0900b07b0ba06f73001f89eb3e51f4460f72542f034"
   },
-  "buildFix": "EvaluationStore.importDataset uses its directory property rather than an out-of-scope location local. Previous baseline duplicate-type fix retained."
+  "baselineScope": "Frozen 3.0 recommendation and temporal memory only; shared current detector/selection/assessment/plans",
+  "guidanceLatencyMilliseconds": null,
+  "updatesPerSecond": null
 }

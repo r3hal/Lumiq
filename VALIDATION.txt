@@ -1,17 +1,8 @@
-Focal 2.3.2 / build 22 — Focal Intelligence 3.0 build fix
-FIX: EvaluationStore.importDataset writes to the directory property; removed the undefined location reference reported by Codemagic.
-FIX: BaselineFeasibleGuidance22 isolates frozen comparison values from live FeasibleGuidance. No decision rule was changed.
-REGRESSION: Duplicate-type structural check failed on the original collision and passes after the rename.
-SOURCE: Guidance-only update: shared immutable measured scene, conservative confidence smoothing, observation freshness, contextual anatomy/negative space and scene memory.
-SOURCE: Motion-first feasibility, smallest-useful measured crop, actual target-placement gain, cumulative outcome memory and crop/room contradiction protection.
-SOURCE: Existing AI/manual zoom guards plus fresh observed subject-motion gate; completed/canceled ramps are not rearmed by stale results.
-SOURCE: Development-only private local diagnostics; frozen Focal 2.2/build 19 comparison, held-out labels and static crop-proposal evaluation.
-PRESERVED: Sony protocol/connectivity and camera capture/RAW/manual controls/gallery. No production layout redesign; empty guidance card displays silence.
-PASS: Deterministic generation, 77 app/23 test source references, duplicate module-level type check, lexical delimiter audit (not Swift grammar), plist/XML/JSON/assets, YAML/shell syntax, original baseline source hashes, Sony source unchanged, whitespace.
-REGISTERED: 314 XCTest functions; 20 added in this update. Zero native executions here.
-ATTEMPTED: Native simulator test and Release evaluation device build. Both exit127: xcodebuild not found in Linux.
-PENDING: Codemagic compilation/native tests/unsigned IPA; iPhone16ProMax guidance/zoom/camera regression and latency/thermal/battery checks; Sony hardware regressions.
-REAL DATA: Existing real landscape starter requires label confirmation. No completed labeled real pet/portrait/product held-out corpus. Collection protocol is not fabricated image data.
-METRICS: Accuracy, latency, harmful-guidance reduction, actual auto-zoom mistakes and ground-truth tracking accuracy remain unmeasured/null. Static crop proposal errors and sequence box overlap must not be called hardware zoom/tracking accuracy.
-MODELS: Existing Apple Vision only. Broader Core ML options researched but not shipped without artifact/coverage/license/performance verification. No universal recognition or objective best-photo claim.
-See docs/intelligence/INTELLIGENCE-3.0.md and docs/intelligence/BASELINE-STATUS.json.
+Focal 2.4 / build 23 — Intelligence 4.0
+
+PASS: deterministic generated project; 83 app/24 test sources registered; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; frozen baseline source hashes; Sony source unchanged; whitespace.
+REGISTERED: 339 XCTest functions, 25 new in this update. Native executions: zero.
+ATTEMPTED: simulator test and Release device archive; both exit 127, xcodebuild: command not found.
+LIMIT: structural validation does not parse/type-check Swift. Compilation remains pending on Codemagic.
+BENCHMARK: no real before/after accuracy, tracking, autozoom, inference or iPhone performance result. Null metrics recorded in docs/intelligence/BASELINE-STATUS.json.
+SEE: docs/intelligence/INTELLIGENCE-4.0.md for the audit, implementation, model investigation, scenario coverage and exact iPhone instructions.

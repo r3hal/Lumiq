@@ -95,10 +95,10 @@ struct SettingsView: View {
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                         #if DEBUG || FOCAL_EVALUATION
                         separator
-                        NavigationLink { EvaluationLabView().toolbar(.visible,for:.navigationBar) } label: { navigationRow("Developer Intelligence Lab") }
+                        NavigationLink { EvaluationLabView(camera:camera).toolbar(.visible,for:.navigationBar) } label: { navigationRow("Developer Intelligence Lab") }
                         #endif
                     }
-                    Text("Focal 2.3.2 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Focal 2.4 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)

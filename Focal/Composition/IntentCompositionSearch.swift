@@ -28,6 +28,7 @@ enum IntentCompositionSearch {
             exposure:nil,evidence:evidence,others:others,timestamp:evidence.timestamp)
         guard let originalFitness = original.fitness else { return [] }
         let context = SceneCompositionPlanner.distinctSubjects(others,selected:subject)
+        let originalLight = evidence.region(SceneCompositionEvidence.full).clipping
         var result = [MeasuredCropCandidate(crop:SceneCompositionEvidence.full,fitness:originalFitness,improvement:0,scale:1,mapsToCameraZoom:true)]
         for scale in scales where scale.isFinite && scale > 1 && scale <= intent.maximumCropScale {
             let size = 1/scale
@@ -39,6 +40,8 @@ enum IntentCompositionSearch {
                       context.allSatisfy({ crop.contains($0.bounds) }),frames.allSatisfy({ crop.contains($0) }) else { continue }
                 let relative = CGRect(x:(subject.minX-crop.minX)/crop.width,y:(subject.minY-crop.minY)/crop.height,width:subject.width/crop.width,height:subject.height/crop.height)
                 let relativeOthers = context.map { item in CompositionContextSubject(bounds:CGRect(x:(item.bounds.minX-crop.minX)/crop.width,y:(item.bounds.minY-crop.minY)/crop.height,width:item.bounds.width/crop.width,height:item.bounds.height/crop.height),label:item.label,confidence:item.confidence) }
+                let cropLight = evidence.region(crop).clipping
+                guard cropLight <= 0.2 || cropLight-originalLight <= 0.08 else { continue }
                 let measured = CompositionAssessment.evaluate(bounds:relative,confidence:1,label:label,intent:intent,stable:true,exposure:nil,evidence:nil,others:relativeOthers)
                 // Only measured scale/visibility/margins/position improvements
                 // count; cleaner unknown surroundings are never assumed.

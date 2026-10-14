@@ -11,6 +11,15 @@ struct PreviewAnalysisScheduler {
         busy = true; lastAdmission = timestamp; return true
     }
     mutating func finish() { busy = false }
+    static func thermalInterval(_ state:ProcessInfo.ThermalState) -> TimeInterval {
+        switch state {
+        case .nominal: return 0.25
+        case .fair: return 0.4
+        case .serious: return 0.8
+        case .critical: return 1.5
+        @unknown default: return 0.8
+        }
+    }
 }
 
 /// Camera configuration receives the newest gesture value rather than a queue

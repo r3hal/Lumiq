@@ -1,10 +1,25 @@
 import Foundation
 
+enum GuidanceReasoningState: String, Codable {
+    case searching, subjectAcquired, evaluating, adjustmentRecommended, stabilizing, readyToShoot, insufficientConfidence
+}
+
 struct GuidanceMessage: Equatable {
     enum Kind: Equatable { case searching, detected, adjustment, steady, framing, ready, scene }
     var kind: Kind = .searching
     var text = "Select a photographic subject"
     var action: GuidanceAction? = nil
+    var reasoningState: GuidanceReasoningState {
+        switch kind {
+        case .searching: return text.isEmpty ? .insufficientConfidence : .searching
+        case .detected: return .subjectAcquired
+        case .framing: return .evaluating
+        case .adjustment: return .adjustmentRecommended
+        case .steady: return .stabilizing
+        case .ready: return .readyToShoot
+        case .scene: return action?.isAdjustment == true ? .adjustmentRecommended : action == .hold ? .stabilizing : .readyToShoot
+        }
+    }
     var showsDirection: Bool { action.map { [.panLeft,.panRight,.panUp,.panDown].contains($0) } ?? false }
 }
 
@@ -18,6 +33,7 @@ struct AutomaticGuidance {
     private var confidenceFilter = GuidanceConfidenceFilter()
     var memoryOutcome: String { memory.outcome }
     var previousAction: GuidanceAction? { memory.currentAction }
+    private(set) var reasoning: PhotographicDecision?
     mutating func reset() { self = Self() }
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
@@ -59,11 +75,12 @@ struct AutomaticGuidance {
         let assessment = sharedScene?.assessment ?? CompositionAssessment.evaluate(bounds:bounds,confidence:trustedConfidence,label:label,
             intent:intent,stable:stable && relativeSpeed <= 0.25,exposure:subjectMeasurements,evidence:sceneEvidence,others:others,anatomy:anatomy,timestamp:timestamp)
         if phase == .zooming { return .init(kind:.framing,text:"Refining the evaluated crop…") }
-        if assessment.confidence < 0.55 { memory.reset(); return .init(kind:.searching,text:"") }
-        let proposed = ActionFeasibility.recommend(assessment:assessment,reading:reading,intent:intent,plan:compositionPlan,
+        if assessment.confidence < 0.55 || !assessment.assessmentReliable { memory.reset(); return .init(kind:.searching,text:"") }
+        let evaluated = PhotographicReasoner.evaluate(assessment:assessment,reading:reading,intent:intent,plan:compositionPlan,
             rollReliable:rollReliable,previewAspect:previewAspect,manualComposition:manualComposition,
             autoPreparing:autoEnabled && phase.isPreparing && compositionPlan?.permitsZoom == true)
-        let retained = memory.update(proposed,bounds:bounds,label:label,intent:intent,timestamp:timestamp)
+        reasoning = evaluated
+        let retained = memory.update(evaluated.selected,bounds:bounds,label:label,intent:intent,timestamp:timestamp,assessment:assessment)
         if timestamp-(detectedSince ?? timestamp) < 0.45 && retained.action != .makeRoom {
             return .init(kind:.detected,text:SubjectIdentity.name(label).map { "\($0) detected" } ?? (manualSubject ? "Selected subject" : "Subject detected"))
         }

@@ -20,6 +20,12 @@ struct AIPhotographyView: View {
                     holdRow.disabled(source == .sony || !settings.subjectTracking)
                     divider
                     row("Pet Detection", subtitle: "Detect cats and dogs", value: $settings.petDetection)
+                    if settings.intent == .pet {
+                        Picker("Pet framing",selection:$settings.petFraming) {
+                            ForEach(PetFramingStyle.allCases) { Text($0.rawValue).tag($0) }
+                        }.padding(15)
+                        Text(settings.petFraming.explanation).font(.caption).foregroundStyle(.secondary).padding(.horizontal,15).padding(.bottom,12)
+                    }
                     divider
                     row("Subject Tracking", subtitle: "Keep focus on the selected subject", value: $settings.subjectTracking)
                     divider

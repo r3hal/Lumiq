@@ -138,7 +138,7 @@ final class SubjectTracker {
         guard canContinue() else { return nil }
         if selector.configuration.intent == .landscape {
             tracking = nil; trackedCandidate = nil; candidates = []; enclosingRectangles = []
-            if timestamp-lastScene >= 3 {
+            if !trackingOnly, timestamp-lastScene >= 3 {
                 lastScene = timestamp
                 let request = VNClassifyImageRequest()
                 do {
@@ -225,7 +225,7 @@ final class SubjectTracker {
         facesForAssessment = (faces.results ?? []).map { ($0.boundingBox,$0.yaw?.doubleValue,$0.confidence) }
         // Pose provides only confidently visible joints, never an assumption
         // that missing joints are clipped. Unsupported requests remain optional.
-        if timestamp-lastPoseAttempt >= 2.5 {
+        if ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical, timestamp-lastPoseAttempt >= 2.5 {
             lastPoseAttempt = timestamp
             #if !targetEnvironment(simulator)
             if petDetection && (animals.results ?? []).contains(where: { $0.confidence >= 0.6 }) {

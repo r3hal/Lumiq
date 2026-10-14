@@ -61,7 +61,19 @@ struct CompositionAssessment {
     var exposure: PhotoMeasurements?
     var cameraMoving = false
     var headYaw: Double?
+    var assessmentReliable = true
+    var protectedHead: CGRect?
+    var petStyle: PetFramingStyle = .balanced
     var touchesEdge: Bool { (visibleFraction ?? 1) < 0.98 || (minimumMargin ?? 1) < 0.012 || (headroom ?? 1) < 0.012 || edgeJointCount > 0 }
+    var permitsAutomaticCrop: Bool {
+        guard assessmentReliable, subjectArea != nil, confidence.isFinite, confidence >= 0.65, !touchesEdge else { return false }
+        if let exposure {
+            guard [exposure.brightness,exposure.shadowFraction,exposure.highlightFraction].allSatisfy(\.isFinite),
+                  exposure.highlightFraction <= 0.18 else { return false }
+            if exposure.brightness < 0.12 && exposure.shadowFraction > 0.75 { return false }
+        }
+        return true
+    }
     var fitness: Double? {
         guard subjectArea != nil, confidence.isFinite, confidence >= 0.55 else { return nil }
         let clipping = 1-(visibleFraction ?? 1)
@@ -70,8 +82,18 @@ struct CompositionAssessment {
     }
     static func evaluate(bounds: CGRect?, confidence: Double, label: String, intent: PhotographyIntent,
                          stable: Bool, exposure: PhotoMeasurements?, evidence: SceneCompositionEvidence?,
-                         others: [CompositionContextSubject] = [], anatomy: SubjectAnatomy? = nil, timestamp: TimeInterval = 0) -> Self {
+                         others: [CompositionContextSubject] = [], anatomy: SubjectAnatomy? = nil, timestamp: TimeInterval = 0, petStyle: PetFramingStyle = .balanced) -> Self {
         var result = Self(confidence:confidence,exposure:exposure,cameraMoving:!stable)
+        result.petStyle = petStyle
+        let pet = SubjectCategory.classified(label) == .pet
+        let freshAnatomy = anatomy.flatMap { timestamp >= $0.timestamp && timestamp-$0.timestamp <= 1.5 ? $0 : nil }
+        var bounds = bounds
+        if pet && petStyle == .closeUp {
+            guard let head = freshAnatomy?.face, let body = bounds, head.intersects(body), head.width > 0.015, head.height > 0.015 else {
+                result.assessmentReliable = false; return result
+            }
+            bounds = head // Explicit close-up intent permits a cropped body, never an unseen head.
+        }
         if let evidence, evidence.isFresh(at:timestamp) {
             result.balanceOffset = evidence.balanceOffset(in:SceneCompositionEvidence.full)
             if intent == .landscape, let line = evidence.tiltedSceneBoundary() {
@@ -85,18 +107,20 @@ struct CompositionAssessment {
         guard !visible.isNull, visible.width > 0, visible.height > 0 else { return result }
         let context = SceneCompositionPlanner.distinctSubjects(others,selected:visible)
         let profile = IntentFramingProfile.forIntent(intent,category:SubjectCategory.classified(label),hasContext:!context.isEmpty)
+        let minimum = pet && (petStyle == .environmental || petStyle == .action) ? 0.008 : pet && petStyle == .closeUp ? 0.06 : profile.minimumArea
+        let maximum = pet && petStyle == .wholeBody ? 0.72 : profile.maximumArea
         let area = Double(visible.width*visible.height)
         result.subjectArea = area
         result.visibleFraction = Double(visible.width*visible.height/(bounds.width*bounds.height))
         result.minimumMargin = Double(min(bounds.minX,min(bounds.minY,min(1-bounds.maxX,1-bounds.maxY))))
-        result.sizePenalty = area < profile.minimumArea ? (profile.minimumArea-area)/max(0.01,profile.minimumArea)
-            : area > profile.maximumArea ? (area-profile.maximumArea)/max(0.01,1-profile.maximumArea) : 0
+        result.sizePenalty = area < minimum ? (minimum-area)/max(0.01,minimum)
+            : area > maximum ? (area-maximum)/max(0.01,1-maximum) : 0
         let region = profile.positionRegion
         let dx = max(0,max(Double(region.minX-bounds.midX),Double(bounds.midX-region.maxX)))
         let dy = max(0,max(Double(region.minY-bounds.midY),Double(bounds.midY-region.maxY)))
         result.positionPenalty = min(1,hypot(dx,dy)*3)
         if let anatomy, SubjectCategory.classified(label).semantic, timestamp >= anatomy.timestamp, timestamp-anatomy.timestamp <= 1.5 {
-            if let face = anatomy.face, face.intersects(visible) { result.headroom = Double(face.minY) }
+            if let face = anatomy.face, face.intersects(visible) { result.headroom = Double(face.minY); result.protectedHead = face }
             result.edgeJointCount = anatomy.joints.filter { point in
                 visible.insetBy(dx:-0.03,dy:-0.03).contains(point) && (point.x < 0.012 || point.y < 0.012 || point.x > 0.988 || point.y > 0.988)
             }.count
@@ -132,6 +156,10 @@ struct AssessmentMeasurements: Codable, Sendable {
     var candidateBoundaryDegrees: Double?
     var verticalLeanDegrees: Double?
     var headYawRadians: Double?
+    var exposure: PhotoMeasurements? = nil
+    var cameraMoving: Bool? = nil
+    var assessmentReliable: Bool? = nil
+    var petStyle: PetFramingStyle? = nil
     var sizePenalty: Double
     var positionPenalty: Double
     init(_ measured: CompositionAssessment) {
@@ -141,6 +169,7 @@ struct AssessmentMeasurements: Codable, Sendable {
         visualMassOffset = measured.balanceOffset; candidateBoundaryDegrees = measured.horizonDegrees
         verticalLeanDegrees = measured.verticalLeanDegrees; headYawRadians = measured.headYaw
         sizePenalty = measured.sizePenalty; positionPenalty = measured.positionPenalty
+        exposure = measured.exposure; cameraMoving = measured.cameraMoving; assessmentReliable = measured.assessmentReliable; petStyle = measured.petStyle
     }
 }
 
@@ -180,32 +209,7 @@ enum ActionFeasibility {
     static func recommend(assessment: CompositionAssessment, reading: CompositionReading, intent: PhotographyIntent,
                           plan: SceneCompositionPlan?, rollReliable: Bool, previewAspect: Double,
                           manualComposition: Bool = false, autoPreparing: Bool = false) -> FeasibleGuidance {
-        func decision(_ action:GuidanceAction,_ text:String,_ issue:Double) -> FeasibleGuidance {
-            .init(action:action,text:text,confidence:assessment.confidence,issue:issue)
-        }
-        guard assessment.confidence.isFinite, assessment.confidence >= 0.55, assessment.subjectArea != nil else {
-            return decision(.none,"No reliable adjustment identified",0)
-        }
-        if assessment.cameraMoving { return decision(.hold,"Hold steady while the frame settles",0) }
-        if assessment.touchesEdge { return decision(.makeRoom,"Leave a little room around the visible subject edges",max(0.3,1-(assessment.visibleFraction ?? 1))) }
-        if rollReliable, abs(reading.rollDegrees) > 5 { return decision(.level,"Level the camera",min(1,abs(reading.rollDegrees)/20)) }
-        if let exposure = assessment.exposure {
-            if exposure.highlightFraction > 0.18 { return decision(.reduceExposure,"Lower exposure to protect bright subject detail",exposure.highlightFraction) }
-            if exposure.brightness < 0.12 && exposure.shadowFraction > 0.75 { return decision(.addLight,"More light can reveal subject detail",exposure.shadowFraction) }
-        }
-        if manualComposition || (plan?.selected.measuredImprovement ?? 0) >= IntentCompositionSearch.minimumImprovement {
-            if let cue = CompositionCue(reading:reading,previewAspect:previewAspect), !cue.aligned,
-               manualComposition || assessment.positionPenalty > 0.05 || autoPreparing {
-                let action: GuidanceAction = cue.direction == "left" ? .panLeft : cue.direction == "right" ? .panRight : cue.direction == "up" ? .panUp : .panDown
-                let error = hypot(cue.subject.x-cue.target.x,(cue.subject.y-cue.target.y)/max(0.1,previewAspect))
-                return decision(action,cue.phoneInstruction,max(0.05,error))
-            }
-            if assessment.sizePenalty > 0.15, let plan, plan.permitsZoom {
-                return decision(.tighterCrop,"The evaluated tighter frame keeps the subject visible",assessment.sizePenalty)
-            }
-        }
-        // Texture, fur, bedding and low edge energy alone do not justify
-        // isolation, an angle change, a focus claim or anatomical clipping.
-        return decision(.none,"Ready to shoot",0)
+        PhotographicReasoner.evaluate(assessment:assessment,reading:reading,intent:intent,plan:plan,
+            rollReliable:rollReliable,previewAspect:previewAspect,manualComposition:manualComposition,autoPreparing:autoPreparing).selected
     }
 }

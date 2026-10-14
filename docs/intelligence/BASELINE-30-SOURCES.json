@@ -1,0 +1,9 @@
+{
+  "commit": "3766b6c5ebd351ff788b86e739ba5c88dee9760e",
+  "scope": "recommendation and memory stages only; same detector, measured assessment and candidate plan inputs",
+  "sha256": {
+    "Focal/Composition/CompositionAssessment.swift": "7d2e3f7203dca34ed2a14d2f95cefa4e3f32953e1aec1d446b339b38f593f59c",
+    "Focal/Composition/RecommendationMemory.swift": "8a782406be600f03ba1647fecd92eccf9ec40b3c01e5bf2fc8936f324f8dfd99"
+  },
+  "localSnapshotCommit": "1c39f9c0da6528fc24fe777b0e6a45f75eabd459"
+}
