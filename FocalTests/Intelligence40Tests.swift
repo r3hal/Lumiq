@@ -55,7 +55,8 @@ final class Intelligence40PetTests: XCTestCase {
         XCTAssertEqual(advice(facts(CGRect(x:0.01,y:0.2,width:0.4,height:0.4),style:.action,stable:false)).action,.hold)
         XCTAssertFalse(PetFramingStyle.action.permitsAutomaticZoom)
     }
-    func testPetFramingPreferencePersists() throws {
+    @MainActor
+    func testPetFramingPreferencePersists() async throws {
         let suite = UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
         defer { defaults.removePersistentDomain(forName:suite) }
