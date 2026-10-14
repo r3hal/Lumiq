@@ -108,7 +108,7 @@ import CryptoKit
             return dataset
         }.value
         guard !running else { throw EvaluationError.busy }
-        for sample in imported.samples { try sample.imageData!.write(to:location.appendingPathComponent(sample.imageFile),options:.atomic) }
+        for sample in imported.samples { try sample.imageData!.write(to:directory.appendingPathComponent(sample.imageFile),options:.atomic) }
         samples = imported.samples.map { sample in var copy = sample; copy.imageData = nil; return copy }
         report = imported.report; try persist()
     }
