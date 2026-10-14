@@ -71,6 +71,7 @@ enum SubjectCategory: Equatable, Sendable {
     var semantic: Bool { self == .person || self == .face || self == .pet }
     static func classified(_ label: String) -> Self {
         let words = Set(label.lowercased().split { !$0.isLetter }.map(String.init))
+        if words.contains("face") { return .face }
         if !words.isDisjoint(with: ["person", "human", "man", "woman", "boy", "girl"]) { return .person }
         if !words.isDisjoint(with: ["cat", "dog"]) { return .pet }
         if !words.isDisjoint(with: ["tree", "trees", "palm", "bonsai", "oak", "pine", "maple", "birch", "willow", "fir", "plant", "flower", "flowers", "rose", "sunflower", "orchid"]) { return .nature }
@@ -141,10 +142,11 @@ struct SubjectCandidate: Sendable {
         // person/pet recognition. Anonymous salient regions retain the penalty.
         let texturePenalty = category.semantic ? 0.03 : category == .nature ? 0.02 : textConfidence >= 0.65 ? 0.06 : 0.22
         let score = 0.35 * confidence + 0.12 * category.priority + 0.15 * classificationConfidence
-            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality + 0.11 * centerPreference - texturePenalty * textureDensity
+            + 0.12 * prominence + 0.08 * isolation + 0.07 * sizeQuality
+            + 0.11 * (configuration.intent == .portrait || configuration.intent == .pet ? 1 : centerPreference) - texturePenalty * textureDensity
         // Small peripheral people should not eclipse an isolated foreground
         // product. A central portrait keeps its normal semantic priority.
-        let peripheralPenalty = category.semantic && area < 0.035 ? (1 - centerPreference) * 0.12 : 0
+        let peripheralPenalty = configuration.intent == .auto && category.semantic && area < 0.035 ? (1 - centerPreference) * 0.12 : 0
         return max(0, min(1, score - peripheralPenalty + max(0,min(1,compositionPotential))*0.10))
     }
     var manuallySelectable: Bool {
@@ -229,6 +231,7 @@ struct SubjectScene {
     var confidence: Float
     var timestamp: TimeInterval
     var isLandscape: Bool { confidence >= 0.65 && SubjectCategory.classified(label) == .landscape }
+    var isArchitecture: Bool { confidence >= 0.65 && SubjectCategory.classified(label) == .architecture }
 }
 
 /// A small image sample, not a depth model or an aesthetic/intention oracle.

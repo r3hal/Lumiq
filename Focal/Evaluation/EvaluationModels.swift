@@ -25,6 +25,9 @@ struct EvaluationAnnotation: Codable, Equatable, Sendable {
     var manualSelection: EvaluationRect?
     var sequenceID: String?
     var sequenceTime: Double?
+    var automaticZoomAppropriate: Bool? = nil // Human judgment, never model input.
+    var intentionallyUnconventional: Bool? = nil
+    var datasetSplit: String? = nil // "calibration" or "held-out"; no tuning on held-out.
     var notes = ""
 }
 struct EvaluationSample: Codable, Identifiable, Sendable {
@@ -46,6 +49,8 @@ struct EvaluationOutcome: Codable, Sendable {
     var aestheticScore: Double?
     var fitness: Double?
     var assessment: AssessmentMeasurements? = nil
+    var proposedZoomScale: Double? = nil // Static proposal only; not a real ramp.
+    var previousSelectionOverlap: Double? = nil // Consecutive images only; not tracking ground truth.
 }
 struct EvaluationRate: Codable, Sendable {
     var numerator = 0
@@ -60,9 +65,11 @@ struct EvaluationMetrics: Codable, Sendable {
     var unnecessaryRecommendations = EvaluationRate()
     var contradictions = EvaluationRate()
     var stability = EvaluationRate()
+    var autoZoomMistakes: EvaluationRate? = nil
+    var meanSelectionOverlap: Double? // Sequence diagnostic, not tracking accuracy.
     var meanInferenceMilliseconds: Double?
     static func calculate(samples: [EvaluationSample], outcomes: [EvaluationOutcome]) -> Self {
-        var result = Self(), times = [Double]()
+        var result = Self(), times = [Double](), overlaps = [Double]()
         let byID = Dictionary(outcomes.map { ($0.sampleID,$0) },uniquingKeysWith:{ _,last in last })
         for sample in samples where sample.annotation.reviewed {
             guard let outcome = byID[sample.id] else { continue }
@@ -83,6 +90,15 @@ struct EvaluationMetrics: Codable, Sendable {
             }
             if let preferred = label.preferredAction { result.recommendationAgreement.count(outcome.action == preferred) }
             if label.acceptableComposition == true { result.unnecessaryRecommendations.count(outcome.action.isAdjustment) }
+            if let appropriate = label.automaticZoomAppropriate {
+                let proposes = (outcome.proposedZoomScale ?? 1) > 1.12
+                // Baselines without proposal instrumentation cannot supply this metric.
+                if outcome.algorithm == "Focal Intelligence 3.0" {
+                    if result.autoZoomMistakes == nil { result.autoZoomMistakes = EvaluationRate() }
+                    result.autoZoomMistakes?.count(proposes && !appropriate)
+                }
+            }
+            if let overlap = outcome.previousSelectionOverlap, overlap.isFinite, (0...1).contains(overlap) { overlaps.append(overlap) }
             if let milliseconds = outcome.inferenceMilliseconds, milliseconds.isFinite, milliseconds >= 0 { times.append(milliseconds) }
         }
         let groups = Dictionary(grouping:samples.filter { $0.annotation.reviewed && $0.annotation.sequenceID?.isEmpty == false && $0.annotation.sequenceTime != nil },by:{ $0.annotation.sequenceID! })
@@ -95,20 +111,23 @@ struct EvaluationMetrics: Codable, Sendable {
                 if pair.0.annotation.preferredAction == pair.1.annotation.preferredAction { result.stability.count(a.action == b.action) }
             }
         }
+        result.meanSelectionOverlap = overlaps.isEmpty ? nil : overlaps.reduce(0,+)/Double(overlaps.count)
         result.meanInferenceMilliseconds = times.isEmpty ? nil : times.reduce(0,+)/Double(times.count)
         return result
     }
 }
 struct EvaluationReport: Codable, Sendable {
     var schemaVersion = 1
-    var baselineCommit = "beaced8242f97531bb54812850c0cf8a11922632"
+    var baselineCommit = "254d84ee5907a5dfa81ebbb33b61cab77b41178b"
     var createdAt = Date()
     var baseline: [EvaluationOutcome]
     var updated: [EvaluationOutcome]
     var baselineMetrics: EvaluationMetrics
     var updatedMetrics: EvaluationMetrics
     var errors: [String]
-    var notes = "Paired settled-state image decisions share native detections, with separately frozen/new subject scoring at the default 0.68 selection threshold. Inference time is the current shared analyzer time, not a measured historical runtime. Sequence metrics require distinct timestamped images; a still image does not measure tracking accuracy, gyro shake, autofocus, RAW quality or live frame cadence. Expected labels are never inputs to automatic detection/selection. Apple aesthetics is supplementary and never creates movement directions."
+    var heldOutBaselineMetrics: EvaluationMetrics? = nil
+    var heldOutUpdatedMetrics: EvaluationMetrics? = nil
+    var notes = "Paired Focal 2.2/Intelligence 3.0 decisions share current native detections, with separately frozen/new subject scoring at the default 0.68 selection threshold. Inference time is the current shared analyzer time, not a measured historical runtime. Static crop proposals do not measure real auto-zoom mistakes; the added mistake rate is human-labeled proposal error only. Sequence overlap is a continuity diagnostic, not ground-truth tracking accuracy. Sequence metrics require distinct timestamped images; a still image does not measure tracking accuracy, gyro shake, autofocus, RAW quality or live frame cadence. Expected labels are never inputs to automatic detection/selection. Apple aesthetics is supplementary and never creates movement directions."
 }
 struct EvaluationDataset: Codable, Sendable {
     var schemaVersion = 1

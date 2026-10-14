@@ -57,6 +57,9 @@ final class CameraController: NSObject, ObservableObject {
     private var precisionExternalBuffer: CVPixelBuffer? // Precision queue.
     private let precisionVideoContext = CIContext(options:[.cacheIntermediates:false,.priorityRequestLow:true])
     private let precisionExternalContext = CIContext(options:[.cacheIntermediates:false,.priorityRequestLow:true])
+    #if DEBUG || FOCAL_EVALUATION
+    private var guidanceDiagnostics = GuidanceDiagnostics() // Analysis queue only.
+    #endif
     private var previewScheduler = PreviewAnalysisScheduler() // Video queue only.
     private var previewCadence = PreviewFrameCadence() // Video queue only.
     private var videoAnalysisBuffer: CVPixelBuffer? // Video queue; no overwrite until Vision finishes.
@@ -1245,7 +1248,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         analysisQueue.async {
             defer { self.videoQueue.async { self.previewScheduler.finish() } }
             guard self.guidanceSnapshot() == snapshot, self.analysisSource == .iPhone else { return }
-            self.processFrame(copy, sourceAspect: aspect)
+            self.processFrame(copy, sourceAspect: aspect, observedAt: now)
         }
         // No CMSampleBuffer/native pixel buffer is retained by the async closure.
     }
@@ -1281,9 +1284,11 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         return copy
     }
 
-    private func processFrame(_ fullBuffer: CVPixelBuffer, sourceAspect: Double? = nil) {
+    private func processFrame(_ fullBuffer: CVPixelBuffer, sourceAspect: Double? = nil, observedAt: TimeInterval? = nil) {
         guard !analysisPaused, !interfacePaused else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        let observationTime = observedAt ?? now
+        guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:now) else { return }
         guard now >= ignoreFramesUntil,now-lastAnalysis > 0.2 else { return }
         lastAnalysis = now
         let snapshot = guidanceSnapshot()
@@ -1327,6 +1332,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var bounds: CGRect?
         var imageBounds: CGRect?
         var confidence: Float = 0
+        var automaticFocusPoint: UnitPoint2D?
         let visibleProjection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect)
         let topLeft = visibleProjection.imagePoint(.init(x:0,y:0))
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
@@ -1346,7 +1352,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             if analysisSource == .iPhone, confidence >= 0.6, !deviceMoving, !zooming, now >= manualInferenceResumeAfter {
                 let anatomy = tracker.anatomy(for:object.boundingBox,projection:projection,at:now)
                 let focusPoint = anatomy?.face.map { head in projection.imagePoint(.init(x:head.midX,y:head.midY)) } ?? imagePoint
-                updateAutomaticFocus(focusPoint, timestamp: now)
+                automaticFocusPoint = focusPoint
             }
         }
         if imageBounds == nil {
@@ -1358,6 +1364,16 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         guard guidanceSnapshot() == snapshot else { return }
         let evaluatedAt = ProcessInfo.processInfo.systemUptime
+        guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:evaluatedAt) else {
+            // Slow inference must not become a new direction or a lens command.
+            let wasArmed = framing.phase.isPreparing && framing.phase != .zooming && autoFrameEnabled && analysisSource == .iPhone
+            framing.reset(enabled:wasArmed); scenePlanner.reset(); directZoomPlan = nil
+            automaticGuidance.reset(); engine.reset(); previousMotionSubject = nil
+            if zooming { queue.async { self.cancelZoomRamp() } }
+            publishAnalysis(snapshot) { self.reading = CompositionReading(); self.guidance = .init(kind:.searching,text:""); self.compositionPlan = nil; self.framingHoldProgress = 0 }
+            return
+        }
+        if let automaticFocusPoint { updateAutomaticFocus(automaticFocusPoint,timestamp:evaluatedAt) }
         let motionData = analysisSource == .iPhone ? motion.deviceMotion : nil
         let gravity = motionData?.gravity
         let stable = motionData.map {
@@ -1374,12 +1390,16 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             previousMotionSubject = (bounds,tracker.label,evaluatedAt,analysisZoom)
         } else { previousMotionSubject = nil }
         precisionLock.lock(); precisionContext.relativeSubjectMotion = relativeMotion; precisionContext.subjectMotionTimestamp = relativeMotion == nil ? nil : evaluatedAt; precisionLock.unlock()
+        if zooming, !stable || confidence < 0.6 {
+            framing.reset(enabled:false)
+            queue.async { self.cancelZoomRamp() }
+        }
         let planning = compositionPlanning && mode == .automatic
         let projection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect,mirrored:analysisFrontCamera)
-        if (planning || autoFrameEnabled || coachEnabled), !zooming, !rapidMovement, now >= manualInferenceResumeAfter, evaluatedAt-lastCompositionEvidence >= 0.8 {
+        if (planning || autoFrameEnabled || coachEnabled || photographyIntent == .landscape || photographyIntent == .architecture), !zooming, !rapidMovement, now >= manualInferenceResumeAfter, evaluatedAt-lastCompositionEvidence >= 0.8 {
             lastCompositionEvidence = evaluatedAt
             compositionEvidence = SubjectImageEvidence.sample(buffer).flatMap {
-                SceneCompositionEvidence(image:$0,projection:projection,timestamp:evaluatedAt)
+                SceneCompositionEvidence(image:$0,projection:projection,timestamp:observationTime)
             }
         }
         let contextSubjects = tracker.compositionSubjects(at:evaluatedAt).map { c in
@@ -1413,7 +1433,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let layoutTarget = (preparingZoom ? plan?.zoomAlignmentTarget : plan?.target) ?? (keepUnplannedFrame ? subject : nil) ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
         if (!planning || plan != nil || bounds == nil), let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,
-                                            detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:stable, holdDuration:holdDuration, previewAspect:previewAspect,
+                                            detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:GuidanceObservationPolicy.permitsZoom(stable:stable,relativeSpeed:relativeMotion,fresh:true), holdDuration:holdDuration, previewAspect:previewAspect,
                                             alignmentTarget:layoutTarget,allowZoom:allowPlannedZoom,plannedScale:plan?.selected.zoomScale,zoomDestination:preparingZoom ? plan?.target : nil), imageBounds != nil {
             performAutomaticZoom(to: targetZoom, generation: analysisZoomGeneration)
         }
@@ -1457,11 +1477,21 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             publishAnalysis(snapshot) { self.liveMeasurements = measurements; self.coachAdvice = advice; self.sceneLabel = sceneName }
         }
         var measured = result; measured.subjectBounds = analysisReadingBounds
+        let observedScene = GuidanceSceneSnapshot(observedAt:observationTime,evaluatedAt:evaluatedAt,label:tracker.label,intent:photographyIntent,
+            selectedBounds:bounds,confidence:Double(confidence),surroundingSubjects:contextSubjects,
+            anatomy:tracker.anatomy(for:imageBounds,projection:projection,at:evaluatedAt),measurements:subjectMeasurements,
+            imageEvidence:compositionEvidence,relativeSpeed:relativeMotion,deviceStable:stable)
+        #if DEBUG || FOCAL_EVALUATION
+        let previousGuidance = automaticGuidance.previousAction
+        #endif
         let message = automaticGuidance.update(reading:measured,phase:framing.phase,stable:stable,
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
             zoomAvailable:allowPlannedZoom && automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering,
             compositionPlan:plan,sceneEvidence:compositionEvidence,intent:photographyIntent,manualSubject:tracker.manual,
-            manualComposition:mode != .automatic,anatomy:tracker.anatomy(for:imageBounds,projection:projection,at:evaluatedAt),others:contextSubjects)
+            manualComposition:mode != .automatic,anatomy:observedScene.anatomy,others:contextSubjects,observedScene:observedScene)
+        #if DEBUG || FOCAL_EVALUATION
+        guidanceDiagnostics.record(scene:observedScene,plan:plan,message:message,previous:previousGuidance,memoryOutcome:automaticGuidance.memoryOutcome,phase:framing.phase)
+        #endif
         let label = tracker.label
         let phase = framing.phase
         let progress = framing.holdProgress

@@ -1,0 +1,14 @@
+{
+  "publishedCommit": "254d84ee5907a5dfa81ebbb33b61cab77b41178b",
+  "version": "2.2/build 19",
+  "originalSourceSHA256": {
+    "Focal/Composition/CompositionAssessment.swift": "036b2ae421108c3531da32520beae766141b609fa9aa9ac32adee6925cc96fe9",
+    "Focal/Composition/RecommendationMemory.swift": "aa07b62ea8a4a0862010847cfbdb7fa1992ab0217d4625775eff54fea366f89f",
+    "Focal/Composition/IntentCompositionSearch.swift": "51f103a18bf5338b3220b168da0a3394f2dc5a30e32fde653fee2f0e9b5cb664",
+    "Focal/Composition/SceneCompositionPlanner.swift": "612d1c201ad869955e1409d53fbe5337ea23bf223add355bd35f17c485552c38",
+    "Focal/Composition/AutomaticGuidance.swift": "ce25b1547548bb1e341ab31f5779071aeb58bcbeee0257d281ab46bc43ff2e47",
+    "Focal/Composition/SubjectSelection.swift": "19e27072d37a0c3756b0636bdc7ad27dbc5420336648a24407d723c9e990af29"
+  },
+  "note": "Frozen decision bodies with type renames. Native detections and geometry/context are shared; this does not reproduce historical detector runtime.",
+  "localSnapshotCommit": "33e571d019f1a30dbf2a1f010849af788e97dac2"
+}

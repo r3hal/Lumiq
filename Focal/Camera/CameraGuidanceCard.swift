@@ -43,7 +43,7 @@ struct CameraGuidanceCard: View {
     var showHoldProgress = true
     var composition: String? = nil
     var body: some View {
-        if state != .off {
+        if state != .off && !instruction.isEmpty {
             VStack(spacing: 7) {
                 HStack(spacing: 10) {
                     if state == .zooming { ProgressView().tint(Palette.yellow).scaleEffect(0.8) }

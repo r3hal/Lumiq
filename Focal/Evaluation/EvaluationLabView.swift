@@ -87,6 +87,13 @@ private struct EvaluationAnnotationView: View {
     private var labelFields: some View {
                 Section {
                     Toggle("No object box is needed",isOn:$annotation.expectsNoObject)
+                    Picker("Dataset split",selection:Binding(get:{ annotation.datasetSplit ?? "calibration" },set:{ annotation.datasetSplit = $0 })) {
+                        Text("Calibration").tag("calibration"); Text("Held-out evaluation").tag("held-out")
+                    }
+                    Picker("Automatic crop appropriate",selection:Binding(get:{ annotation.automaticZoomAppropriate.map { $0 ? 1 : 2 } ?? 0 },set:{ annotation.automaticZoomAppropriate = $0 == 0 ? nil : $0 == 1 })) {
+                        Text("Unlabeled").tag(0); Text("Yes").tag(1); Text("No").tag(2)
+                    }
+                    Toggle("Intentional unconventional framing",isOn:Binding(get:{ annotation.intentionallyUnconventional ?? false },set:{ annotation.intentionallyUnconventional = $0 }))
                     TextField("Main subject",text:$annotation.mainSubject).disabled(annotation.expectsNoObject)
                     Picker("Intent",selection:$annotation.intent) { ForEach(PhotographyIntent.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Acceptable composition",selection:Binding(get:{ annotation.acceptableComposition.map { $0 ? 1 : 2 } ?? 0 },set:{ annotation.acceptableComposition = $0 == 0 ? nil : $0 == 1 })) {
@@ -138,7 +145,14 @@ private struct EvaluationResultsSection: View {
     let report: EvaluationReport
     var body: some View {
         Section {
-            Text("Baseline / updated").font(.headline)
+            Text("Focal 2.2 / Intelligence 3.0").font(.headline)
+            if let rate = report.updatedMetrics.autoZoomMistakes {
+                Text("Unwanted static crop proposals: \(rate.numerator)/\(rate.denominator)").font(.caption)
+            }
+            if let value = report.updatedMetrics.meanSelectionOverlap { Text("Sequence box overlap: \(value,format:.number.precision(.fractionLength(2))) · not tracking accuracy").font(.caption) }
+            if let old = report.heldOutBaselineMetrics, let new = report.heldOutUpdatedMetrics {
+                Text("Held-out unnecessary adjustments: \(old.unnecessaryRecommendations.numerator)/\(old.unnecessaryRecommendations.denominator) → \(new.unnecessaryRecommendations.numerator)/\(new.unnecessaryRecommendations.denominator)").font(.caption)
+            }
             metric("Detection agreement",report.baselineMetrics.detectionAgreement,report.updatedMetrics.detectionAgreement)
             metric("Selection agreement",report.baselineMetrics.selectionAgreement,report.updatedMetrics.selectionAgreement)
             metric("Recommendation agreement",report.baselineMetrics.recommendationAgreement,report.updatedMetrics.recommendationAgreement)

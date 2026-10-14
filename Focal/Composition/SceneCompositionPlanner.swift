@@ -221,7 +221,10 @@ struct SceneCompositionPlanner {
             let cropGain = measured.first(where: { $0.crop == option.crop && $0.mapsToCameraZoom })?.improvement ?? 0
             // A target shift is justified only by an observed position issue.
             // Existing comfortable off-center placement incurs no penalty.
-            let targetGain = baseline.positionPenalty > 0 ? min(0.2,baseline.positionPenalty*0.2) : 0
+            let shifted = subject.offsetBy(dx:option.target.x-Double(subject.midX),dy:option.target.y-Double(subject.midY))
+            let shiftedFacts = CompositionAssessment.evaluate(bounds:shifted,confidence:1,label:label,intent:intent,stable:true,exposure:nil,evidence:nil,others:others)
+            let targetGain = baseline.positionPenalty > 0 && SceneCompositionEvidence.full.contains(shifted)
+                ? max(0,(shiftedFacts.fitness ?? currentFitness)-currentFitness) : 0
             ranked[index].measuredImprovement = max(cropGain,targetGain)
             if cropGain >= IntentCompositionSearch.minimumImprovement && baseline.positionPenalty == 0 {
                 let relative = FramingPlanner.zoomedRect(subject,scale:option.zoomScale)
@@ -231,10 +234,18 @@ struct SceneCompositionPlanner {
             }
             if ranked[index].measuredImprovement < IntentCompositionSearch.minimumImprovement { ranked[index].zoomScale = 1 }
         }
+        if let smallest = measured.first(where: { $0.mapsToCameraZoom && $0.improvement >= IntentCompositionSearch.minimumImprovement && $0.scale > 1.12 }) {
+            let relative = FramingPlanner.zoomedRect(subject,scale:smallest.scale)
+            ranked.append(.init(technique:.fillFrame,target:.init(x:relative.midX,y:relative.midY),crop:smallest.crop,score:smallest.fitness,
+                explanation:"smallest measured useful crop",zoomScale:smallest.scale,measuredImprovement:smallest.improvement))
+        }
         let keep = CompositionOption(technique:.centered,target:center,crop:SceneCompositionEvidence.full,score:currentFitness,
                                      explanation:"keep the current composition",zoomScale:1,measuredImprovement:0,isCurrentFrame:true)
         let improvements = ranked.filter { $0.measuredImprovement >= IntentCompositionSearch.minimumImprovement }
-            .sorted { $0.measuredImprovement == $1.measuredImprovement ? $0.score > $1.score : $0.measuredImprovement > $1.measuredImprovement }
+            .sorted {
+                if abs($0.zoomScale-$1.zoomScale) > 0.001 { return $0.zoomScale < $1.zoomScale }
+                return $0.measuredImprovement == $1.measuredImprovement ? $0.score > $1.score : $0.measuredImprovement > $1.measuredImprovement
+            }
         return improvements.isEmpty ? [keep]+ranked.sorted { $0.score > $1.score } : improvements+[keep]+ranked.filter { $0.measuredImprovement < IntentCompositionSearch.minimumImprovement }.sorted { $0.score > $1.score }
     }
     static func distinctSubjects(_ subjects: [CompositionContextSubject], selected: CGRect) -> [CompositionContextSubject] {

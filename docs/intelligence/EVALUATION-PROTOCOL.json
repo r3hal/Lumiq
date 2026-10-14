@@ -1,0 +1,46 @@
+{
+  "kind": "real-photo collection protocol; not labeled image data",
+  "version": 1,
+  "availableConfirmedCorpus": false,
+  "categories": [
+    "pets",
+    "portraits",
+    "products",
+    "architecture",
+    "landscapes",
+    "clutter",
+    "low-light",
+    "multiple-subjects",
+    "already-good",
+    "intentional-unconventional"
+  ],
+  "scenarios": [
+    "contained cat on cluttered bed: no adjustment",
+    "observed clipped ears/head: small room correction if full head intended",
+    "small cat: useful crop only if context survives",
+    "correctly framed person: no adjustment",
+    "peripheral portrait with negative space: no forced centering",
+    "empty landscape: scene-level, no invented box",
+    "multiple people/objects: retain meaningful selection",
+    "recommended adjustment: measure subsequent issue, withdraw if worsened",
+    "still acceptable composition: ready or silence",
+    "manual zoom: cancel AI ramp immediately",
+    "fast subject: avoid noisy commands",
+    "low confidence: no instruction"
+  ],
+  "minimumLabelFields": [
+    "reviewed",
+    "subject or no-object",
+    "intent",
+    "expected bounds if applicable",
+    "acceptableComposition",
+    "framingIssue",
+    "preferredAction",
+    "automaticZoomAppropriate",
+    "datasetSplit",
+    "human notes"
+  ],
+  "splitRule": "Split by capture session/source image before calibration. Never tune on held-out images. Export separate held-out metrics.",
+  "sequenceRule": "Use distinct real images with measured ordered times, not duplicated stills. Annotated object tracks and executed-ramp logs are needed for real tracking and zoom accuracy.",
+  "privacy": "User-selected local imports only; no automatic upload or training."
+}

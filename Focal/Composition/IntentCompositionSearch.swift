@@ -14,7 +14,8 @@ enum IntentCompositionSearch {
                          others: [CompositionContextSubject], frames: [CGRect], scales: [Double], forceCenter: Bool) -> SceneCompositionPlan? {
         let enclosing = frames.filter { $0.contains(subject) && $0.width*$0.height > subject.width*subject.height*1.7 }
         guard let best = candidates(subject:subject,label:label,intent:intent,evidence:evidence,others:others,frames:enclosing,scales:scales)
-            .first(where: { $0.mapsToCameraZoom && $0.improvement >= minimumImprovement && $0.scale > 1.12 }) else { return nil }
+            .filter({ $0.mapsToCameraZoom && $0.improvement >= minimumImprovement && $0.scale > 1.12 })
+            .min(by:{ $0.scale < $1.scale }) else { return nil }
         let relative = FramingPlanner.zoomedRect(subject,scale:best.scale)
         let target = forceCenter ? UnitPoint2D(x:0.5,y:0.5) : .init(x:relative.midX,y:relative.midY)
         let option = CompositionOption(technique:.fillFrame,target:target,crop:best.crop,score:best.fitness,
@@ -49,6 +50,11 @@ enum IntentCompositionSearch {
                 }
             }
         }
-        return result.sorted { $0.improvement > $1.improvement }
+        return result.sorted {
+            let aUseful = $0.improvement >= minimumImprovement, bUseful = $1.improvement >= minimumImprovement
+            if aUseful != bUseful { return aUseful }
+            if aUseful, abs($0.scale-$1.scale) > 0.001 { return $0.scale < $1.scale }
+            return $0.improvement > $1.improvement
+        }
     }
 }

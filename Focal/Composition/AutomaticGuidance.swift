@@ -15,6 +15,9 @@ struct AutomaticGuidance {
     private var subject: String?
     private var previousBounds: CGRect?
     private var previousTime: TimeInterval?
+    private var confidenceFilter = GuidanceConfidenceFilter()
+    var memoryOutcome: String { memory.outcome }
+    var previousAction: GuidanceAction? { memory.currentAction }
     mutating func reset() { self = Self() }
     mutating func update(reading: CompositionReading, phase: FramingPhase, stable: Bool,
                          rollReliable: Bool, autoEnabled: Bool, zoomAvailable: Bool,
@@ -24,31 +27,39 @@ struct AutomaticGuidance {
                          compositionPlan: SceneCompositionPlan? = nil, sceneEvidence: SceneCompositionEvidence? = nil,
                          intent: PhotographyIntent = .auto, manualSubject: Bool = false,
                          manualComposition: Bool = false, anatomy: SubjectAnatomy? = nil,
-                         others: [CompositionContextSubject] = []) -> GuidanceMessage {
+                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil) -> GuidanceMessage {
         guard timestamp.isFinite else { reset(); return GuidanceMessage() }
+        if let observedScene, !observedScene.fresh { reset(); return .init(kind:.searching,text:"") }
         guard let bounds = reading.guidanceBounds ?? reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy(\.isFinite) else {
             if recovering, detectedSince != nil { return .init(kind:.steady,text:"Keep the subject in view",action:.hold) }
-            reset()
             let landscape = intent == .landscape || scene.map { $0.isLandscape && timestamp >= $0.timestamp && timestamp-$0.timestamp <= 6 } == true
+            let architecture = intent == .architecture || scene.map { $0.isArchitecture && timestamp >= $0.timestamp && timestamp-$0.timestamp <= 6 } == true
             if let decision = ActionFeasibility.sceneRecommendation(landscape:landscape,stable:stable,roll:reading.rollDegrees,rollReliable:rollReliable,
-                measurements:sceneMeasurements,evidence:sceneEvidence,timestamp:timestamp,previewAspect:previewAspect) {
-                return .init(kind:.scene,text:decision.text,action:decision.action)
+                measurements:sceneMeasurements,evidence:sceneEvidence,timestamp:timestamp,previewAspect:previewAspect,architecture:architecture) {
+                if subject != "Scene" { reset(); subject = "Scene" }
+                let retained = memory.update(decision,bounds:nil,label:architecture ? "Architecture" : "Landscape",intent:intent,timestamp:timestamp)
+                return .init(kind:.scene,text:retained.text,action:retained.action)
             }
+            reset()
             return .init(kind:.searching,text:autoEnabled ? "Scanning the scene…" : "Select a photographic subject")
         }
         let label = subjectLabel ?? "Subject"
-        if subject != label { reset(); subject = label; detectedSince = timestamp }
+        if subject != label || previousBounds.map({ hypot(Double($0.midX-bounds.midX),Double($0.midY-bounds.midY)) > 0.55 }) == true { reset(); subject = label; detectedSince = timestamp }
         let relativeSpeed: Double
         if let previousBounds, let previousTime, timestamp > previousTime, timestamp-previousTime <= 2.5 {
             relativeSpeed = hypot(Double(bounds.midX-previousBounds.midX),Double(bounds.midY-previousBounds.midY)/max(0.1,previewAspect))/(timestamp-previousTime)
         } else { relativeSpeed = 0 }
         self.previousBounds = bounds; previousTime = timestamp
-        let assessment = CompositionAssessment.evaluate(bounds:bounds,confidence:Double(reading.subjectConfidence),label:label,
+        var sharedScene = observedScene
+        let trustedConfidence = confidenceFilter.update(Double(reading.subjectConfidence),label:label,at:timestamp)
+        sharedScene?.confidence = trustedConfidence
+        sharedScene?.deviceStable = stable && relativeSpeed <= 0.25
+        let assessment = sharedScene?.assessment ?? CompositionAssessment.evaluate(bounds:bounds,confidence:trustedConfidence,label:label,
             intent:intent,stable:stable && relativeSpeed <= 0.25,exposure:subjectMeasurements,evidence:sceneEvidence,others:others,anatomy:anatomy,timestamp:timestamp)
         if phase == .zooming { return .init(kind:.framing,text:"Refining the evaluated crop…") }
-        if assessment.confidence < 0.55 { return .init(kind:.steady,text:"Keep the selected subject visible",action:.hold) }
+        if assessment.confidence < 0.55 { memory.reset(); return .init(kind:.searching,text:"") }
         let proposed = ActionFeasibility.recommend(assessment:assessment,reading:reading,intent:intent,plan:compositionPlan,
             rollReliable:rollReliable,previewAspect:previewAspect,manualComposition:manualComposition,
             autoPreparing:autoEnabled && phase.isPreparing && compositionPlan?.permitsZoom == true)

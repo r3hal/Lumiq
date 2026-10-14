@@ -7,6 +7,7 @@ enum GuidanceAction: String, Codable, CaseIterable, Identifiable, Sendable {
     func opposes(_ other: Self) -> Bool {
         (self == .panLeft && other == .panRight) || (self == .panRight && other == .panLeft)
             || (self == .panUp && other == .panDown) || (self == .panDown && other == .panUp)
+            || (self == .tighterCrop && other == .makeRoom) || (self == .makeRoom && other == .tighterCrop)
     }
 }
 
@@ -34,7 +35,11 @@ struct IntentFramingProfile {
         case .auto: minimum = 0.035; maximum = 0.90
         }
         return .init(minimumArea:hasContext ? min(minimum,0.025) : minimum,maximumArea:maximum,
-                     positionRegion:CGRect(x:0.16,y:0.12,width:0.68,height:0.76))
+                     // Horizontal negative space may be deliberate. A visible portrait is
+                     // not improved merely by recentering it; no gaze is inferred.
+                     positionRegion:resolved == .portrait || resolved == .pet
+                        ? CGRect(x:0.04,y:0.12,width:0.92,height:0.76)
+                        : CGRect(x:0.16,y:0.12,width:0.68,height:0.76))
     }
 }
 
@@ -90,7 +95,7 @@ struct CompositionAssessment {
         let dx = max(0,max(Double(region.minX-bounds.midX),Double(bounds.midX-region.maxX)))
         let dy = max(0,max(Double(region.minY-bounds.midY),Double(bounds.midY-region.maxY)))
         result.positionPenalty = min(1,hypot(dx,dy)*3)
-        if let anatomy, timestamp >= anatomy.timestamp, timestamp-anatomy.timestamp <= 1.5 {
+        if let anatomy, SubjectCategory.classified(label).semantic, timestamp >= anatomy.timestamp, timestamp-anatomy.timestamp <= 1.5 {
             if let face = anatomy.face, face.intersects(visible) { result.headroom = Double(face.minY) }
             result.edgeJointCount = anatomy.joints.filter { point in
                 visible.insetBy(dx:-0.03,dy:-0.03).contains(point) && (point.x < 0.012 || point.y < 0.012 || point.x > 0.988 || point.y > 0.988)
@@ -149,16 +154,26 @@ struct FeasibleGuidance: Equatable {
 
 enum ActionFeasibility {
     static func sceneRecommendation(landscape: Bool, stable: Bool, roll: Double, rollReliable: Bool, measurements: PhotoMeasurements?,
-                                    evidence: SceneCompositionEvidence?, timestamp: TimeInterval, previewAspect: Double) -> FeasibleGuidance? {
-        guard landscape else { return nil }
+                                    evidence: SceneCompositionEvidence?, timestamp: TimeInterval, previewAspect: Double, architecture: Bool = false) -> FeasibleGuidance? {
+        guard landscape || architecture else { return nil }
         if !stable { return .init(action:.hold,text:"Hold steady",confidence:0,issue:0) }
         if rollReliable && abs(roll) > 5 { return .init(action:.level,text:"Keep the camera level",confidence:0,issue:min(1,abs(roll)/20)) }
         if let measurements, measurements.highlightFraction > 0.18 {
             return .init(action:.reduceExposure,text:"Lower exposure to protect bright scene detail",confidence:0,issue:measurements.highlightFraction)
         }
-        if let evidence, evidence.isFresh(at:timestamp), let line = evidence.tiltedSceneBoundary() {
+        if landscape, let evidence, evidence.isFresh(at:timestamp), let line = evidence.tiltedSceneBoundary() {
             let angle = atan((line.end.y-line.start.y)/((line.end.x-line.start.x)*max(0.1,previewAspect)))*180/Double.pi
             if abs(angle) > 6 { return .init(action:.level,text:"Check the tilted scene boundary if it is your horizon",confidence:0,issue:min(1,abs(angle)/20)) }
+        }
+        if architecture, let evidence, evidence.isFresh(at:timestamp) {
+            let verticals = evidence.lines.filter { abs($0.end.y-$0.start.y) > 0.5 && abs($0.end.x-$0.start.x) < 0.2 }
+            if verticals.count >= 2 {
+                let lean = verticals.map { atan(($0.end.x-$0.start.x)*previewAspect/($0.end.y-$0.start.y))*180/Double.pi }
+                let average = lean.reduce(0,+)/Double(lean.count)
+                if abs(average) > 8 && lean.allSatisfy({ $0*average > 0 }) {
+                    return .init(action:.level,text:"Check the verticals if you intend a straight façade",confidence:0,issue:min(1,abs(average)/20))
+                }
+            }
         }
         return .init(action:.none,text:"Ready to shoot",confidence:0,issue:0)
     }
@@ -171,8 +186,8 @@ enum ActionFeasibility {
         guard assessment.confidence.isFinite, assessment.confidence >= 0.55, assessment.subjectArea != nil else {
             return decision(.none,"No reliable adjustment identified",0)
         }
-        if assessment.touchesEdge { return decision(.makeRoom,"Leave a little room around the visible subject edges",max(0.3,1-(assessment.visibleFraction ?? 1))) }
         if assessment.cameraMoving { return decision(.hold,"Hold steady while the frame settles",0) }
+        if assessment.touchesEdge { return decision(.makeRoom,"Leave a little room around the visible subject edges",max(0.3,1-(assessment.visibleFraction ?? 1))) }
         if rollReliable, abs(reading.rollDegrees) > 5 { return decision(.level,"Level the camera",min(1,abs(reading.rollDegrees)/20)) }
         if let exposure = assessment.exposure {
             if exposure.highlightFraction > 0.18 { return decision(.reduceExposure,"Lower exposure to protect bright subject detail",exposure.highlightFraction) }

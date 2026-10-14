@@ -1,17 +1,14 @@
-Focal 2.2 / build 19 — Focal Intelligence 2.0
-SOURCE: Shared scene analysis, intent-specific assessment, feasible structured actions, measured current-frame/crop comparison and recommendation memory.
-SOURCE: Baseline build 18 guidance/planner frozen before changes; source integrity checked against that version.
-SOURCE: Real large-box Step back, texture-isolation and unobserved class/pose tips removed; live Coach and Insights share action feasibility.
-SOURCE: Optional throttled confident native animal/human pose, face headroom/yaw; no hidden anatomy/gaze/optical-sharpness inventions.
-SOURCE: Optional iOS18 Apple aesthetics for stored images/evaluation only; no direction/crop decisions from an overall score.
-SOURCE: Developer-only local image labeling, separate ground-truth/manual regions, JSON image/hash/measurement/results export and paired baseline comparison.
-SOURCE: Preserve photo capture, RAW/manual controls, zoom/cancellation, guide toggle, gallery, native preview and real Sony protocol integration.
-PASS: Lexical delimiter checks in 96 Swift files (75 app, 21 test); not grammar/type checking.
-PASS: Deterministic generation and all source/resource references, plists/shared scheme, assets/fonts/JSON, YAML/shell syntax, git diff --check.
-REGISTERED: 294 XCTest functions including 37 new baseline/acceptance/evaluation tests. Zero native executions here.
-REAL DATA: One visually inspected Unsplash landscape starter plus a native real-image test. Starter requires user label confirmation; no labeled real cat corpus or accuracy benchmark exists here.
-ATTEMPTED: Native simulator test and device/evaluation build. Exit127: xcodebuild not found in Linux.
-PENDING: Xcode compilation and all native tests in Codemagic, followed by ios-sideload or ios-evaluation IPA archive.
-PENDING: Real image old/new metrics, iPhone16ProMax prediction behavior, inference/heat/frame cadence, AUTO/PRO/capture/RAW/gallery regressions and actual Sony A7 III live view/shutter/recovery.
-LIMITS: No trained model added; no universal detector, objective aesthetics, unseen-scene knowledge or greatest-photo guarantee. Joint absence is not clipping evidence. Yaw is not eye gaze. A candidate boundary is not a proven horizon. Perspective/optical blur remain uncalibrated. Paired guidance evaluation shares current native detections; historical detector/runtime metrics are unavailable. Empty/unreviewed metrics remain null/Not measured.
-See docs/intelligence/IMPLEMENTATION.md and docs/intelligence/BASELINE-STATUS.json.
+Focal 2.3 / build 20 — Focal Intelligence 3.0
+SOURCE: Guidance-only update: shared immutable measured scene, conservative confidence smoothing, observation freshness, contextual anatomy/negative space and scene memory.
+SOURCE: Motion-first feasibility, smallest-useful measured crop, actual target-placement gain, cumulative outcome memory and crop/room contradiction protection.
+SOURCE: Existing AI/manual zoom guards plus fresh observed subject-motion gate; completed/canceled ramps are not rearmed by stale results.
+SOURCE: Development-only private local diagnostics; frozen Focal 2.2/build 19 comparison, held-out labels and static crop-proposal evaluation.
+PRESERVED: Sony protocol/connectivity and camera capture/RAW/manual controls/gallery. No production layout redesign; empty guidance card displays silence.
+PASS: Deterministic generation, 77 app/23 test source references, lexical delimiter audit (not Swift grammar), plist/XML/JSON/assets, YAML/shell syntax, original baseline source hashes, Sony source unchanged, whitespace.
+REGISTERED: 314 XCTest functions; 20 added in this update. Zero native executions here.
+ATTEMPTED: Native simulator test and Release evaluation device build. Both exit127: xcodebuild not found in Linux.
+PENDING: Codemagic compilation/native tests/unsigned IPA; iPhone16ProMax guidance/zoom/camera regression and latency/thermal/battery checks; Sony hardware regressions.
+REAL DATA: Existing real landscape starter requires label confirmation. No completed labeled real pet/portrait/product held-out corpus. Collection protocol is not fabricated image data.
+METRICS: Accuracy, latency, harmful-guidance reduction, actual auto-zoom mistakes and ground-truth tracking accuracy remain unmeasured/null. Static crop proposal errors and sequence box overlap must not be called hardware zoom/tracking accuracy.
+MODELS: Existing Apple Vision only. Broader Core ML options researched but not shipped without artifact/coverage/license/performance verification. No universal recognition or objective best-photo claim.
+See docs/intelligence/INTELLIGENCE-3.0.md and docs/intelligence/BASELINE-STATUS.json.

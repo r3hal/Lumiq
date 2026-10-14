@@ -6,7 +6,8 @@ actor EvaluationRunner {
     func run(samples:[EvaluationSample],directory:URL) async throws -> EvaluationReport {
         var baseline = [EvaluationOutcome](), updated = [EvaluationOutcome](), errors = [String]()
         var memories = [String:RecommendationMemory]()
-        var baselineMemories = [String:BaselineGuidance21]()
+        var previousSelections = [String: (bounds:CGRect,time:Double,label:String)]()
+        var baselineMemories = [String:BaselineGuidance22]()
         let ordered = samples.filter { $0.annotation.reviewed }.sorted {
             let a = $0.annotation.sequenceID ?? $0.id.uuidString, b = $1.annotation.sequenceID ?? $1.id.uuidString
             return a == b ? ($0.annotation.sequenceTime ?? 0) < ($1.annotation.sequenceTime ?? 0) : a < b
@@ -19,15 +20,27 @@ actor EvaluationRunner {
                     manualRegion:label.manualSelection?.cgRect,includeAesthetics:true)
                 try Task.checkCancellation()
                 let primary = analyzed.selected
+                let prior = label.sequenceID.flatMap { previousSelections[$0] }
+                let priorBounds = prior.flatMap { old -> CGRect? in
+                    guard let time = label.sequenceTime, time > old.time, time-old.time <= 2, old.label == primary?.label else { return nil }
+                    return old.bounds
+                }
+                let overlap: Double? = primary.flatMap { chosen in priorBounds.map { EvaluationRect($0).overlap(chosen.bounds) } }
+                if let sequence = label.sequenceID, let primary, let time = label.sequenceTime { previousSelections[sequence] = (primary.bounds,time,primary.label) }
+                let proposedScale = primary.flatMap { selected in analyzed.evidence.flatMap { evidence in
+                    IntentCompositionSearch.zoomPlan(subject:selected.bounds,label:selected.label,intent:label.intent,evidence:evidence,
+                        others:analyzed.contextSubjects.map { .init(bounds:$0.bounds,label:$0.label,confidence:$0.confidence) },
+                        frames:analyzed.enclosingFrames,scales:[1,1.15,1.35,1.6,2,2.5,3],forceCenter:false)?.selected.zoomScale
+                } }
                 let configuration = SubjectSelectionConfiguration(intent:label.intent)
-                let legacyCandidate = analyzed.nativeCandidates.filter { ($0.baselineScore21(configuration:configuration) ?? 0) >= configuration.threshold }
-                    .max { ($0.baselineScore21(configuration:configuration) ?? 0) < ($1.baselineScore21(configuration:configuration) ?? 0) }
+                let legacyCandidate = analyzed.nativeCandidates.filter { ($0.baselineScore22(configuration:configuration) ?? 0) >= configuration.threshold }
+                    .max { ($0.baselineScore22(configuration:configuration) ?? 0) < ($1.baselineScore22(configuration:configuration) ?? 0) }
                 let legacyPrimary: AnalyzedSubject?
                 if label.manualSelection != nil { legacyPrimary = primary }
                 else if let legacyCandidate {
                     legacyPrimary = analyzed.subjects.first { $0.label == legacyCandidate.label && $0.bounds == CGRect(x:legacyCandidate.bounds.minX,y:1-legacyCandidate.bounds.maxY,width:legacyCandidate.bounds.width,height:legacyCandidate.bounds.height) }
                 } else { legacyPrimary = nil }
-                let legacyContext = analyzed.nativeCandidates.filter { $0.baselineScore21(configuration:configuration) != nil }.map { candidate in
+                let legacyContext = analyzed.nativeCandidates.filter { $0.baselineScore22(configuration:configuration) != nil }.map { candidate in
                     CompositionContextSubject(bounds:CGRect(x:candidate.bounds.minX,y:1-candidate.bounds.maxY,width:candidate.bounds.width,height:candidate.bounds.height),label:candidate.label,confidence:candidate.confidence)
                 }
                 let context = analyzed.contextSubjects.map { CompositionContextSubject(bounds:$0.bounds,label:$0.label,confidence:$0.confidence) }
@@ -47,34 +60,40 @@ actor EvaluationRunner {
                     memories[sequence] = memory
                 }
                 let oldLayouts = legacyPrimary.flatMap { selected in analyzed.evidence.map { evidence in
-                    BaselinePlanner21.compare(subject:selected.bounds,evidence:evidence,others:legacyContext,enclosingFrames:analyzed.enclosingFrames,maximumScale:label.intent.maximumCropScale,intent:label.intent)
+                    BaselinePlanner22.compare(subject:selected.bounds,evidence:evidence,others:legacyContext,enclosingFrames:analyzed.enclosingFrames,maximumScale:label.intent.maximumCropScale,intent:label.intent,label:legacyPrimary?.label ?? "Subject")
                 } } ?? []
                 let oldPlan = oldLayouts.first.map { SceneCompositionPlan(selected:$0,alternatives:[],subjectLabel:legacyPrimary?.label ?? "Subject",timestamp:0) }
                 let oldReading = CompositionReading(state:.ready,subjectBounds:legacyPrimary?.bounds,subjectConfidence:Float(legacyPrimary?.confidence ?? 0),target:oldPlan?.target ?? .init(x:0.5,y:0.5))
-                let legacyAssessment = CompositionAssessment.evaluate(bounds:legacyPrimary?.bounds,confidence:legacyPrimary?.confidence ?? 0,
+                let legacyAssessment = BaselineAssessment22.evaluate(bounds:legacyPrimary?.bounds,confidence:legacyPrimary?.confidence ?? 0,
                     label:legacyPrimary?.label ?? "Subject",intent:label.intent,stable:true,exposure:legacyPrimary?.measurements,
                     evidence:analyzed.evidence,others:legacyContext,anatomy:legacyPrimary?.bounds == primary?.bounds ? analyzed.anatomy : nil)
                 let observedScene = analyzed.sceneLabel.flatMap { name in analyzed.sceneConfidence.map { SubjectScene(label:name,confidence:Float($0),timestamp:0) } }
                 let old: GuidanceMessage
                 if let sequence = label.sequenceID, !sequence.isEmpty, let time = label.sequenceTime {
-                    var engine = baselineMemories[sequence] ?? BaselineGuidance21()
+                    var engine = baselineMemories[sequence] ?? BaselineGuidance22()
                     var scene = observedScene; scene?.timestamp = time
+                    var currentAnatomy = legacyPrimary?.bounds == primary?.bounds ? analyzed.anatomy : nil; currentAnatomy?.timestamp = time
+                    let currentEvidence = analyzed.evidence.map { SceneCompositionEvidence(evaluationSnapshot:$0,at:time) }
                     old = engine.update(reading:oldReading,phase:.off,stable:true,rollReliable:false,autoEnabled:false,zoomAvailable:false,
-                        timestamp:time,previewAspect:analyzed.aspect,scene:scene,subjectLabel:legacyPrimary?.label,subjectMeasurements:legacyPrimary?.measurements,compositionPlan:oldPlan)
+                        timestamp:time,previewAspect:analyzed.aspect,scene:scene,subjectLabel:legacyPrimary?.label,subjectMeasurements:legacyPrimary?.measurements,compositionPlan:oldPlan,sceneEvidence:currentEvidence,intent:label.intent,anatomy:currentAnatomy,others:legacyContext)
                     baselineMemories[sequence] = engine
                 } else {
-                    old = BaselineGuidance21.settled(reading:oldReading,subject:legacyPrimary?.label,measurements:legacyPrimary?.measurements,plan:oldPlan,aspect:analyzed.aspect,scene:observedScene)
+                    old = BaselineGuidance22.settled(reading:oldReading,subject:legacyPrimary?.label,measurements:legacyPrimary?.measurements,plan:oldPlan,aspect:analyzed.aspect,scene:observedScene,intent:label.intent,anatomy:legacyPrimary?.bounds == primary?.bounds ? analyzed.anatomy : nil,context:legacyContext,evidence:analyzed.evidence)
                 }
-                baseline.append(.init(sampleID:sample.id,algorithm:"Focal 2.1 settled guidance",selected:legacyPrimary,detections:analyzed.subjects,action:Self.baselineAction(old),text:old.text,
-                    inferenceMilliseconds:nil,aestheticScore:analyzed.aestheticScore,fitness:legacyAssessment.fitness,assessment:AssessmentMeasurements(legacyAssessment)))
-                updated.append(.init(sampleID:sample.id,algorithm:"Focal Intelligence 2.0",selected:primary,detections:analyzed.subjects,action:decision.action,text:decision.text,
-                    inferenceMilliseconds:analyzed.inferenceMilliseconds,aestheticScore:analyzed.aestheticScore,fitness:measured.fitness,assessment:AssessmentMeasurements(measured)))
+                baseline.append(.init(sampleID:sample.id,algorithm:"Focal 2.2 settled guidance",selected:legacyPrimary,detections:analyzed.subjects,action:Self.baselineAction(old),text:old.text,
+                    inferenceMilliseconds:nil,aestheticScore:analyzed.aestheticScore,fitness:legacyAssessment.fitness,assessment:AssessmentMeasurements.fromBaseline(legacyAssessment)))
+                updated.append(.init(sampleID:sample.id,algorithm:"Focal Intelligence 3.0",selected:primary,detections:analyzed.subjects,action:decision.action,text:decision.text,
+                    inferenceMilliseconds:analyzed.inferenceMilliseconds,aestheticScore:analyzed.aestheticScore,fitness:measured.fitness,assessment:AssessmentMeasurements(measured),proposedZoomScale:proposedScale,previousSelectionOverlap:overlap))
             } catch is CancellationError { throw CancellationError() }
             catch { errors.append("\(sample.id): \(error.localizedDescription)") }
         }
-        return .init(baseline:baseline,updated:updated,baselineMetrics:.calculate(samples:samples,outcomes:baseline),updatedMetrics:.calculate(samples:samples,outcomes:updated),errors:errors)
+        let heldOut = samples.filter { $0.annotation.datasetSplit == "held-out" }
+        return .init(baseline:baseline,updated:updated,baselineMetrics:.calculate(samples:samples,outcomes:baseline),updatedMetrics:.calculate(samples:samples,outcomes:updated),errors:errors,
+            heldOutBaselineMetrics:heldOut.isEmpty ? nil : .calculate(samples:heldOut,outcomes:baseline),
+            heldOutUpdatedMetrics:heldOut.isEmpty ? nil : .calculate(samples:heldOut,outcomes:updated))
     }
     private static func baselineAction(_ message:GuidanceMessage) -> GuidanceAction {
+        if let action = message.action { return action }
         let text = message.text.lowercased()
         if text.contains("step back") || text.contains("farther back") { return .makeRoom }
         if text.contains("move closer") { return .tighterCrop }

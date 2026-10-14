@@ -74,7 +74,8 @@ final class SubjectTracker {
             let visible = projection.visiblePoint(.init(x:Double(point.x),y:1-Double(point.y)))
             return CGPoint(x:visible.x,y:visible.y)
         }
-        return SubjectAnatomy(face:visibleFace,headYaw:face?.yaw,joints:visiblePoints,timestamp:time)
+        let sourceTime = face != nil && !points.isEmpty ? min(faceTime,poseTime) : face != nil ? faceTime : poseTime
+        return SubjectAnatomy(face:visibleFace,headYaw:face?.yaw,joints:visiblePoints,timestamp:sourceTime)
     }
 
     func configure(pets: Bool, tracking: Bool, smartSelection: Bool) {
