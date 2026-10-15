@@ -40,9 +40,11 @@ for name in whole:
 if not args.baseline:
  (app/'CameraControls.swift').write_text(source('Focal/Camera/CameraControls.swift'))
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
+ (app/'SubjectAutofocus.swift').write_text(source('Focal/Camera/SubjectAutofocus.swift'))
  shutil.copyfile(ROOT/'FocalTests/PhotoCapturePolicyTests.swift',tests/'PhotoCapturePolicyTests.swift')
  shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ContinuousFramingRecoveryTests.swift',tests/'ContinuousFramingRecoveryTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/SubjectAutofocusTests.swift',tests/'SubjectAutofocusTests.swift')
 if not args.baseline:
  # Copy the original model and pure luma implementation verbatim, excluding its
  # CoreVideo/CoreImage/ImageIO adapters (not available on Linux).

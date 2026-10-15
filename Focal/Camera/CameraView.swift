@@ -346,7 +346,8 @@ struct CameraView: View {
             onSelect: { camera.selectSubject(at: $0) },
             onZoom: { camera.setZoom($0) }, zoom: camera.zoom,
             onPinchBegin: { camera.beginManualZoom(completion: $0) }, mirrored: camera.isFrontCamera,
-            showTapIndicator:camera.controls.canTapFocus && !camera.controls.manualFocus)
+            showTapIndicator:camera.controls.canTapFocus && !camera.controls.manualFocus,
+            onPreviewLayer:{ camera.attachAutofocusPreviewLayer($0) })
             .disabled(controlsBusy)
     }
 

@@ -159,10 +159,16 @@ final class CameraController: NSObject, ObservableObject {
     private var interfacePaused = false
     private var manualInferenceResumeAfter: TimeInterval = 0 // Analysis queue only.
     private var ignoreFramesUntil: TimeInterval = 0
-    private var focusCandidate: UnitPoint2D?
-    private var focusCandidateSince: TimeInterval = 0
-    private var lastAutomaticFocus: TimeInterval = 0
-    private var lastFocusedPoint: UnitPoint2D?
+    private var subjectAutofocus = SubjectAutofocus() // Existing analysis queue.
+    private let autofocusRequests = AutofocusRequestGate()
+    private weak var autofocusPreviewLayer: AVCaptureVideoPreviewLayer? // Main thread only.
+    private var trackingFocusIdentity: String? // Camera queue below.
+    private var lastTrackingFocusEvidence: TimeInterval = -.infinity
+    private var trackingFocusWatchdogRunning = false
+    private var trackingFocusWatchdogRevision = 0
+    private var trackingFocusRetryAfter: TimeInterval = 0
+    private var pendingTrackingFocusRestore = false
+    private var trackingFocusPaused = false // Camera queue; sheets must not configure focus.
     private var zoomMultiplier: CGFloat = 1 // Capture zoom that corresponds to the wide lens's 1×.
     private var shotCapture = ShotCaptureSession() // Analysis queue.
     private var pendingFramingCapture: FramedCapture? // Camera queue, frozen on shutter press.
@@ -239,6 +245,7 @@ final class CameraController: NSObject, ObservableObject {
         queue.async { [weak self] in
             guard let self else { return }
             self.wantsToRun = false
+            self.autofocusRequests.invalidate(); self.restoreNormalSubjectFocus()
             self.cancelZoomRamp()
             if self.session.isRunning { self.session.stopRunning() }
             self.motion.stopDeviceMotionUpdates()
@@ -284,6 +291,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func discardConfiguration() {
+        autofocusRequests.invalidate(); restoreNormalSubjectFocus()
         photoFormatObservation = nil
         if session.isRunning { session.stopRunning() }
         session.beginConfiguration()
@@ -346,9 +354,12 @@ final class CameraController: NSObject, ObservableObject {
     func setInterfacePaused(_ paused: Bool) {
         precisionLock.lock(); precisionContext.paused = paused; precisionContext.generation += 1; precisionLock.unlock()
         queue.async {
+            self.trackingFocusPaused = paused; self.autofocusRequests.invalidate()
+            if paused { self.restoreNormalSubjectFocus() }
             self.cancelZoomRamp()
             self.analysisQueue.async {
                 self.interfacePaused = paused
+                self.resetSubjectAutofocus()
                 if !paused {
                     // Preserve a valid shot or pending recovery across sheets.
                     // A manual override remains latched across this transition.
@@ -498,6 +509,7 @@ final class CameraController: NSObject, ObservableObject {
         }
         queue.async {
             self.cancelZoomRamp(manualOverride:!enabled,reason:.disabled)
+            if !enabled { self.autofocusRequests.invalidate(); self.restoreNormalSubjectFocus() }
             if newSession { self.beginAutomaticShot() }
             self.analysisQueue.async {
                 guard self.guidanceSnapshot() == snapshot else { return }
@@ -522,10 +534,13 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             let newSession = enabled && !self.autoZoomPreference
             self.autoZoomPreference = enabled
+            self.autofocusRequests.invalidate()
+            if !enabled { self.restoreNormalSubjectFocus() }
             self.cancelZoomRamp(manualOverride:!enabled,reason:.disabled)
             if newSession { self.beginAutomaticShot() }
             self.analysisQueue.async {
                 self.autoFrameEnabled = self.tracker.features.allowsAutomaticZoom(requested: enabled)
+                self.resetSubjectAutofocus()
                 self.framing.reset(enabled: self.automaticShotArmed && self.autoFrameEnabled && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.ignoreFramesUntil = 0
                 self.publishFraming()
@@ -607,6 +622,9 @@ final class CameraController: NSObject, ObservableObject {
     func setPreviewAspect(_ aspect: Double) {
         precisionLock.lock(); precisionContext.previewAspect = aspect; precisionContext.generation += 1; precisionLock.unlock()
         analysisQueue.async {
+            if abs(self.previewAspect-aspect) > 0.005 {
+                self.autofocusRequests.invalidate(); self.subjectAutofocus.reset()
+            }
             if abs(self.previewAspect-aspect) > 0.005, self.framing.phase.isAutoFraming {
                 self.automaticShotArmed = false; self.framing.reset(enabled:false)
                 self.queue.async { self.cancelZoomRamp(manualOverride:true) }
@@ -641,9 +659,11 @@ final class CameraController: NSObject, ObservableObject {
         guard guidanceSnapshot().enabled else { return }
         tracker.cancelInference()
         queue.async {
+            self.autofocusRequests.invalidate()
             self.cancelZoomRamp(manualOverride:true)
             self.beginAutomaticShot() // Selecting a subject explicitly initiates a new AI shot.
             self.analysisQueue.async {
+                self.subjectAutofocus.reset()
                 self.ignoreFramesUntil = 0
                 guard self.guidanceEnabled, self.guidanceSnapshot().enabled else { return }
                 let projection = PreviewProjection(imageAspect: self.imageAspect, previewAspect: self.previewAspect, mirrored: self.analysisFrontCamera)
@@ -718,9 +738,7 @@ final class CameraController: NSObject, ObservableObject {
         manualTargetLock = nil
         scenePlanner.reset(); directZoomPlan = nil; compositionEvidence = nil; lastCompositionEvidence = -.infinity
         tracker.reset()
-        focusCandidate = nil
-        focusCandidateSince = 0
-        lastFocusedPoint = nil
+        resetSubjectAutofocus()
         wantsScan = true
         lastCoach = -.infinity; lastScene = -.infinity
         subjectMeasurements = nil; subjectMeasurementLabel = nil; lastSubjectMeasurement = -.infinity
@@ -1035,6 +1053,8 @@ final class CameraController: NSObject, ObservableObject {
             guard self.captureCompletion == nil else { return }
             if self.manualState.mode != mode { self.cancelZoomRamp(manualOverride:true) }
             if mode == .auto { self.manualState.reset() } else { self.manualState.mode = .pro }
+            self.autofocusRequests.setManualFocus(self.manualState.focus != nil)
+            self.analysisQueue.async { self.resetSubjectAutofocus() }
             self.updateManualControls()
         }
     }
@@ -1071,6 +1091,10 @@ final class CameraController: NSObject, ObservableObject {
         queue.async {
             guard self.captureCompletion == nil, self.manualState.mode == .pro, position?.isFinite != false else { return }
             self.manualState.focus = position
+            self.autofocusRequests.setManualFocus(position != nil)
+            self.autofocusRequests.invalidate()
+            self.restoreNormalSubjectFocus() // Manual focus is already authoritative.
+            self.analysisQueue.async { self.resetSubjectAutofocus() }
             self.scheduleManualControls()
         }
     }
@@ -1147,6 +1171,7 @@ final class CameraController: NSObject, ObservableObject {
             manualState.focus = nil
             if camera.isFocusModeSupported(.continuousAutoFocus) { camera.focusMode = .continuousAutoFocus }
         }
+        autofocusRequests.setManualFocus(manualState.focus != nil)
     }
     private func publishControls() {
         guard let device else { return }
@@ -1598,17 +1623,17 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         var bounds: CGRect?
         var imageBounds: CGRect?
         var confidence: Float = 0
-        var automaticFocusPoint: UnitPoint2D?
         let visibleProjection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect)
         let topLeft = visibleProjection.imagePoint(.init(x:0,y:0))
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
         let keepFramedSubject = analysisSource == .iPhone && latestNativeBounds != nil
             && ((framing.shotPlan != nil && framing.phase.isPreparing)
-                || framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed)
+                || framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed
+                || (autoFrameEnabled && subjectAutofocus.identity != nil && subjectAutofocus.identity == tracker.trackingReference))
         let inferenceStarted = ProcessInfo.processInfo.systemUptime
         if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || now < manualInferenceResumeAfter || ProcessInfo.processInfo.thermalState == .critical, retainSelection:keepFramedSubject,
-                                            reacquisitionGrace:analysisSource == .iPhone && framing.shotPlan != nil ? 1.5 : 0,
+                                            reacquisitionGrace:analysisSource == .iPhone && (framing.shotPlan != nil || subjectAutofocus.identity != nil) ? 1.5 : 0,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
             imageBounds = object.boundingBox
             latestNativeBounds = object.boundingBox; latestBoundsZoom = analysisZoom
@@ -1617,11 +1642,6 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             let projection = PreviewProjection(imageAspect: imageAspect, previewAspect: previewAspect, mirrored: analysisFrontCamera)
             subject = projection.visiblePoint(imagePoint)
             bounds = projection.visibleVisionRect(object.boundingBox)
-            if analysisSource == .iPhone, confidence >= 0.6, !deviceMoving, !zooming, now >= manualInferenceResumeAfter {
-                let anatomy = tracker.anatomy(for:object.boundingBox,projection:projection,at:now)
-                let focusPoint = anatomy?.face.map { head in projection.imagePoint(.init(x:head.midX,y:head.midY)) } ?? imagePoint
-                automaticFocusPoint = focusPoint
-            }
         }
         let inferenceMilliseconds = (ProcessInfo.processInfo.systemUptime-inferenceStarted)*1000
         // Preserve the last measured seed through a bounded pause, never display it
@@ -1632,7 +1652,6 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:evaluatedAt) else {
             discardStaleGuidance(snapshot,observedAt:observationTime); return
         }
-        if let automaticFocusPoint { updateAutomaticFocus(automaticFocusPoint,timestamp:evaluatedAt) }
         let motionData = analysisSource == .iPhone ? motion.deviceMotion : nil
         let motionMeasuredAt = ProcessInfo.processInfo.systemUptime
         let gravity = motionData?.gravity
@@ -1877,6 +1896,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         if analysisSource == .iPhone {
             shotCapture.observe(plan:framing.shotPlan,verified:framing.shotVerified,bounds:bounds,label:tracker.label,
                 confidence:confidence,zoom:analysisZoom,stable:captureStable,timestamp:evaluatedAt,aspect:previewAspect)
+            updateSubjectAutofocus(buffer:buffer,imageBounds:imageBounds,previewBounds:bounds,confidence:confidence,
+                projection:projection,observedAt:observationTime,snapshot:snapshot,
+                allowHeadInference:!framing.phase.isAutoFraming && !rapidMovement)
         }
         let tolerance = autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing ? FramingPlanner.alignmentTolerance(plannedScale:executionScale,destination:preparingZoom ? finalTarget : nil) : 0.065
         var result = engine.update(subject: subject, rollDegrees: roll, mode: mode, timestamp: evaluatedAt,
@@ -2080,19 +2102,125 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         return analysisBuffer
     }
 
-    private func updateAutomaticFocus(_ point: UnitPoint2D, timestamp: TimeInterval) {
-        guard guidanceSnapshot().enabled, !tracker.manual else { return } // Tap-to-focus keeps the user's exposure choice.
-        if focusCandidate == nil || focusCandidate!.distance(to: point) > 0.08 {
-            focusCandidate = point
-            focusCandidateSince = timestamp
-        }
-        guard timestamp - focusCandidateSince > 0.6, timestamp - lastAutomaticFocus > 3 else { return }
-        if let lastFocusedPoint, lastFocusedPoint.distance(to: point) < 0.12 { return }
-        lastAutomaticFocus = timestamp
-        lastFocusedPoint = point
-        // Convert physically rotated portrait buffer coordinates to the sensor's landscape axes.
-        focus(at: CGPoint(x: point.y, y: 1 - point.x), continuous: true, meterExposure: false)
+    /// Reuse the actual preview layer's sensor mapping rather than assuming a
+    /// portrait rotation/mirror transform. Layer geometry is read on main only.
+    func attachAutofocusPreviewLayer(_ layer:AVCaptureVideoPreviewLayer) {
+        guard autofocusPreviewLayer !== layer else { return }
+        autofocusPreviewLayer = layer; autofocusRequests.invalidate()
+        analysisQueue.async { self.subjectAutofocus.reset() }
     }
+    private func resetSubjectAutofocus() { // Analysis queue.
+        subjectAutofocus.reset()
+        let revision = autofocusRequests.invalidate()
+        queue.async { if self.autofocusRequests.accepts(revision) { self.restoreNormalSubjectFocus() } }
+    }
+    private func updateSubjectAutofocus(buffer:CVPixelBuffer,imageBounds:CGRect?,previewBounds:CGRect?,confidence:Float,
+                                       projection:PreviewProjection,observedAt:TimeInterval,snapshot:GuidanceActivation.Snapshot,
+                                       allowHeadInference:Bool) {
+        let enabled = snapshot.enabled && guidanceEnabled && autoFrameEnabled && analysisSource == .iPhone
+            && !autofocusRequests.manuallyControlled
+        // Manual zoom disarms zoom, not the existing subject tracker or AF.
+        // A retained plan has priority over any transient tracker challenger.
+        let expected = framing.phase == .rediscovering ? nil : framing.shotPlan?.trackingReference ?? tracker.trackingReference
+        var head: (region:CGRect,observedAt:TimeInterval)?
+        if enabled, confidence >= 0.65, let expected, expected == tracker.trackingReference, let imageBounds {
+            head = tracker.focusRegion(in:buffer,subject:imageBounds,identity:expected,projection:projection,
+                observedAt:observedAt,allowInference:allowHeadInference,canContinue:{ self.guidanceSnapshot() == snapshot })
+        }
+        let time = ProcessInfo.processInfo.systemUptime
+        guard guidanceSnapshot() == snapshot else { return }
+        let previousIdentity = subjectAutofocus.identity
+        guard let update = subjectAutofocus.update(enabled:enabled,selectedIdentity:expected,observedIdentity:tracker.trackingReference,
+            bounds:previewBounds,confidence:confidence,head:head?.region,headObservedAt:head?.observedAt,
+            observedAt:observedAt,now:time,zoom:analysisZoom) else { return }
+        switch update {
+        case .normal:
+            let revision = autofocusRequests.invalidate()
+            queue.async { if self.autofocusRequests.accepts(revision) { self.restoreNormalSubjectFocus() } }
+        case .maintain(let identity,let evidence):
+            queue.async {
+                guard self.guidanceSnapshot() == snapshot, self.autoZoomPreference, !self.autofocusRequests.manuallyControlled,
+                      self.trackingFocusIdentity == identity else { return }
+                self.lastTrackingFocusEvidence = max(self.lastTrackingFocusEvidence,evidence)
+            }
+        case .target(let target):
+            let revision = autofocusRequests.invalidate()
+            if previousIdentity != target.identity {
+                ShotFramingDiagnostics.log("AF_TARGET_SELECTED","shot=\(framing.shotPlan?.id ?? "pending") tracker=\(target.identity) observedHead=\(target.usesObservedHead) zoom=\(target.zoom)")
+            }
+            DispatchQueue.main.async {
+                guard self.autofocusRequests.accepts(revision), self.guidanceSnapshot() == snapshot,
+                      let layer = self.autofocusPreviewLayer, layer.session === self.session, layer.connection != nil,
+                      layer.bounds.width > 0, layer.bounds.height > 0,
+                      GuidanceObservationPolicy.fresh(capturedAt:target.observedAt,evaluatedAt:ProcessInfo.processInfo.systemUptime) else { return }
+                self.zoomObservationLock.lock(); let camera = self.observedPhoneZoom; self.zoomObservationLock.unlock()
+                guard camera.fresh(at:ProcessInfo.processInfo.systemUptime), let point = target.point(atZoom:camera.displayedFactor) else { return }
+                let devicePoint = layer.captureDevicePointConverted(fromLayerPoint:CGPoint(x:layer.bounds.minX+point.x*layer.bounds.width,
+                    y:layer.bounds.minY+point.y*layer.bounds.height))
+                self.queue.async { self.applySubjectFocus(target,point:devicePoint,convertedAtZoom:camera.displayedFactor,revision:revision,snapshot:snapshot) }
+            }
+        }
+    }
+    private func applySubjectFocus(_ target:SubjectFocusTarget,point:CGPoint,convertedAtZoom:Double,revision:Int,snapshot:GuidanceActivation.Snapshot) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard autofocusRequests.accepts(revision), guidanceSnapshot() == snapshot, snapshot.enabled, snapshot.source == .iPhone,
+              autoZoomPreference, wantsToRun, !trackingFocusPaused, captureCompletion == nil, !autofocusRequests.manuallyControlled,
+              manualState.permitsFocus(automatic:true), GuidanceObservationPolicy.fresh(capturedAt:target.observedAt,evaluatedAt:now),
+              [point.x,point.y].allSatisfy({ $0.isFinite && (0...1).contains($0) }), let device,
+              abs(Double(device.videoZoomFactor/zoomMultiplier)/convertedAtZoom-1) <= 0.06 else { return }
+        guard device.isFocusPointOfInterestSupported, device.isFocusModeSupported(.continuousAutoFocus) else {
+            // Leave unsupported/fixed-focus hardware in its existing normal mode.
+            return
+        }
+        lastTrackingFocusEvidence = target.observedAt
+        let changedIdentity = trackingFocusIdentity != target.identity
+        trackingFocusIdentity = target.identity
+        ensureTrackingFocusWatchdog()
+        guard now >= trackingFocusRetryAfter else { return }
+        let old = device.focusPointOfInterest
+        guard changedIdentity || device.focusMode != .continuousAutoFocus || hypot(old.x-point.x,old.y-point.y) >= 0.008 else { return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            device.focusPointOfInterest = point
+            // Keep continuous AF active even while it is adjusting. Point of
+            // interest is not lens distance; AVFoundation controls lens motion.
+            if device.focusMode != .continuousAutoFocus { device.focusMode = .continuousAutoFocus }
+            ShotFramingDiagnostics.log("AF_POINT_APPLIED","tracker=\(target.identity) x=\(point.x) y=\(point.y) observedHead=\(target.usesObservedHead) adjusting=\(device.isAdjustingFocus) actualLensPosition=\(device.lensPosition) actualZoom=\(Double(device.videoZoomFactor/zoomMultiplier))")
+        } catch {
+            trackingFocusRetryAfter = now+1
+            ShotFramingDiagnostics.log("AF_LOCK_FAILED","tracker=\(target.identity) error=\(error)")
+        }
+    }
+    private func ensureTrackingFocusWatchdog() {
+        guard !trackingFocusWatchdogRunning else { return }
+        trackingFocusWatchdogRunning = true; trackingFocusWatchdogRevision += 1
+        observeTrackingFocus(revision:trackingFocusWatchdogRevision)
+    }
+    private func observeTrackingFocus(revision:Int) {
+        guard revision == trackingFocusWatchdogRevision, trackingFocusWatchdogRunning else { return }
+        let snapshot = guidanceSnapshot()
+        guard snapshot.enabled, snapshot.source == .iPhone, autoZoomPreference, wantsToRun, !trackingFocusPaused,
+              !autofocusRequests.manuallyControlled, ProcessInfo.processInfo.systemUptime-lastTrackingFocusEvidence <= 1.5 else {
+            autofocusRequests.invalidate(); restoreNormalSubjectFocus(); return
+        }
+        queue.asyncAfter(deadline:.now()+0.3) { self.observeTrackingFocus(revision:revision) }
+    }
+    private func restoreNormalSubjectFocus() { // Camera queue, preserves manual focus/exposure.
+        trackingFocusWatchdogRunning = false; trackingFocusWatchdogRevision += 1
+        guard captureCompletion == nil else { pendingTrackingFocusRestore = true; return }
+        pendingTrackingFocusRestore = false
+        let wasTracking = trackingFocusIdentity != nil
+        trackingFocusIdentity = nil; lastTrackingFocusEvidence = -.infinity; trackingFocusRetryAfter = 0
+        guard wasTracking, let device, manualState.permitsFocus(automatic:true), device.isFocusModeSupported(.continuousAutoFocus) else { return }
+        do {
+            try device.lockForConfiguration(); defer { device.unlockForConfiguration() }
+            if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x:0.5,y:0.5) }
+            if device.focusMode != .continuousAutoFocus { device.focusMode = .continuousAutoFocus }
+            ShotFramingDiagnostics.log("AF_NORMAL","reason=disabled_lost_or_reset device=\(device.localizedName)")
+        } catch { ShotFramingDiagnostics.log("AF_RESTORE_FAILED","error=\(error)") }
+    }
+
 }
 
 extension CameraController: AVCapturePhotoCaptureDelegate {
@@ -2130,6 +2258,7 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
         queue.async {
             let completion = self.captureCompletion
             self.captureCompletion = nil
+            if self.pendingTrackingFocusRestore { self.restoreNormalSubjectFocus() }
             self.pendingCaptureID = nil
             self.pendingProcessed = nil; self.pendingRAW = nil; self.pendingError = nil; self.pendingFramingCapture = nil
             self.pendingPhotoSelection = nil

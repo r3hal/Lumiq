@@ -70,6 +70,7 @@ struct CameraPreview: UIViewRepresentable {
     let onPinchBegin: (@escaping (Double)->Void)->Void
     var mirrored = false
     var showTapIndicator = true
+    var onPreviewLayer: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
 
     func makeUIView(context: Context) -> PreviewSurface {
         let view = PreviewSurface()
@@ -82,6 +83,7 @@ struct CameraPreview: UIViewRepresentable {
         view.currentZoom = zoom
         view.showTapIndicator = showTapIndicator
         rotate(view)
+        onPreviewLayer?(view.previewLayer)
         return view
     }
     func updateUIView(_ view: PreviewSurface, context: Context) {
@@ -94,6 +96,7 @@ struct CameraPreview: UIViewRepresentable {
         view.onZoom = onZoom
         view.onPinchBegin = onPinchBegin
         rotate(view)
+        onPreviewLayer?(view.previewLayer)
     }
     private func rotate(_ view: PreviewSurface) {
         if let connection = view.previewLayer.connection, connection.isVideoMirroringSupported {

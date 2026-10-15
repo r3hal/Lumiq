@@ -1,12 +1,9 @@
-Focal 2.8.0 / build 32 — continuous automatic framing recovery
-REFERENCE: inspected both new videos before modifying code: Focal 42.400s and Framed 10.367s. Focal shows manual control at 2s, actual visible zoom to about 1.6x / READY at 32s, then unsafe-crop restart instruction at 34s. Recordings contain no sensor/motor telemetry.
-PASS: 254 portable XCTest cases on Swift 6.0.3/Linux, including 25 new continuous-recovery cases. Production Foundation director/geometry/capture-payload code; controlled measurements are fixtures, not iPhone or replayed Vision results. Existing 229 portable tests remain unchanged and pass.
-PARSE: all 123 app/test Swift files pass frontend syntax parsing. This does not type-check Apple APIs or link an iOS app.
-STRUCTURE PASS: deterministic project; 91 app/32 test sources; 494 registered native XCTest functions; resource/YAML/build script syntax; baseline hashes; Sony source unchanged; user-only shutter; whitespace.
-FIXED: phone admission has no prezoom stability dwell; gross motion/crop/tracking/device checks remain. Ordinary interruptions and watchdogs recover with retained shot/actual-zoom retry; bounded 0.4/0.9/1.8s backoff, 1.5s tracking grace, 4s unresolved-motion exit and 2s rediscovery cooldown. Successful framing no longer disarms AI. Position-only READY invalidation reaims at the same zoom. Manual control and AI off remain latched until explicit new AI shot.
-PRESERVED: actual AVFoundation ramp/rate stages/observed-motor verification; capture-level READY checks; original wide preview retained across retry; manual shutter; RAW capture policy; pro controls/layout; Sony integration.
-DIAGNOSTICS: existing bounded export now includes retry count/deadline, recovery transitions, actual zoom/motor events and gross-motion permission. Missing readings are unknown; no camera images or uploads.
-NATIVE ATTEMPT: xcodebuild unavailable, exit 127. Full 494-test iOS run and unsigned archive require Codemagic.
-DEVICE: no physical iPhone tested after changes. Real motor/preview, tracking/reacquisition, quality, crop safety, thermal/lens behavior, cancellation and paired/RAW saving remain acceptance checks.
-REPORT: docs/intelligence/CONTINUOUS-FRAMING-RECOVERY.md
-EVIDENCE: docs/intelligence/CONTINUOUS-FRAMING-VALIDATION.json and CONTINUOUS-FRAMING-CONTROLLED-TRACE.txt
+Focal 2.9.0 / build 33 — integrated subject-tracking autofocus
+RECOVERED: four modified camera files and untracked SubjectAutofocus.swift survived the disconnected run. Existing work preserved; missing lifecycle/manual-control wiring, project references, tests and release evidence completed.
+PASS: 275 portable XCTest cases, including 21 new subject-autofocus cases. Production Foundation code with controlled identity/geometry/time inputs; no AVFoundation lens or Vision inference executed by portable tests.
+PARSE: all 125 Swift sources pass frontend syntax parsing, not Apple SDK type checking.
+STRUCTURE PASS: deterministic project; 92 app/33 test sources; 515 registered native XCTest functions; resources/YAML/build scripts/baseline hashes; no duplicate module-level types; user-only shutter; whitespace. Sony sources unchanged.
+IMPLEMENTED: existing ShotPlan/tracker identity drives automatic continuous AF throughout aiming, zoom and recovery. Bounded head refinement and body fallback; short tracking-loss grace and normal-AF restoration; smooth/throttled POI updates through actual preview-layer coordinate conversion; stale device/source/manual requests rejected. Manual focus wins, manual zoom preserves subject AF. No separate tracking toggle or automatic shutter.
+NATIVE BUILD ATTEMPT: xcodebuild unavailable, exit 127. No successful native build, simulator test or IPA archive claimed. Codemagic full iOS build/tests still required.
+DEVICE: no iPhone tested after this change. Actual focus sharpness/distance response, head/pose ROI, preview conversion, zoom/lens transitions, performance, manual handoff, loss recovery and capture behavior require physical verification.
+REPORT: docs/intelligence/SUBJECT-AUTOFOCUS.md

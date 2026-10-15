@@ -36,6 +36,8 @@ final class SubjectTracker {
     private var faceTime: TimeInterval = -.infinity
     private var health = SubjectTrackingHealth()
     private var retainedLossSince: TimeInterval?
+    private var focusHead: TrackedFocusRegion?
+    private var lastFocusHeadAttempt: TimeInterval = -.infinity
     private var selectedPoint: CGPoint?
     private var lastDetection: TimeInterval = -.infinity
     private var lastScene: TimeInterval = -.infinity
@@ -80,6 +82,53 @@ final class SubjectTracker {
         return SubjectAnatomy(face:visibleFace,headYaw:face?.yaw,joints:visiblePoints,timestamp:sourceTime)
     }
 
+    /// Only refine the region of the already selected identity. This never
+    /// calls the selector, changes a ShotPlan, or starts another Vision tracker.
+    func focusRegion(in buffer:CVPixelBuffer,subject:CGRect,identity:String,projection:PreviewProjection,
+                     observedAt:TimeInterval,allowInference:Bool,canContinue:() -> Bool) -> (region:CGRect,observedAt:TimeInterval)? {
+        guard trackingReference == identity, SubjectAutofocus.validVisible(subject) else { return nil }
+        if focusHead?.identity != identity { focusHead = nil; lastFocusHeadAttempt = -.infinity }
+        let category = SubjectCategory.classified(label)
+        guard category == .person || category == .face || category == .pet else { return nil }
+        if allowInference, observedAt-lastFocusHeadAttempt >= 0.9,
+           ProcessInfo.processInfo.thermalState != .serious, ProcessInfo.processInfo.thermalState != .critical {
+            lastFocusHeadAttempt = observedAt
+            var heads = [CGRect]()
+            // Reuse anatomy from this image before requesting a targeted refresh.
+            if category != .pet, observedAt >= faceTime, observedAt-faceTime <= 0.3 {
+                heads = facesForAssessment.filter { $0.confidence >= 0.65 && SubjectAutofocus.contains(subject,$0.box) }.map(\.box)
+            } else if category == .pet, observedAt >= poseTime, observedAt-poseTime <= 0.3 {
+                heads = poseHeads.compactMap { $0 }.filter { SubjectAutofocus.contains(subject,$0) }
+            } else {
+                let roi = subject.intersection(CGRect(x:0,y:0,width:1,height:1))
+                do {
+                    if category == .person || category == .face {
+                        let faces = VNDetectFaceRectanglesRequest(); faces.regionOfInterest = roi
+                        try performRequests([faces],canContinue:canContinue) {
+                            try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([faces])
+                        }
+                        heads = (faces.results ?? []).filter { $0.confidence >= 0.65 && SubjectAutofocus.contains(subject,$0.boundingBox) }.map(\.boundingBox)
+                    } else {
+                        #if !targetEnvironment(simulator)
+                        let pose = VNDetectAnimalBodyPoseRequest(); pose.regionOfInterest = roi
+                        try performRequests([pose],canContinue:canContinue) {
+                            try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([pose])
+                        }
+                        heads = (pose.results ?? []).compactMap { animalHeadBounds($0) }.filter { SubjectAutofocus.contains(subject,$0) }
+                        #endif
+                    }
+                } catch { heads = [] }
+            }
+            guard canContinue() else { return nil }
+            // Ambiguous/absent head detection falls back to the tracked body.
+            if heads.count == 1, let head = heads.first {
+                focusHead = TrackedFocusRegion(identity:identity,subject:subject,region:head,observedAt:observedAt)
+            } else { focusHead = nil }
+        }
+        guard let head = focusHead, let region = head.projected(in:subject,identity:identity,at:observedAt) else { return nil }
+        return (projection.visibleVisionRect(region),head.observedAt)
+    }
+
     func configure(pets: Bool, tracking: Bool, smartSelection: Bool) {
         features = SubjectAnalysisFeatures(petDetection: pets, subjectTracking: tracking, smartSelection: smartSelection)
         reset()
@@ -121,6 +170,7 @@ final class SubjectTracker {
         lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
         manual = false; label = "Auto subject"; trackingReference = nil; isRecovering = false
         retainedLossSince = nil
+        focusHead = nil; lastFocusHeadAttempt = -.infinity
     }
     func select(at imagePoint: UnitPoint2D) {
         let point = CGPoint(x: imagePoint.x, y: 1 - imagePoint.y)

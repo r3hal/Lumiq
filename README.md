@@ -2,7 +2,7 @@
 
 A native SwiftUI camera with original charcoal/amber identity, optional Focal Intelligence, real AUTO/PRO controls, photography intents, live precision tools, captured-image Insights and read-only Compare. Existing capture/gallery/editor and Sony services are preserved. Apple frameworks only; no account, API key or backend. The app opens directly to the iPhone camera. AI and precision tools start off; the photographer controls automation.
 
-**Latest: Focal 2.8.0 / build 32 — continuous automatic framing recovery.** Correctly aimed, reliably tracked shots start framing without a blocking stability dwell. Interrupted ramps retry from measured camera zoom with bounded backoff; persistent subject loss returns to discovery while AI stays on. Manual zoom remains authoritative, READY requires actual framing verification, and paired saving retains the original pre-zoom preview across retries. [Recording findings, recovery policy, changed files and device acceptance](docs/intelligence/CONTINUOUS-FRAMING-RECOVERY.md). **254 portable tests pass**, including 25 new recovery regressions; all 123 Swift files parse. The full 494-test native run and physical iPhone motor/preview checks remain pending.
+**Latest: Focal 2.9.0 / build 33 — automatic subject-tracking autofocus.** The same subject selected by AI Auto Frame supplies continuous autofocus through aiming, zoom, verification and recovery, without a separate toggle or manual tap. Fresh face/head evidence is preferred where available; objects use a stable region inside the tracked subject. Manual focus wins; manual zoom retains subject AF. [Implementation, modified files, tests and physical retest](docs/intelligence/SUBJECT-AUTOFOCUS.md). **275 portable tests pass**, including 21 new AF cases; all 125 Swift files parse. The full 515-test iOS run and real iPhone focus/preview validation remain pending.
 
 For private developer evaluation, run Codemagic **`ios-evaluation`**, install its IPA with AltStore, and open **Menu → Camera Settings → Developer Intelligence Lab**. Import and label your cat/object/landscape photos, compare the frozen build 18 guidance with the updated engine, and export self-contained JSON. The current `ios-sideload` also includes the developer lab for framing-trace export; both workflows run native tests before archiving.
 
@@ -29,7 +29,7 @@ The project is already generated. `python3 scripts/generate_project.py` regenera
 - 3:4, 4:5, 1:1 and 9:16 capture crops; optional RAW/ProRAW on supported cameras; original JPEG and DNG retention.
 - Private local photo library with thumbnails, favorites, deletion confirmation, native sharing, and explicit export to Apple Photos using add-only authorization.
 - Camera denial/unavailability and interruption handling. A labeled, offline demo with working save/export/gallery flows.
-- Privacy manifest, app icon, shared scheme, and 494 XCTest functions covering controls, intent, pixel tools, composition, preview geometry, Sony protocol/capture, editing, persistence, intelligence acceptance cases and evaluation metrics (updated native rerun pending).
+- Privacy manifest, app icon, shared scheme, and 515 XCTest functions covering controls, intent, pixel tools, composition, preview geometry, Sony protocol/capture, editing, persistence, intelligence acceptance cases and evaluation metrics (updated native rerun pending).
 
 ## Composition planning (1.12, build 15)
 
