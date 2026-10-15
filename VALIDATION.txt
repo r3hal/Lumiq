@@ -1,9 +1,10 @@
-Focal 2.9.0 / build 33 — integrated subject-tracking autofocus
-RECOVERED: four modified camera files and untracked SubjectAutofocus.swift survived the disconnected run. Existing work preserved; missing lifecycle/manual-control wiring, project references, tests and release evidence completed.
-PASS: 275 portable XCTest cases, including 21 new subject-autofocus cases. Production Foundation code with controlled identity/geometry/time inputs; no AVFoundation lens or Vision inference executed by portable tests.
-PARSE: all 125 Swift sources pass frontend syntax parsing, not Apple SDK type checking.
-STRUCTURE PASS: deterministic project; 92 app/33 test sources; 515 registered native XCTest functions; resources/YAML/build scripts/baseline hashes; no duplicate module-level types; user-only shutter; whitespace. Sony sources unchanged.
-IMPLEMENTED: existing ShotPlan/tracker identity drives automatic continuous AF throughout aiming, zoom and recovery. Bounded head refinement and body fallback; short tracking-loss grace and normal-AF restoration; smooth/throttled POI updates through actual preview-layer coordinate conversion; stale device/source/manual requests rejected. Manual focus wins, manual zoom preserves subject AF. No separate tracking toggle or automatic shutter.
-NATIVE BUILD ATTEMPT: xcodebuild unavailable, exit 127. No successful native build, simulator test or IPA archive claimed. Codemagic full iOS build/tests still required.
-DEVICE: no iPhone tested after this change. Actual focus sharpness/distance response, head/pose ROI, preview conversion, zoom/lens transitions, performance, manual handoff, loss recovery and capture behavior require physical verification.
-REPORT: docs/intelligence/SUBJECT-AUTOFOCUS.md
+Focal 2.10.0 / build 34 — Sony Wi-Fi Remote Controls
+PASS: 44 portable Sony XCTest cases: 33 new setting parser/workflow/wire-client/AF/diagnostic tests plus 11 existing capture-policy regressions. Production Foundation code, scripted camera responses and URLProtocol HTTP fixtures; no physical Sony commands executed.
+PASS: 275 existing portable framing/subject-autofocus regression tests. No changes to iPhone/AI/autozoom/autofocus implementation files.
+PARSE: all 130 Swift sources pass frontend syntax parsing. This does not establish Apple SDK type checking.
+STRUCTURE PASS: deterministic project; 96 app/34 test sources; 548 registered native XCTest functions; resources/YAML/build scripts/baseline hashes; no duplicate module-level types; user-only shutter; whitespace.
+IMPLEMENTED: Scalar JSON-RPC capability-driven ISO/aperture/shutter/WB/EV controls, actual camera values/ranges, acknowledged-and-read-back writes, releasable optional AF trigger, existing single-shot capture/live view, native remote panel, structured exportable diagnostics, stale-session/mode/lens handling and existing lifecycle reconnect.
+UNAVAILABLE: controls absent from the actual camera's current command/value advertisements; no fabricated model support. No remote zoom, new Sony SDK/PTP-IP adapter or RAW download.
+NATIVE BUILD ATTEMPT: xcodebuild unavailable, exit 127. No successful native build, simulator test, native UI verification or IPA archive claimed. Codemagic full iOS build/tests required.
+DEVICE: neither Sony A7 III nor iPhone was physically tested. Verify both bodies/lenses separately, camera mode restrictions, actual setting acknowledgment/readback, focus, capture/save, live view, sleep/Wi-Fi and lifecycle recovery.
+REPORT: docs/sony/REMOTE-CONTROLS.md

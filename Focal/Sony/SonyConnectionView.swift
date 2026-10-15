@@ -6,7 +6,7 @@ struct SonyConnectionView: View {
     var openCamera: (() -> Void)? = nil
     @State private var showGuide = false
     @StateObject private var discovery = SonyDiscoveryModel()
-    private var connected: Bool { camera.state == .streaming && camera.hasFrame }
+    private var connected: Bool { camera.isConnected }
     private var busy: Bool { camera.state == .connecting || camera.state == .reconnecting }
 
     var body: some View {
@@ -57,7 +57,7 @@ struct SonyConnectionView: View {
             step(3, "Return to Focal and allow Local Network access.")
             step(4, "Check the camera address, then tap Connect Camera.")
             Button(discovery.searching ? "Cancel search" : "Find camera on Wi-Fi",systemImage:"antenna.radiowaves.left.and.right") {
-                if discovery.searching { discovery.cancel() } else { discovery.search(previous:camera.host) }
+                if discovery.searching { discovery.cancel() } else { discovery.search(previous:camera.host,diagnostics:camera.diagnostics) }
             }.frame(minHeight:44).disabled(busy)
             if discovery.searching { ProgressView().tint(Palette.yellow) }
             if let message = discovery.message { Text(message).font(.caption).foregroundStyle(Palette.muted) }
@@ -85,9 +85,9 @@ struct SonyConnectionView: View {
             HStack(spacing: 8) {
                 stat("Live view", value: camera.resolution)
                 stat("Frames", value: String(camera.frameCount))
-                stat("Link", value: "Live", green: true)
+                stat("Link", value: camera.hasFrame ? "Live" : "Controls", green: true)
             }
-            Text("\(camera.qualityStatus) · \(camera.streamFPS.map { String(format: "%.0f fps", $0) } ?? "measuring cadence")")
+            Text(camera.hasFrame ? "\(camera.qualityStatus) · \(camera.streamFPS.map { String(format: "%.0f fps", $0) } ?? "measuring cadence")" : "Control connection confirmed; no live-view frames received.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -100,7 +100,12 @@ struct SonyConnectionView: View {
     private var actions: some View {
         VStack(spacing: 11) {
             if connected {
-                if let openCamera { action("Open Camera", primary: true, action: openCamera) }
+                NavigationLink { SonyRemoteControlsView(camera:camera) } label: {
+                    Label("Remote Controls",systemImage:"slider.horizontal.3").font(.system(size:15,weight:.semibold))
+                        .frame(maxWidth:.infinity).frame(height:48).foregroundStyle(.black)
+                        .background(Palette.yellow,in:RoundedRectangle(cornerRadius:12))
+                }
+                if let openCamera, camera.hasFrame { action("Open Camera", primary: false, action: openCamera) }
                 action("Disconnect", primary: false) { camera.disconnect() }
             } else {
                 action(busy ? "Connecting…" : "Connect Camera", primary: true) { discovery.cancel(); camera.connect() }.disabled(busy || !SonyEndpoint.validHost(camera.host.trimmingCharacters(in:.whitespacesAndNewlines)))
@@ -125,8 +130,8 @@ private struct SonySetupGuide: View {
                 Text("Connect directly to your Sony").font(.title2.bold())
                 Text("On the A7 III, enable Network → Ctrl w/ Smartphone. Open iPhone Settings → Wi-Fi and join the DIRECT network shown by the camera. Use the password shown on the Sony.")
                 Text("Return to Focal, enter the private camera address if it differs from the default, and choose Connect Camera. Allow Local Network access when prompted. If permission was denied, enable it in iPhone Settings → Focal.")
-                Text("Connected is shown only after Focal receives and decodes a real live-view frame. The app negotiates only advertised controls and stream sizes. Sony firmware and remote mode determine the available functions and wireless preview quality.")
-                Text("Focus, zoom, shooting mode and exposure may need adjustment on the camera. If Sony does not advertise a compatible remote API in this mode, Focal cannot establish this live view. A6100 support is planned and requires independent hardware testing.")
+                Text("Connected means the camera returned its advertised controls. Live view appears only after real frames are decoded. Open Remote Controls for camera-reported exposure values and available adjustments. Firmware, shooting mode and the attached lens determine which functions are available.")
+                Text("Change shooting mode and zoom on the camera. Focal does not send remote zoom commands. Unsupported exposure or focus settings must also be changed on the camera. This uses Sony's older Scalar Camera Remote API; it does not add PTP/IP or newer Camera Remote SDK support. A6100 support requires independent hardware testing.")
             }.font(.subheadline).lineSpacing(4).padding(22)
         }.background(Palette.ink).foregroundStyle(.white).navigationTitle("Sony Wi-Fi Guide").navigationBarTitleDisplayMode(.inline)
     }

@@ -102,18 +102,21 @@ final class SonyDiscoveryModel: ObservableObject {
     @Published private(set) var message:String?
     private var operation:Task<Void,Never>?
     private var generation = UUID()
-    func search(previous:String?) {
+    func search(previous:String?,diagnostics:SonyDiagnostics? = nil) {
         cancel(); let token = generation
         searching = true; cameras = []; message = "Checking advertised camera descriptors on your Wi-Fi subnet…"
+        diagnostics?.record("discovery.started")
         operation = Task {
             do {
                 let results = try await SonyDiscovery.discover(previous:previous)
                 guard token == generation, !Task.isCancelled else { return }
                 cameras = results; searching = false
+                diagnostics?.record("discovery.completed",["count":String(results.count),"cameras":results.map { $0.model+" · "+$0.host }.joined(separator:",")])
                 message = results.isEmpty ? "No compatible descriptor found in this bounded search. Check the camera mode and use its address manually if needed." : "Descriptor found. Connect to verify the actual live view."
             } catch {
                 guard token == generation, !Task.isCancelled else { return }
                 searching = false; message = error.localizedDescription
+                diagnostics?.record("discovery.failed",["error":error.localizedDescription])
             }
         }
     }

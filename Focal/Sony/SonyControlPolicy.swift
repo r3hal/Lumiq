@@ -30,7 +30,7 @@ struct SonyControlState {
     var availableMethods: Set<String>?
     var captureBusy: Bool {
         guard let cameraStatus else { return false }
-        return ["StillCapturing", "MovieRecording", "AudioRecording", "IntervalRecording", "NotReady", "ContentsTransfer"].contains(cameraStatus)
+        return ["StillCapturing", "StillSaving", "MovieRecording", "AudioRecording", "IntervalRecording", "NotReady", "ContentsTransfer"].contains(cameraStatus)
     }
     static func from(_ values: [Any]) -> Self {
         var state = Self()

@@ -52,11 +52,12 @@ ref30=manifest30['localSnapshotCommit']
 for path,expected in manifest30['sha256'].items():
  original=subprocess.check_output(['git','show',ref30+':'+path],cwd=ROOT)
  assert hashlib.sha256(original).hexdigest()==expected,path
-assert not run('git','diff','--name-only','--','Focal/Sony').strip(),'Sony connectivity changed'
+# Sony controls are the authorized scope; protect all iPhone/AI implementation.
+assert not run('git','diff','HEAD','--name-only','--','Focal/Camera','Focal/Composition','Focal/Precision').strip(),'iPhone camera or AI implementation changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==515,count
-print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony source unchanged; whitespace.')
+assert count==548,count
+print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; iPhone/AI sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
 # AI framing must never release the shutter from readiness polling.

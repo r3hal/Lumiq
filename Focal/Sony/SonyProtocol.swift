@@ -213,9 +213,9 @@ struct SonyEventValues {
                 case "isoSpeedRate": telemetry.iso = text("currentIsoSpeedRate")
                 case "fNumber": telemetry.aperture = text("currentFNumber")
                 case "exposureCompensation":
-                    // Sony often reports a step index, not EV. Zero is unambiguous;
-                    // nonzero remains unknown until a verified conversion is available.
-                    if let value = item["currentExposureCompensation"] as? NSNumber,value.doubleValue == 0 { telemetry.ev = 0 }
+                    if let index = SonySettingParser.integer(item["currentExposureCompensation"]) {
+                        telemetry.ev = SonySettingValue.ev(index:index,step:SonySettingParser.integer(item["stepIndexOfExposureCompensation"]))
+                    }
                 default: break
                 }
             }

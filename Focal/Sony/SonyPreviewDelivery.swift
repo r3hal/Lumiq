@@ -60,13 +60,13 @@ struct SonyDecodedFrame {
 /// SwiftUI camera hierarchy for every remote JPEG makes the stream stutter.
 @MainActor
 final class SonyPreviewFeed {
-    private weak var surface: UIView?
+    private let surfaces = NSHashTable<UIView>.weakObjects()
     private(set) var image: CGImage?
-    func bind(_ surface: UIView) { self.surface = surface; display(image) }
+    func bind(_ surface: UIView) { surfaces.add(surface); display(image) }
     func display(_ image: CGImage?) {
         self.image = image
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        surface?.layer.contents = image
+        for surface in surfaces.allObjects { surface.layer.contents = image }
         CATransaction.commit()
     }
 }
