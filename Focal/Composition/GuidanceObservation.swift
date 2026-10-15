@@ -21,8 +21,13 @@ enum GuidanceObservationPolicy {
     static func fresh(capturedAt: TimeInterval, evaluatedAt: TimeInterval) -> Bool {
         capturedAt.isFinite && evaluatedAt.isFinite && evaluatedAt >= capturedAt && evaluatedAt-capturedAt <= maximumAge
     }
-    static func permitsZoom(stable: Bool, relativeSpeed: Double?, fresh: Bool) -> Bool {
-        guard stable, fresh, let relativeSpeed, relativeSpeed.isFinite else { return false }
+    static func permitsZoom(stable: Bool, relativeSpeed: Double?, fresh: Bool, trackedSubject:Bool = false) -> Bool {
+        guard stable, fresh else { return false }
+        // Velocity needs two comparable observations. Missing velocity is not
+        // measured motion; a reliable retained track and crop checks can admit
+        // framing while that optional estimate is unavailable.
+        guard let relativeSpeed else { return trackedSubject }
+        guard relativeSpeed.isFinite else { return false }
         return relativeSpeed >= 0 && relativeSpeed <= 0.35
     }
 }

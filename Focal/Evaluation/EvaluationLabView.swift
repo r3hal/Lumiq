@@ -10,6 +10,7 @@ struct EvaluationLabView: View {
     @State private var editing: EvaluationSample?
     @State private var importing = false
     @State private var exportURL: URL?
+    @State private var framingTraceURL: URL?
     var body: some View {
         List {
             Section {
@@ -23,6 +24,7 @@ struct EvaluationLabView: View {
                 if let exportURL { ShareLink("Share images, labels and results",item:exportURL) }
                 if let message = store.message { Text(message).font(.caption).foregroundStyle(.red) }
             } header: { Text("Focal Intelligence Lab") }
+            framingDiagnostics
             if let timing = camera.guidancePerformance {
                 Section {
                     Text("\(timing.source) · \(timing.sampleCount) real analysis updates").font(.caption)
@@ -64,6 +66,17 @@ struct EvaluationLabView: View {
                 do { if let data = try await picker.loadTransferable(type:Data.self) { try await store.addImage(data); exportURL = nil } }
                 catch { store.message = error.localizedDescription }
             }.onDisappear { store.cancel() }
+    }
+    private var framingDiagnostics: some View {
+        Section {
+            Button("Prepare AI framing trace") {
+                do { framingTraceURL = try ShotFramingDiagnostics.export() }
+                catch { store.message = error.localizedDescription }
+            }
+            if let framingTraceURL { ShareLink("Share AI framing trace",item:framingTraceURL) }
+            Text("Recent session states, gates and actual zoom readings. No images. Reproduce the shot before exporting.")
+                .font(.caption)
+        } header: { Text("Shot Director diagnostics") }
     }
 }
 

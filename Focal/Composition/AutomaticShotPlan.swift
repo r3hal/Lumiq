@@ -122,6 +122,14 @@ struct AutomaticShotPlan {
         // Affine tracking of actually observed features, not new pose/eye inference.
         return .init(face:head,joints:joints,timestamp:timestamp)
     }
+    func trackedProtectedRegions(bounds:CGRect) -> [CGRect] {
+        guard Self.valid(bounds), Self.valid(initialBounds) else { return protectedRegions }
+        return protectedRegions.map { region in
+            CGRect(x:bounds.minX+(region.minX-initialBounds.minX)*bounds.width/initialBounds.width,
+                y:bounds.minY+(region.minY-initialBounds.minY)*bounds.height/initialBounds.height,
+                width:region.width*bounds.width/initialBounds.width,height:region.height*bounds.height/initialBounds.height)
+        }
+    }
     static func scene(label:String,evidence:SceneCompositionEvidence,zoom:Double,projection:PreviewProjection) -> Self {
         let full = CGRect(x:0,y:0,width:1,height:1)
         var shot = Self(subjectLabel:label,initialBounds:full,desiredBounds:full,framingRectangle:full,

@@ -1,5 +1,17 @@
 import Foundation
 
+/// One-frame view of the existing director and the scene planner. Only the
+/// director owns the selected shot; a fresh candidate is useful for diagnostics.
+struct FramingExecutionContext {
+    let selected: AutomaticShotPlan?
+    let candidate: SceneCompositionPlan?
+    var requiresZoom: Bool { selected?.requiresZoom == true }
+    var candidateMatchesSelected: Bool { selected != nil && selected?.id == candidate?.id }
+    func permitsZoom(settingsAllow:Bool,cropPermitted:Bool) -> Bool {
+        settingsAllow && requiresZoom && cropPermitted
+    }
+}
+
 /// Reasons belong to the existing director, not to a second camera controller.
 enum FramingBlockReason: String {
     case aiming, cameraMotion, motionUnavailable, subjectMotion, tracking, staleFrame, telemetry, quality, missingPlan

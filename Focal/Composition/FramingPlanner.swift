@@ -25,6 +25,7 @@ struct FramingPlanner {
     private var eligibleHold: TimeInterval = 0
     private var lastHoldTime: TimeInterval?
     private var lastHoldEligible = false
+    private var alignedPreparationSince: TimeInterval?
     enum ShotProgress: Equatable { case continuing, holding, recovering, resuming, achieved, cancel }
     mutating func noteBlock(_ reason:FramingBlockReason,at time:TimeInterval) {
         if blockReason != reason { blockedSince = time }
@@ -52,15 +53,17 @@ struct FramingPlanner {
         }
         return .recovering
     }
-    mutating func selectShot(_ plan:AutomaticShotPlan) {
-        guard phase.isPreparing, !phase.isAutoFraming, !shotVerified else { return }
-        if let current = shotPlan, current.requiresZoom { return }
+    @discardableResult mutating func selectShot(_ plan:AutomaticShotPlan) -> Bool {
+        guard phase.isPreparing, !phase.isAutoFraming, !shotVerified else { return false }
+        if let current = shotPlan, current.requiresZoom { return false }
         shotPlan = plan
+        return true
     }
     mutating func commitShot(_ plan:AutomaticShotPlan) { shotPlan = plan; shotVerified = false; completionSince = nil; lastVerification = nil }
     mutating func verifyShot(bounds:CGRect?,label:String,confidence:Float,zoom:Double,stable:Bool,fresh:Bool,
                              timestamp:TimeInterval,previewAspect:Double,regions:[CGRect] = [], cameraRamping:Bool = false,
-                             cameraFresh:Bool = true,cropPermitted:Bool = true,captureStable:Bool = true,trackingReference:String? = nil) -> ShotProgress {
+                             cameraFresh:Bool = true,cropPermitted:Bool = true,captureStable:Bool = true,trackingReference:String? = nil,
+                             captureHoldDuration:TimeInterval = 0.2,liveZoom:Double? = nil) -> ShotProgress {
         guard phase.isAutoFraming, let shotPlan, timestamp.isFinite else { return .cancel }
         guard shotPlan.trackingReference == nil || shotPlan.trackingReference == trackingReference else { blockReason = .tracking; return .cancel }
         guard label == shotPlan.subjectLabel else { blockReason = .tracking; return .cancel }
@@ -86,9 +89,11 @@ struct FramingPlanner {
         lastVerification = timestamp
         if achieved {
             phase = .verifying
-            if cameraRamping || !captureStable { completionSince = nil; return .holding }
+            let motorAtTarget = liveZoom.map { $0.isFinite && abs($0/shotPlan.targetZoom-1) <= 0.02 } ?? true
+            if cameraRamping || !captureStable || !motorAtTarget { completionSince = nil; return .holding }
             if completionSince == nil { completionSince = timestamp }
-            if timestamp-(completionSince ?? timestamp) >= 0.2 { shotVerified = true; finish(); return .achieved }
+            let dwell = captureHoldDuration.isFinite ? max(0.2,min(3,captureHoldDuration)) : 3
+            if timestamp-(completionSince ?? timestamp) >= dwell { shotVerified = true; finish(); return .achieved }
             return .holding
         }
         completionSince = nil
@@ -107,6 +112,7 @@ struct FramingPlanner {
         stableSince = nil
         blockReason = nil; blockedSince = nil; recovering = false; recoverySince = nil; recoveryGoodSince = nil
         recoveryAttempts = 0; recoveredSeconds = 0; eligibleHold = 0; lastHoldTime = nil; lastHoldEligible = false
+        alignedPreparationSince = nil
         previous = nil; anchor = nil
         holdProgress = 0
     }
@@ -149,9 +155,17 @@ struct FramingPlanner {
 
     mutating func update(bounds: CGRect?, confidence: Float, roll: Double, timestamp: TimeInterval,
                          currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double? = nil, nativeStops: [Double] = [], deviceStable: Bool = true, holdDuration: Double = 0.75, previewAspect: Double = 0.75,
-                         alignmentTarget: UnitPoint2D = .init(x:0.5,y:0.5), allowZoom: Bool = true, plannedScale: Double? = nil, zoomDestination: UnitPoint2D? = nil, requiresShotPlan:Bool = false, blockedBy:FramingBlockReason? = nil) -> Double? {
+                         alignmentTarget: UnitPoint2D = .init(x:0.5,y:0.5), allowZoom: Bool = true, plannedScale: Double? = nil, zoomDestination: UnitPoint2D? = nil, requiresShotPlan:Bool = false, blockedBy:FramingBlockReason? = nil, startConfirmationDuration:TimeInterval? = nil) -> Double? {
         guard [roll,timestamp,currentZoom,maximumZoom,holdDuration,previewAspect].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, previewAspect > 0 else { return nil }
         guard phase != .off, phase != .framed, !phase.isAutoFraming else { return nil }
+        let requiredHold:TimeInterval
+        if requiresShotPlan, let duration = startConfirmationDuration {
+            guard duration.isFinite, duration > 0 else { noteBlock(.configuration,at:timestamp); return nil }
+            requiredHold = max(0.15,min(0.5,duration))
+            if let since = alignedPreparationSince, timestamp-since >= 8 {
+                stop(reason:.deadline); return nil
+            }
+        } else { requiredHold = max(0.5,min(3,holdDuration)) }
         let previousHoldTime = lastHoldTime
         if let previousHoldTime, timestamp <= previousHoldTime { return nil }
         if requiresShotPlan, let previousHoldTime, timestamp-previousHoldTime > 1.25 {
@@ -159,7 +173,7 @@ struct FramingPlanner {
         }
         let elapsed = previousHoldTime.map { min(1.1,max(0,timestamp-$0)) } ?? 0
         lastHoldTime = timestamp
-        holdProgress = requiresShotPlan ? min(1,eligibleHold/max(0.5,min(3,holdDuration))) : 0
+        holdProgress = requiresShotPlan ? min(1,eligibleHold/requiredHold) : 0
         guard let bounds, valid(bounds), confidence >= 0.6 else {
             phase = .searching; stableSince = nil; previous = nil; anchor = nil; noteBlock(.tracking,at:timestamp)
             return nil
@@ -179,6 +193,7 @@ struct FramingPlanner {
             stableSince = nil
         }
         phase = .settling
+        if requiresShotPlan, startConfirmationDuration != nil, alignedPreparationSince == nil { alignedPreparationSince = timestamp }
         // A temporary quality/tracking/light/plan gate must never finish a shot.
         if requiresShotPlan && (!allowZoom || plannedScale == nil || zoomDestination == nil) {
             stableSince = nil; anchor = nil; noteBlock(blockedBy ?? (plannedScale == nil ? .missingPlan : .quality),at:timestamp); return nil
@@ -191,7 +206,6 @@ struct FramingPlanner {
             stableSince = nil; self.anchor = nil
         }
         if stableSince == nil { stableSince = timestamp; anchor = bounds }
-        let requiredHold = max(0.5,min(3,holdDuration))
         if requiresShotPlan {
             // Subject motion inside the safe alignment envelope is not phone shake.
             // A short ineligible sample pauses accumulated hold rather than restarting it.

@@ -1,0 +1,11 @@
+Controlled regression replay — production Foundation logic, synthetic camera/sensor inputs.
+Not an iPhone trace; AVFoundation and physical zoom were not executed here.
+Before: 217 portable cases, 6 failures in the new gate regressions.
+After: 229 portable cases passed, 0 failures.
+
+CONTROLLED_REPLAY SHOT_SELECTED zoom=1.1 target=2.2 scale=2.0; sensor inputs below are fixtures
+CONTROLLED_REPLAY AIMING wrong aim; no zoom command
+CONTROLLED_REPLAY ALIGNED -> AUTO_ZOOMING command=2.2; native target=4.4
+CONTROLLED_REPLAY observed fixture zoom=1.45; READY=NO
+CONTROLLED_REPLAY observed fixture zoom=1.9; READY=NO
+CONTROLLED_REPLAY VERIFYING -> READY measured geometry and stopped motor=2.2; capture hold=0.75s; automatic shutter=NO

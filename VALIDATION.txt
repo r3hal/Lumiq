@@ -1,10 +1,11 @@
-Focal 2.7.2 / build 30 — iPhone RAW/ProRAW availability and capture correction
-PASS: 211 portable XCTest cases on Swift 6.0.3/Linux, including 14 new RAW policy cases and all existing scene/target/framing regressions. Actual pure production policies are compiled; Apple frameworks/hardware excluded.
-PARSE: all 120 app/test Swift files pass Swift frontend syntax parsing. iOS API type checking/linking not performed locally.
-STRUCTURE PASS: deterministic project; 90 app/30 test sources; duplicate module types; resources; YAML/build shell syntax; frozen hashes; Sony connectivity unchanged; user-only shutter wiring; readiness/guidance call contract; whitespace.
-REGISTERED: 451 total XCTest functions. Updated full native run remains pending in Codemagic; Xcode is unavailable here.
-FIXED: establish committed .photo RAW support before preview optimization; restore photo configuration when optimization removes RAW/ProRAW; refresh actual format capability after start/format changes and around capture; preserve preference across unsupported cameras; no silent RAW capture fallback or missing-DNG success.
-PRESERVED: RAW originals keep/discard preference, existing DNG library/development/share/export, actual photo output, AI framing, phone controls, Sony connectivity.
-PREVIOUS USER-SUPPLIED NATIVE RESULT (build 28): compiled; 434 tests executed, 432 passed, 2 scene-planner failures. Those failures were reproduced and corrected in build 29; the updated full native run is still pending.
-DEVICE: physical iPhone RAW/ProRAW availability, KVO/session negotiation, actual DNG encoding/delivery/export, preview performance and lens changes unverified here.
-REPORT: docs/IPHONE-RAW-FIX.md; framing report: docs/intelligence/TARGET-RECTANGLE-6.0.md
+Focal 2.7.3 / build 31 — selected-shot automatic framing progression
+REFERENCE: inspected supplied 32.700s seated-person comparison recording. At 11s/17s Focal retains a planned-frame overlay while saying no safe tighter composition, at unchanged 1.1x. Video contains no sensor/motor telemetry.
+REPRODUCED BEFORE FIX: 217 portable XCTest cases, 6 failures in new retained-plan/admission/velocity/telemetry regressions. Existing tests unchanged.
+PASS AFTER FIX: 229 portable XCTest cases on Swift 6.0.3/Linux, including 18 new person/trace cases. Controlled complete replay issues 1.1->2.2x geometry command, requires supplied actual zoom/geometry/motor/hold before READY and preserves manual shutter payload. Camera/sensor values in replay are fixtures, not iPhone measurements.
+PARSE: all 122 app/test Swift sources pass frontend syntax parsing; no Apple API type checking/linking here.
+STRUCTURE PASS: deterministic project; 91 app/31 test sources; 469 registered tests; resources/YAML/build script syntax; frozen baselines; Sony sources unchanged; user-only shutter wiring; whitespace.
+FIXED: retained selected ShotPlan authorizes zoom independently of transient candidate; brief alignment confirmation versus final capture hold; unknown optional velocity handled only with reliable track; observation-time velocity; paired-frame versus fresh live-camera telemetry; retained crop context; bounded preparation timeout.
+DIAGNOSTICS: exportable bounded developer text trace with state durations, real measurements/gates, actual lock/ramp/motor/verification and cancellation events. Missing readings unknown; no images or automatic upload.
+NATIVE ATTEMPT: xcodebuild command unavailable, exit 127. Full updated iOS suite and archive require Codemagic rerun.
+DEVICE: actual iPhone 16 Pro Max motor/preview, tracking, quality, final geometry and still/paired saving acceptance remain unverified after this change.
+REPORT: docs/intelligence/PERSON-FRAMING-REGRESSION.md; controlled evidence: docs/intelligence/PERSON-FRAMING-CONTROLLED-TRACE.txt

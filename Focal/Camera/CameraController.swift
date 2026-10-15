@@ -136,13 +136,15 @@ final class CameraController: NSObject, ObservableObject {
     private var rampTargetZoom = 1.0
     private var rampPaused = false // Temporary recovery keeps the same shot and target.
     private var zoomWatchdog = ZoomProgressWatchdog()
-    private var lastDirectorLogTime: TimeInterval = -.infinity
     private var rampHolding = false // Camera queue; no restart once desired geometry is reached.
     private var rampStage = -1
     private var lastRampVerification: TimeInterval = 0
     private let zoomObservationLock = NSLock()
     private var observedPhoneZoom = CameraZoomObservation(hardwareFactor:1,multiplier:1,ramping:false,timestamp:0)
-    private var lastDirectorDiagnostic = "" // Analysis queue.
+    private var directorTrace = FramingTransitionTrace() // Analysis queue.
+    private var rampShotID: String? // Camera queue.
+    private var rampObservedTarget = false // Camera queue.
+    private var lastMotorTraceTime: TimeInterval = -.infinity // Camera queue.
     private var analysisZoomGeneration = 0 // Analysis queue only.
     private var lastAnalysis: TimeInterval = 0
     private let tracker = SubjectTracker()
@@ -550,7 +552,7 @@ final class CameraController: NSObject, ObservableObject {
     private func cancelZoomRamp(manualOverride:Bool = false, preserveVerifiedShot:Bool = false, reason:FramingBlockReason = .interrupted) {
         let interruptedShot = rampStage >= 0
         if manualOverride || interruptedShot {
-            ShotFramingDiagnostics.log("ZOOM_CANCEL","manual=\(manualOverride) interrupted=\(interruptedShot) verified=\(preserveVerifiedShot) reason=\(reason.rawValue) hardware=\(device?.videoZoomFactor ?? 0)")
+            ShotFramingDiagnostics.log("ZOOM_CANCEL","shot=\(rampShotID ?? "none") manual=\(manualOverride) interrupted=\(interruptedShot) verified=\(preserveVerifiedShot) reason=\(reason.rawValue) hardware=\(FramingTransitionTrace.number(device.map { Double($0.videoZoomFactor) }))")
         }
         rampStage = -1; rampPaused = false
         if manualOverride || interruptedShot {
@@ -1325,7 +1327,7 @@ final class CameraController: NSObject, ObservableObject {
     }
     private func performAutomaticZoom(to target: Double, generation: Int, observedAt:TimeInterval,shotID:String) {
         queue.async {
-            ShotFramingDiagnostics.log("ZOOM_REQUEST","displayedTarget=\(target) generation=\(generation) activeGeneration=\(self.zoomGeneration) blocked=\(self.automaticZoomBlocked) enabled=\(self.guidanceSnapshot().enabled)")
+            ShotFramingDiagnostics.log("ZOOM_REQUEST","shot=\(shotID) displayedTarget=\(target) generation=\(generation) activeGeneration=\(self.zoomGeneration) blocked=\(self.automaticZoomBlocked) enabled=\(self.guidanceSnapshot().enabled)")
             guard generation == self.zoomGeneration, !self.automaticZoomBlocked,
                   self.guidanceSnapshot().enabled, self.guidanceSnapshot().source == .iPhone else {
                 ShotFramingDiagnostics.log("ZOOM_REJECTED","reason=stale_generation_override_or_ai_off shot=\(shotID)")
@@ -1350,6 +1352,7 @@ final class CameraController: NSObject, ObservableObject {
                 self.abortAutomaticZoom(generation:generation,reason:.quality); return
             }
             self.rampStartZoom = Double(device.videoZoomFactor); self.rampTargetZoom = factor; self.rampStage = 0; self.rampHolding = false; self.rampPaused = false
+            self.rampShotID = shotID; self.rampObservedTarget = false; self.lastMotorTraceTime = -.infinity
             self.zoomWatchdog.start(zoom:self.rampStartZoom,target:factor,at:ProcessInfo.processInfo.systemUptime)
             self.lastRampVerification = ProcessInfo.processInfo.systemUptime
             do {
@@ -1357,7 +1360,7 @@ final class CameraController: NSObject, ObservableObject {
                 device.ramp(toVideoZoomFactor:CGFloat(factor),withRate:AutomaticZoomRampProfile.rate(stage:0,hardwareDistance:factor-self.rampStartZoom))
                 device.unlockForConfiguration()
                 self.recordObservedZoom()
-                ShotFramingDiagnostics.log("ZOOM_ACCEPTED","device=\(device.localizedName) type=\(device.deviceType.rawValue) displayedTarget=\(target) nativeTarget=\(factor) hardware=\(device.videoZoomFactor) multiplier=\(self.zoomMultiplier) ramping=\(device.isRampingVideoZoom)")
+                ShotFramingDiagnostics.log("ZOOM_ACCEPTED","shot=\(shotID) lockSucceeded=YES rampStarted=\(device.isRampingVideoZoom) device=\(device.localizedName) type=\(device.deviceType.rawValue) displayedTarget=\(target) nativeTarget=\(factor) hardware=\(device.videoZoomFactor) multiplier=\(self.zoomMultiplier) nativeMinimum=\(device.minAvailableVideoZoomFactor) nativeMaximum=\(upper)")
                 self.observeAutomaticZoom(generation:generation,deadline:ProcessInfo.processInfo.systemUptime+7)
             } catch {
                 ShotFramingDiagnostics.log("ZOOM_FAILED","reason=configuration_lock error=\(error)")
@@ -1391,7 +1394,7 @@ final class CameraController: NSObject, ObservableObject {
     }
     private func abortAutomaticZoom(generation:Int,reason:FramingBlockReason = .configuration) {
         guard generation == zoomGeneration else { return }
-        ShotFramingDiagnostics.log("ZOOM_ABORT","reason=\(reason.rawValue) hardware=\(device?.videoZoomFactor ?? 0) target=\(rampTargetZoom)")
+        ShotFramingDiagnostics.log("ZOOM_ABORT","reason=\(reason.rawValue) hardware=\(FramingTransitionTrace.number(device.map { Double($0.videoZoomFactor) })) target=\(rampTargetZoom)")
         cancelZoomRamp(reason:reason)
         analysisQueue.async {
             self.automaticShotArmed = false; self.framing.stop(reason:reason); self.shotCapture.cancel(); self.publishFraming()
@@ -1403,17 +1406,29 @@ final class CameraController: NSObject, ObservableObject {
         guard generation == zoomGeneration, let device else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard !automaticZoomBlocked, guidanceSnapshot().enabled, guidanceSnapshot().source == .iPhone,
-              now < deadline, now-lastRampVerification <= 1.1, ProcessInfo.processInfo.thermalState != .critical,
+              now < deadline, now-lastRampVerification <= GuidanceObservationPolicy.maximumAge+0.6, ProcessInfo.processInfo.thermalState != .critical,
               rampTargetZoom <= min(Double(device.maxAvailableVideoZoomFactor),Double(device.activeFormat.videoMaxZoomFactor)) else {
             ShotFramingDiagnostics.log("ZOOM_ABORT","reason=watchdog_device_or_thermal_gate age=\(now-lastRampVerification) hardware=\(device.videoZoomFactor) target=\(rampTargetZoom)")
             abortAutomaticZoom(generation:generation,reason:now >= deadline ? .deadline : ProcessInfo.processInfo.thermalState == .critical ? .thermal : .staleFrame); return
         }
         let hardwareZoom = Double(device.videoZoomFactor)
         let actual = hardwareZoom/Double(zoomMultiplier)
+        let hadMovement = zoomWatchdog.observedMovement
         if let failure = zoomWatchdog.failure(actual:hardwareZoom,at:now,paused:rampPaused || rampHolding) {
             abortAutomaticZoom(generation:generation,reason:failure); return
         }
         recordObservedZoom()
+        if !hadMovement && zoomWatchdog.observedMovement {
+            ShotFramingDiagnostics.log("MOTOR_MOVED","shot=\(rampShotID ?? "unknown") initialNative=\(rampStartZoom) actualNative=\(hardwareZoom) actualZoom=\(actual) targetNative=\(rampTargetZoom)")
+        }
+        if !rampObservedTarget, !device.isRampingVideoZoom, abs(hardwareZoom/rampTargetZoom-1) <= 0.02 {
+            rampObservedTarget = true
+            ShotFramingDiagnostics.log("MOTOR_AT_TARGET","shot=\(rampShotID ?? "unknown") actualNative=\(hardwareZoom) actualZoom=\(actual) ramping=NO compositionVerification=separate")
+        }
+        if now-lastMotorTraceTime >= 0.25 {
+            lastMotorTraceTime = now
+            ShotFramingDiagnostics.log("MOTOR_SAMPLE","shot=\(rampShotID ?? "unknown") actualNative=\(hardwareZoom) actualZoom=\(actual) targetNative=\(rampTargetZoom) ramping=\(device.isRampingVideoZoom) movementObserved=\(zoomWatchdog.observedMovement) paused=\(rampPaused) holding=\(rampHolding)")
+        }
         DispatchQueue.main.async { self.zoom = actual }
         // Change rate only at two milestones, always toward the original target.
         let progress = (hardwareZoom-rampStartZoom)/max(0.01,rampTargetZoom-rampStartZoom)
@@ -1519,7 +1534,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let snapshot = guidanceSnapshot()
         guard snapshot.source == analysisSource else { return }
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:now) else {
-            discardStaleGuidance(snapshot); return
+            discardStaleGuidance(snapshot,observedAt:observationTime); return
         }
         guard now >= ignoreFramesUntil,now-lastAnalysis > min(1.5,PreviewAnalysisScheduler.thermalInterval(ProcessInfo.processInfo.thermalState)*0.8) else { return }
         lastAnalysis = now
@@ -1569,7 +1584,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
         let keepFramedSubject = analysisSource == .iPhone && latestNativeBounds != nil
-            && (framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed)
+            && ((framing.shotPlan != nil && framing.phase.isPreparing)
+                || framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed)
         let inferenceStarted = ProcessInfo.processInfo.systemUptime
         if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || now < manualInferenceResumeAfter || ProcessInfo.processInfo.thermalState == .critical, retainSelection:keepFramedSubject,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
@@ -1593,15 +1609,16 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard guidanceSnapshot() == snapshot else { return }
         let evaluatedAt = ProcessInfo.processInfo.systemUptime
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:evaluatedAt) else {
-            discardStaleGuidance(snapshot); return
+            discardStaleGuidance(snapshot,observedAt:observationTime); return
         }
         if let automaticFocusPoint { updateAutomaticFocus(automaticFocusPoint,timestamp:evaluatedAt) }
         let motionData = analysisSource == .iPhone ? motion.deviceMotion : nil
+        let motionMeasuredAt = ProcessInfo.processInfo.systemUptime
         let gravity = motionData?.gravity
         let framingMotion = motionData.map {
             FramingMotionMeasurement(rotation:sqrt($0.rotationRate.x*$0.rotationRate.x+$0.rotationRate.y*$0.rotationRate.y+$0.rotationRate.z*$0.rotationRate.z),
                 acceleration:sqrt($0.userAcceleration.x*$0.userAcceleration.x+$0.userAcceleration.y*$0.userAcceleration.y+$0.userAcceleration.z*$0.userAcceleration.z),
-                age:evaluatedAt-$0.timestamp)
+                age:motionMeasuredAt-$0.timestamp)
         }
         let stable = framingMotion?.stable ?? (analysisSource == .sony)
         let captureStable = motionData.map {
@@ -1612,11 +1629,11 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let roll = gravity.map { hypot($0.x, $0.y) > 0.2 ? atan2($0.x, -$0.y) * 180 / .pi : 0 } ?? 0
         var relativeMotion:Double?
         if analysisSource == .iPhone, framingMotion?.usable == true, !zooming, now >= manualInferenceResumeAfter, confidence >= 0.65, let bounds {
-            if let old = previousMotionSubject, old.label == tracker.label, evaluatedAt > old.time,
-               evaluatedAt-old.time < 1.5, abs(analysisZoom/old.zoom-1) < 0.02 {
-                relativeMotion = hypot(Double(bounds.midX-old.bounds.midX),Double(bounds.midY-old.bounds.midY))/(evaluatedAt-old.time)
+            if let old = previousMotionSubject, old.label == tracker.label, observationTime > old.time,
+               observationTime-old.time < 1.5, abs(analysisZoom/old.zoom-1) < 0.02 {
+                relativeMotion = hypot(Double(bounds.midX-old.bounds.midX),Double(bounds.midY-old.bounds.midY))/(observationTime-old.time)
             }
-            previousMotionSubject = (bounds,tracker.label,evaluatedAt,analysisZoom)
+            previousMotionSubject = (bounds,tracker.label,observationTime,analysisZoom)
         } else { previousMotionSubject = nil }
         precisionLock.lock(); precisionContext.relativeSubjectMotion = relativeMotion; precisionContext.subjectMotionTimestamp = relativeMotion == nil ? nil : evaluatedAt; precisionLock.unlock()
         let planning = compositionPlanning && mode == .automatic
@@ -1644,7 +1661,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let observedAnatomy = tracker.anatomy(for:imageBounds,projection:projection,at:evaluatedAt)
         let geometricScale = bounds.map { TargetRectangleGeometry.preferredScale(subject:$0,label:tracker.label,intent:photographyIntent) }
         let availableScales = FramingPlanner.availableScales(currentZoom:analysisZoom,maximumZoom:automaticZoomLimit,detailZoomLimit:detailZoomLimit,nativeStops:nativeZoomStops,maximumScale:photographyIntent.maximumCropScale,desiredScale:geometricScale)
-        let freezeTighterPlan = (framing.phase == .aligning || framing.phase == .settling) && scenePlanner.plan?.permitsZoom == true
+        let freezeTighterPlan = (framing.phase == .aligning || framing.phase == .settling) && framing.shotPlan?.requiresZoom == true
         let freezeShot = zooming || freezeTighterPlan || (framing.phase == .framed && framing.shotVerified)
         let plannedScene = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
             others:contextSubjects,enclosingFrames:frames,timestamp:evaluatedAt,
@@ -1671,35 +1688,43 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             zoomAnatomy = shot.trackedAnatomy(bounds:bounds,timestamp:evaluatedAt)
         } else { zoomAnatomy = observedAnatomy ?? bounds.flatMap { framing.shotPlan?.trackedAnatomy(bounds:$0,timestamp:evaluatedAt) } }
         if analysisSource == .iPhone, automaticShotArmed, autoFrameEnabled, !zooming,
-           let bounds, let plan, framing.phase.isPreparing {
+           let bounds, framing.phase.isPreparing {
             if let selected = framing.shotPlan, let reference = selected.trackingReference,
                tracker.trackingReference != reference, !tracker.isRecovering {
                 framing.stop(reason:.tracking); shotCapture.cancel()
-            } else {
+            } else if framing.shotPlan?.requiresZoom != true, let plan {
                 let context = plan.selected.protectedContext ?? (SceneCompositionPlanner.distinctSubjects(contextSubjects,selected:bounds).map(\.bounds)
                     + frames.filter { $0.contains(bounds) })
                 if let selected = AutomaticShotPlan.propose(bounds:bounds,label:tracker.label,confidence:confidence,
                     trackingReference:tracker.trackingReference,composition:plan,currentZoom:analysisZoom,
                     maximumZoom:automaticZoomLimit,detailLimit:detailZoomLimit,nativeStops:nativeZoomStops,
                     regions:context,anatomy:zoomAnatomy,projection:projection) {
-                    framing.selectShot(selected)
+                    if framing.selectShot(selected), selected.requiresZoom {
+                        ShotFramingDiagnostics.log("SHOT_SELECTED","session=\(snapshot.revision) shot=\(selected.id) tracker=\(tracker.trackingReference ?? "unknown") currentZoom=\(analysisZoom) targetZoom=\(selected.targetZoom) desiredScale=\(selected.desiredScale) reason=\(selected.selectionReason)")
+                    }
                 }
             }
         }
         let zoomFacts = CompositionAssessment.evaluate(bounds:bounds,confidence:Double(confidence),label:tracker.label,intent:photographyIntent,
             stable:stable,exposure:subjectMeasurements,evidence:compositionEvidence,others:contextSubjects,anatomy:zoomAnatomy,timestamp:evaluatedAt,petStyle:appliedPetStyle)
-        let allowPlannedZoom = photographyIntent.permitsZoom && appliedPetStyle.permitsAutomaticZoom && mode != .thirds
-            && (plan?.permitsZoom ?? false) && zoomFacts.permitsAutomaticCrop
+        let execution = FramingExecutionContext(selected:framing.shotPlan,candidate:plan)
+        let framingSettingsAllow = photographyIntent.permitsZoom && appliedPetStyle.permitsAutomaticZoom && mode != .thirds
+        let allowPlannedZoom = execution.permitsZoom(settingsAllow:framingSettingsAllow,cropPermitted:zoomFacts.permitsAutomaticCrop)
         if !appliedPetStyle.permitsAutomaticZoom && framing.phase != .off {
             framing.reset(enabled:false)
             if zooming { queue.async { self.cancelZoomRamp() } }
         }
         if zooming, framing.phase.isAutoFraming {
-            let fresh = GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:ProcessInfo.processInfo.systemUptime)
+            zoomObservationLock.lock(); let liveCamera = observedPhoneZoom; zoomObservationLock.unlock()
+            let verificationTime = ProcessInfo.processInfo.systemUptime
+            let fresh = GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:verificationTime)
+            let pairedCameraFresh = capturedZoom?.matchesFrame(capturedAt:observationTime,evaluatedAt:verificationTime) ?? false
             let currentRegions: [CGRect] = [] // Frozen head/joints are reprojected inside the shot plan.
             let progress = framing.verifyShot(bounds:bounds,label:tracker.label,confidence:confidence,zoom:analysisZoom,
-                stable:stable,fresh:fresh,timestamp:evaluatedAt,previewAspect:previewAspect,regions:currentRegions,cameraRamping:capturedZoom?.ramping ?? true,
-                cameraFresh:capturedZoom?.fresh(at:evaluatedAt) ?? false,cropPermitted:zoomFacts.permitsAutomaticCrop,captureStable:captureStable,trackingReference:tracker.trackingReference)
+                stable:stable,fresh:fresh,timestamp:verificationTime,previewAspect:previewAspect,regions:currentRegions,
+                cameraRamping:(capturedZoom?.ramping ?? true) || liveCamera.ramping,
+                cameraFresh:pairedCameraFresh && liveCamera.fresh(at:verificationTime),cropPermitted:zoomFacts.permitsAutomaticCrop,
+                captureStable:captureStable,trackingReference:tracker.trackingReference,captureHoldDuration:holdDuration,liveZoom:liveCamera.displayedFactor)
             let generation = analysisZoomGeneration
             switch progress {
             case .continuing:
@@ -1723,7 +1748,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                     } catch { self.abortAutomaticZoom(generation:generation) }
                 }
             case .achieved:
-                ShotFramingDiagnostics.log("ZOOM_COMPLETE","shot=\(framing.shotPlan?.id ?? "none") displayed=\(analysisZoom) native=\(capturedZoom?.hardwareFactor ?? 0) ramping=\(capturedZoom?.ramping ?? true) bounds=\(String(describing:bounds))")
+                ShotFramingDiagnostics.log("ZOOM_COMPLETE","shot=\(framing.shotPlan?.id ?? "none") displayed=\(analysisZoom) native=\(FramingTransitionTrace.number(capturedZoom?.hardwareFactor)) ramping=\(capturedZoom?.ramping ?? true) bounds=\(String(describing:bounds))")
                 automaticShotArmed = false
                 queue.async {
                     guard self.zoomGeneration == generation else { return }
@@ -1749,7 +1774,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
             framing.confirmCurrentFrame(eligible:currentFrameEligible || (bounds == nil && framing.shotPlan?.sceneAnchor == true && sceneEligible),timestamp:evaluatedAt,holdDuration:holdDuration)
         }
-        let preparingZoom = automaticShotArmed && autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing && !zooming && plan?.permitsZoom == true
+        let preparingZoom = automaticShotArmed && autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing && !zooming && execution.requiresZoom
         let keepUnplannedFrame = mode == .automatic && !planning && plan == nil
         let selectedShot = framing.shotPlan
         let executionScale = bounds.flatMap { box in selectedShot.map { $0.scaleForCurrentBounds(box) } } ?? plan?.selected.zoomScale
@@ -1757,27 +1782,30 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let finalTarget = selectedShot?.desiredPosition ?? plan?.target
         let layoutTarget = (preparingZoom ? aimingTarget : finalTarget) ?? (keepUnplannedFrame ? subject : nil) ?? (mode == .centered ? UnitPoint2D(x:0.5,y:0.5) : manualTarget)
         let observationFresh = GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:ProcessInfo.processInfo.systemUptime)
-        let zoomMotionAllowed = GuidanceObservationPolicy.permitsZoom(stable:stable,relativeSpeed:relativeMotion,fresh:observationFresh)
+        let reliableSelectedTrack = confidence >= 0.65 && bounds != nil && selectedShot != nil
+            && (selectedShot?.trackingReference == nil || selectedShot?.trackingReference == tracker.trackingReference)
+        let zoomMotionAllowed = GuidanceObservationPolicy.permitsZoom(stable:stable,relativeSpeed:relativeMotion,
+            fresh:observationFresh,trackedSubject:reliableSelectedTrack)
         let zoomBlock: FramingBlockReason?
         if !observationFresh { zoomBlock = .staleFrame }
+        else if selectedShot == nil { zoomBlock = .missingPlan }
         else if analysisSource == .iPhone, framingMotion?.usable != true { zoomBlock = .motionUnavailable }
         else if !stable { zoomBlock = .cameraMotion }
         else if !zoomMotionAllowed { zoomBlock = .subjectMotion }
         else if !allowPlannedZoom { zoomBlock = .quality }
         else { zoomBlock = nil }
-        if analysisSource == .iPhone, framing.phase.isPreparing, !zooming, plan == nil {
+        if analysisSource == .iPhone, framing.phase.isPreparing, !zooming, selectedShot == nil {
             framing.noteBlock(.missingPlan,at:evaluatedAt)
         }
-        if (!planning || plan != nil || bounds == nil), let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
+        if analysisSource == .iPhone, let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,
                                             detailZoomLimit: detailZoomLimit, nativeStops: nativeZoomStops, deviceStable:zoomMotionAllowed, holdDuration:holdDuration, previewAspect:previewAspect,
-                                            alignmentTarget:layoutTarget,allowZoom:allowPlannedZoom,plannedScale:executionScale,zoomDestination:preparingZoom ? finalTarget : nil,requiresShotPlan:true,blockedBy:zoomBlock), imageBounds != nil {
-            let protectedContext = plan?.selected.protectedContext ?? (SceneCompositionPlanner.distinctSubjects(contextSubjects,selected:bounds ?? .zero).map(\.bounds)
-                + frames.filter { $0.contains(bounds ?? .zero) })
+                                            alignmentTarget:layoutTarget,allowZoom:allowPlannedZoom,plannedScale:executionScale,zoomDestination:preparingZoom ? finalTarget : nil,
+                                            requiresShotPlan:true,blockedBy:zoomBlock,startConfirmationDuration:0.2), imageBounds != nil {
             if let bounds, let selected = framing.shotPlan,
                selected.trackingReference == nil || selected.trackingReference == tracker.trackingReference,
                let shot = selected.prepared(bounds:bounds,zoom:analysisZoom,detailLimit:detailZoomLimit,nativeStops:nativeZoomStops,
-                    regions:protectedContext,anatomy:zoomAnatomy,aspect:previewAspect),
+                    regions:selected.trackedProtectedRegions(bounds:bounds),anatomy:zoomAnatomy,aspect:previewAspect),
                abs(shot.targetZoom-targetZoom) < 0.01 {
                 framing.commitShot(shot)
                 performAutomaticZoom(to:shot.targetZoom,generation:analysisZoomGeneration,observedAt:observationTime,shotID:shot.id)
@@ -1791,6 +1819,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                 framing.stop(reason:.unsafeCrop)
             }
         }
+        if framing.phase == .off, framing.blockReason == .deadline { automaticShotArmed = false }
         if analysisSource == .iPhone {
             shotCapture.observe(plan:framing.shotPlan,verified:framing.shotVerified,bounds:bounds,label:tracker.label,
                 confidence:confidence,zoom:analysisZoom,stable:captureStable,timestamp:evaluatedAt,aspect:previewAspect)
@@ -1839,7 +1868,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             publishAnalysis(snapshot) { self.liveMeasurements = measurements; self.coachAdvice = advice; self.sceneLabel = sceneName }
         }
         let decisionStarted = ProcessInfo.processInfo.systemUptime
-        guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:decisionStarted) else { discardStaleGuidance(snapshot); return }
+        guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:decisionStarted) else { discardStaleGuidance(snapshot,observedAt:observationTime); return }
         var measured = result; measured.subjectBounds = analysisReadingBounds
         let observedScene = GuidanceSceneSnapshot(observedAt:observationTime,evaluatedAt:decisionStarted,label:tracker.label,intent:photographyIntent,
             selectedBounds:bounds,confidence:Double(confidence),surroundingSubjects:contextSubjects,
@@ -1858,23 +1887,86 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             manualComposition:mode != .automatic,anatomy:observedScene.anatomy,others:contextSubjects,observedScene:observedScene,shotVerified:framing.shotVerified,requireShotCompletion:analysisSource == .iPhone,currentFrameVerified:framing.currentFrameVerified,framingInstruction:analysisSource == .iPhone ? framing.progressInstruction : nil)
         #if DEBUG || FOCAL_EVALUATION
         if analysisSource == .iPhone {
-            let state = framing.directorState(hasPlan:plan != nil)
-            let reason = framing.shotVerified ? "verified_actual_zoom_and_crop" : framing.currentFrameVerified ? "measured_current_frame" : !automaticShotArmed ? "manual_or_interruption_override" : !autoFrameEnabled ? "automatic_zoom_disabled" : plan == nil ? "no_measured_shot" : !allowPlannedZoom ? "crop_quality_or_tracking_gate" : !stable ? "waiting_for_stability" : "aim_hold_or_verify"
-            let key = "\(state.rawValue)|\(reason)|\(message.kind)|\(message.text)"
-            if key != lastDirectorDiagnostic || evaluatedAt-lastDirectorLogTime >= 1 {
-                lastDirectorLogTime = evaluatedAt
-                lastDirectorDiagnostic = key
-                let camera = capturedZoom
-                let desiredBounds = framing.shotPlan?.desiredBounds ?? bounds.map { FramingPlanner.zoomedRect($0,scale:plan?.selected.zoomScale ?? 1) }
-                let shotID = framing.shotPlan?.id ?? plan?.id ?? "none"
-                let framingError = bounds.flatMap { box in framing.shotPlan.map { $0.error(bounds:box,zoom:analysisZoom,aspect:previewAspect) } }
-                let nativeTarget = (framing.shotPlan?.targetZoom ?? analysisZoom*(plan?.selected.zoomScale ?? 1))*(camera?.multiplier ?? 1)
-                ShotFramingDiagnostics.log("STATE","state=\(state.rawValue) reason=\(framing.blockReason?.rawValue ?? reason) subject=\(tracker.label) tracker=\(tracker.trackingReference ?? "none") lockedTracker=\(framing.shotPlan?.trackingReference ?? "none") shot=\(shotID) verified=\(framing.shotVerified) currentVerified=\(framing.currentFrameVerified) bounds=\(String(describing:bounds)) desired=\(String(describing:desiredBounds)) zoom=\(analysisZoom) target=\(framing.shotPlan?.targetZoom ?? analysisZoom*(plan?.selected.zoomScale ?? 1)) targetHardware=\(nativeTarget) widthError=\(framingError?.width ?? -1) heightError=\(framingError?.height ?? -1) zoomError=\(framingError?.zoom ?? -1) hardware=\(camera?.hardwareFactor ?? 0) multiplier=\(camera?.multiplier ?? 0) ramping=\(camera?.ramping ?? false) confidence=\(confidence) error=\(bounds.map { hypot(Double($0.midX)-layoutTarget.x,(Double($0.midY)-layoutTarget.y)/previewAspect) } ?? -1) aligned=\(framing.phase == .settling || framing.phase.isAutoFraming) stable=\(stable) rotation=\(framingMotion?.rotation ?? -1) acceleration=\(framingMotion?.acceleration ?? -1) motionAge=\(framingMotion?.age ?? -1) relativeSpeed=\(relativeMotion ?? -1) frameAge=\(evaluatedAt-observationTime) captureStable=\(captureStable) composition=\(String(describing:framing.shotPlan?.imageGeometry?.composition)) score=\(framing.shotPlan?.qualityScore ?? plan?.selected.score ?? 0) kind=\(framing.shotPlan?.kind.rawValue ?? "unplanned") protected=\(framing.shotPlan?.protectedRegions.count ?? 0) hold=\(framing.holdProgress) wait=\(framing.waitDuration) recovering=\(framing.recovering) allowed=\(automaticShotArmed && autoFrameEnabled && allowPlannedZoom) limit=\(automaticZoomLimit) detailLimit=\(detailZoomLimit) guidance=\(message.text)")
+            let state = framing.directorState(hasPlan:framing.shotPlan != nil || plan != nil)
+            let shot = framing.shotPlan
+            zoomObservationLock.lock(); let live = observedPhoneZoom; zoomObservationLock.unlock()
+            let traceTime = ProcessInfo.processInfo.systemUptime
+            let n = FramingTransitionTrace.number, flag = FramingTransitionTrace.flag
+            let error = bounds.flatMap { box in shot.map { $0.error(bounds:box,zoom:analysisZoom,aspect:previewAspect) } }
+            let aimingError = bounds.map { hypot(Double($0.midX)-layoutTarget.x,(Double($0.midY)-layoutTarget.y)/previewAspect) }
+            let aligned = aimingError.map { $0 <= tolerance && abs(roll) <= 4 } ?? false
+            var values = [String:String]()
+            let reason:String
+            if framing.shotVerified { reason = "verified_actual_zoom_and_geometry" }
+            else if framing.currentFrameVerified { reason = "measured_current_frame_no_zoom_needed" }
+            else if !automaticShotArmed { reason = "manual_or_finished_session" }
+            else if shot == nil { reason = "missing_selected_shot" }
+            else if shot?.requiresZoom != true { reason = "verifying_existing_frame_no_zoom_needed" }
+            else if !allowPlannedZoom { reason = "crop_or_settings_gate" }
+            else if !zoomMotionAllowed { reason = "motion_or_tracking_gate" }
+            else if !aligned && !framing.phase.isAutoFraming { reason = "aiming" }
+            else if framing.phase == .settling { reason = "brief_alignment_confirmation" }
+            else if !captureStable && framing.phase == .verifying { reason = "capture_stability" }
+            else { reason = "motor_or_geometry_verification" }
+            values["blockingReason"] = framing.blockReason?.rawValue ?? reason
+            values["requirements"] = "selected shot; same track/confidence>=0.65; fresh frame; safe crop; aim<=tolerance/roll<=4deg; handheld motion; 0.2s confirmation. READY additionally needs actual target, stopped motor, geometry and capture hold."
+            values["candidatePresent"] = flag(plan != nil)
+            values["candidateMatchesSelected"] = flag(execution.candidateMatchesSelected)
+            values["currentZoom"] = n(analysisZoom)
+            values["actualLiveZoom"] = n(live.displayedFactor)
+            values["targetZoom"] = n(shot?.targetZoom)
+            values["targetNative"] = n(shot.map { $0.targetZoom*live.multiplier })
+            values["actualNative"] = n(live.hardwareFactor)
+            values["liveCameraFresh"] = flag(live.fresh(at:traceTime))
+            values["frameCameraPaired"] = flag(capturedZoom?.matchesFrame(capturedAt:observationTime,evaluatedAt:traceTime) ?? false)
+            values["requiresZoom"] = flag(shot?.requiresZoom == true)
+            values["desiredScale"] = n(shot?.desiredScale)
+            values["remainingScale"] = n(executionScale)
+            values["subjectWidth"] = n(bounds.map { Double($0.width) })
+            values["subjectHeight"] = n(bounds.map { Double($0.height) })
+            values["desiredWidth"] = n(shot.map { Double($0.desiredBounds.width) })
+            values["desiredHeight"] = n(shot.map { Double($0.desiredBounds.height) })
+            values["subjectArea"] = n(bounds.map { Double($0.width*$0.height) })
+            values["desiredArea"] = n(shot.map { Double($0.desiredBounds.width*$0.desiredBounds.height) })
+            values["automaticZoomLimit"] = n(automaticZoomLimit)
+            values["detailZoomLimit"] = n(detailZoomLimit)
+            values["selectionReason"] = shot?.selectionReason ?? "no selected shot"
+            values["aimingError"] = n(aimingError); values["aimingTolerance"] = n(tolerance)
+            values["aligned"] = flag(aligned); values["rollDegrees"] = n(roll)
+            values["trackingConfidence"] = n(Double(confidence))
+            values["tracker"] = tracker.trackingReference ?? "unknown"
+            values["lockedTracker"] = shot?.trackingReference ?? "unknown"
+            values["sameReliableTrack"] = flag(reliableSelectedTrack)
+            values["handheldMotionAllowed"] = flag(stable)
+            values["captureStable"] = flag(captureStable)
+            values["rotationRadPerSec"] = n(framingMotion?.rotation)
+            values["accelerationG"] = n(framingMotion?.acceleration)
+            values["motionAgeSeconds"] = n(framingMotion?.age)
+            values["relativeSubjectSpeed"] = n(relativeMotion)
+            values["frameAgeSeconds"] = n(traceTime-observationTime)
+            values["safeCrop"] = flag(zoomFacts.permitsAutomaticCrop)
+            values["cropAssessmentReliable"] = flag(zoomFacts.assessmentReliable)
+            values["touchesEdgeOrJoint"] = flag(zoomFacts.touchesEdge)
+            values["visibleFraction"] = n(zoomFacts.visibleFraction)
+            values["minimumMargin"] = n(zoomFacts.minimumMargin)
+            values["headroom"] = n(zoomFacts.headroom)
+            values["subjectBrightness"] = n(zoomFacts.exposure?.brightness)
+            values["highlightFraction"] = n(zoomFacts.exposure?.highlightFraction)
+            values["shadowFraction"] = n(zoomFacts.exposure?.shadowFraction)
+            values["zoomPermitted"] = flag(automaticShotArmed && autoFrameEnabled && allowPlannedZoom && zoomMotionAllowed && aligned)
+            values["motorRamping"] = flag(live.ramping)
+            values["positionError"] = n(error?.position); values["widthError"] = n(error?.width)
+            values["heightError"] = n(error?.height); values["zoomError"] = n(error?.zoom)
+            values["captureHoldSeconds"] = n(holdDuration)
+            values["confirmationProgress"] = n(framing.holdProgress)
+            values["finalCompositionVerified"] = flag(framing.shotVerified || framing.currentFrameVerified)
+            if let entry = directorTrace.record(sessionID:snapshot.revision,shotID:shot?.id,state:state,at:traceTime,values:values) {
+                ShotFramingDiagnostics.log("STATE",entry)
             }
         }
         #endif
         let finished = ProcessInfo.processInfo.systemUptime
-        guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:finished) else { discardStaleGuidance(snapshot); return }
+        guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:finished) else { discardStaleGuidance(snapshot,observedAt:observationTime); return }
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics.record(scene:observedScene,plan:plan,message:message,previous:previousGuidance,memoryOutcome:automaticGuidance.memoryOutcome,phase:framing.phase,
             reasoning:automaticGuidance.reasoning,inferenceMS:inferenceMilliseconds,decisionMS:(finished-decisionStarted)*1000,finishedAt:finished)
@@ -1887,11 +1979,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message; self.compositionPlan = plan }
     }
 
-    private func discardStaleGuidance(_ snapshot:GuidanceActivation.Snapshot) {
+    private func discardStaleGuidance(_ snapshot:GuidanceActivation.Snapshot,observedAt:TimeInterval? = nil) {
         guard snapshot.enabled, guidanceSnapshot() == snapshot, snapshot.source == analysisSource else { return }
         let zooming = framing.phase.isAutoFraming
         let armed = automaticShotArmed && framing.phase.isPreparing && !zooming && autoFrameEnabled && analysisSource == .iPhone
         let time = ProcessInfo.processInfo.systemUptime
+        ShotFramingDiagnostics.log("STALE_FRAME","session=\(snapshot.revision) shot=\(framing.shotPlan?.id ?? "none") state=\(framing.directorState(hasPlan:framing.shotPlan != nil).rawValue) requiredMaximumAge=\(GuidanceObservationPolicy.maximumAge) actualFrameAge=\(FramingTransitionTrace.number(observedAt.map { time-$0 }))")
         if zooming {
             let recovery = framing.recover(reason:.staleFrame,at:time)
             let generation = analysisZoomGeneration

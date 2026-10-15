@@ -15,6 +15,11 @@ struct CameraZoomObservation {
         hardwareFactor.isFinite && hardwareFactor > 0 && multiplier.isFinite && multiplier > 0
             && timestamp.isFinite && time >= timestamp && time-timestamp <= 0.3
     }
+    func matchesFrame(capturedAt:TimeInterval,evaluatedAt:TimeInterval) -> Bool {
+        hardwareFactor.isFinite && hardwareFactor > 0 && multiplier.isFinite && multiplier > 0
+            && timestamp.isFinite && timestamp <= evaluatedAt && abs(timestamp-capturedAt) <= 0.3
+            && GuidanceObservationPolicy.fresh(capturedAt:capturedAt,evaluatedAt:evaluatedAt)
+    }
     static func hardwareTarget(displayed:Double,multiplier:Double,minimum:Double,maximum:Double) -> Double? {
         guard [displayed,multiplier,minimum,maximum].allSatisfy(\.isFinite), displayed > 0, multiplier > 0 else { return nil }
         let target = displayed*multiplier
@@ -46,11 +51,22 @@ enum ShotReadiness {
     }
 }
 
-/// Development console only; no production UI or per-frame unbounded logging.
+/// Bounded developer diagnostics; export is explicit and contains no images.
 enum ShotFramingDiagnostics {
+    #if DEBUG || FOCAL_EVALUATION
+    private static let trace = FramingTraceBuffer()
+    static func export() throws -> URL {
+        let header = "Focal AI framing trace — recorded measurements, not a hardware-test claim.\nMissing readings are unknown. No images included.\n\n"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Focal-framing-\(UUID().uuidString).txt")
+        try (header+trace.text()).write(to:url,atomically:true,encoding:.utf8)
+        return url
+    }
+    #endif
     static func log(_ event:String,_ details:@autoclosure () -> String) {
         #if DEBUG || FOCAL_EVALUATION
-        print("[Focal ShotDirector] \(event) \(details())")
+        let line = "[Focal ShotDirector] uptime=\(FramingTransitionTrace.number(ProcessInfo.processInfo.systemUptime)) \(event) \(details())"
+        trace.append(line)
+        print(line)
         #endif
     }
 }

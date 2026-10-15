@@ -30,7 +30,7 @@ else:
  whole=['CompositionEngine','FramingPlanner','AutomaticShotPlan','PreviewProjection','CompositionLibrary','FramingProgress',
         'AutomaticGuidance','CompositionAssessment','GuidanceTimingAccumulator','IntentCompositionSearch','PetFramingStyle',
         'PhotographicReasoner','PhotographyIntent','RecommendationMemory','SceneCompositionEvidence','SceneCompositionPlanner',
-        'ShotReadiness','SubjectIdentity','SubjectSelection','TargetRectangleGeometry','TargetRectangleSearch','GuidanceObservation']
+        'ShotReadiness','SubjectIdentity','SubjectSelection','TargetRectangleGeometry','TargetRectangleSearch','GuidanceObservation','FramingTrace']
 for name in whole:
  text=source(f'Focal/Composition/{name}.swift')
  if name=='GuidanceObservation':text=text.split('#if DEBUG || FOCAL_EVALUATION')[0]
@@ -41,6 +41,7 @@ if not args.baseline:
  (app/'CameraControls.swift').write_text(source('Focal/Camera/CameraControls.swift'))
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
  shutil.copyfile(ROOT/'FocalTests/PhotoCapturePolicyTests.swift',tests/'PhotoCapturePolicyTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
 if not args.baseline:
  # Copy the original model and pure luma implementation verbatim, excluding its
  # CoreVideo/CoreImage/ImageIO adapters (not available on Linux).
