@@ -1977,7 +1977,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         result.subjectBounds = boxSmoother.update(bounds)
         result.guidanceBounds = bounds
         result.subjectConfidence = confidence
-        if framing.currentFrameVerified, framing.shotPlan?.sceneAnchor == true { result.state = .ready }
+        result.sceneFrameVerified = framing.currentFrameVerified && framing.shotPlan?.sceneAnchor == true
+        if result.sceneFrameVerified { result.state = .ready }
         result.mirrored = analysisSource == .iPhone && analysisFrontCamera
         if let selected = framing.shotPlan, let bounds {
             result.targetCompositionRect = selected.currentTargetRectangle(bounds:bounds,zoom:analysisZoom)

@@ -40,6 +40,28 @@ final class CameraDesignStateTests: XCTestCase {
         reading = subject; reading.state = .ready
         XCTAssertNotEqual(state(reading, phase: .settling, kind: .ready), .ready)
     }
+    func testWholeSceneReadyRequiresExplicitVerificationAndFinishedFraming() {
+        let reading = CompositionReading(state:.ready,sceneFrameVerified:true)
+        XCTAssertNil(reading.subjectBounds)
+        XCTAssertEqual(state(reading,phase:.framed,kind:.ready),.ready)
+        XCTAssertEqual(state(reading,phase:.framed,kind:.ready,enabled:false),.off)
+        for phase in [FramingPhase.off,.searching,.aligning,.settling,.zooming,.verifying,.reacquiring,.recoveringZoom,.rediscovering] {
+            XCTAssertNotEqual(state(reading,phase:phase,kind:.ready),.ready)
+        }
+        XCTAssertNotEqual(state(reading,phase:.framed,kind:.framing),.ready)
+        var notReady = reading; notReady.state = .adjusting
+        XCTAssertNotEqual(state(notReady,phase:.framed,kind:.ready),.ready)
+    }
+    func testReadyMessageCannotInventSceneVerification() {
+        let message = GuidanceMessage(kind:.ready,text:"Wide scene ready",action:GuidanceAction.none)
+        var reading = CompositionReading(state:.ready)
+        reading.shotStatus = .ready // Presentation metadata alone is not proof either.
+        XCTAssertFalse(reading.sceneFrameVerified)
+        XCTAssertEqual(CameraGuideState.resolve(enabled:true,reading:reading,phase:.framed,message:message),.searching)
+        reading.subjectConfidence = 0.1
+        reading.subjectBounds = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
+        XCTAssertEqual(CameraGuideState.resolve(enabled:true,reading:reading,phase:.framed,message:message),.searching)
+    }
     func testBriefLossShowsRecoveryWithoutDetectionOrReadyClaim() {
         XCTAssertEqual(state(.init(), phase: .framed, kind: .steady), .recovering)
         XCTAssertEqual(state(.init(), phase: .framed, kind: .ready), .searching)

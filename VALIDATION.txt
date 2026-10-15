@@ -1,12 +1,11 @@
-Focal 2.11.0 / build 37 — continuous AI guidance and measured outdoor compositions
-PASS: 318 portable framing/session/AF/presentation/preview-policy XCTest cases, including 27 new outdoor/manual-zoom regressions and four existing preview-policy cases. Production algorithms and pure declaration extracts; no Apple camera, Vision or SwiftUI execution.
-PASS: 75 Sony protocol/settings tests with scripted URLProtocol feedback. Sony production source unchanged; no physical remote commands.
-PARSE: all 135 Swift files pass frontend syntax parsing, not Apple SDK type checking.
-STRUCTURE PASS: deterministic project; 99 application/36 test files; 607 registered native XCTest functions; baseline hashes/resources/YAML/scope/duplicate-type/manual-shutter/gesture/capture/scene-wiring/whitespace checks.
-ROOT CAUSES: manual zoom latched the motor and shot director off with no gesture-end recovery; landscape/no-zoom intents disabled framing; scene planner required subject bounds; whole-scene plans entered object-loss recovery; capture did not explicitly evaluate a fresh composition.
-IMPLEMENTED: motor-only manual grace, retained visible identity and FOV rebasing, safe fresh replan, whole-scene measured color/line/symmetry/repetition/texture/horizon suggestions, distinct alternatives with hysteresis, short wide-frame READY confirmation, next-shot evaluation after user capture.
-PRESERVED: existing real AVFoundation zoom/crop verification and subject AF, professional controls, RAW/capture/gallery/paired saving and Sony services. No remote zoom or new paid/cloud dependency. No Fujifilm implementation exists in this checkout.
-DEFERRED: unvalidated species/path/S-curve/fog/reflection/sun-ray/depth detectors; no claim to identify all forest subjects or guarantee the best photograph. No performance/battery improvement claimed without measurement.
-NATIVE BUILD ATTEMPT: xcodebuild absent, exit 127. No successful native build/test suite, archive, hardware zoom, actual AF or field performance result claimed. Codemagic must run all 607 tests and build the IPA.
-DEVICE: verify repeated manual zoom continuity/grace/AF, physical autozoom, no-subject forest choices and READY, alternative stability, lost-subject rediscovery, exposure/lens/lifecycle changes, paired saving/next-shot analysis and sustained thermal/cadence/memory/battery behavior on iPhone 16 Pro Max before relying on the update outdoors.
-REPORT: docs/intelligence/FOREST-GUIDANCE-CONTINUITY.md
+Focal 2.11.1 / build 38 — explicit verified-scene READY presentation
+USER-PROVIDED NATIVE BUILD 37: app compiled; 607 XCTest cases executed with two assertion failures in CameraDesignStateTests.testReadyRequiresBoundsConfidenceAndFinishedFraming. Full test suite and IPA archive did not pass.
+REPRODUCED: expanded portable selection against saved pre-fix sources ran 328 tests with the same two assertion failures in the unchanged original test.
+FIXED: 330 portable framing/session/AF/presentation/preview-policy XCTest cases pass, including the original failing assertions, two new scene-verification regressions and the positive outdoor scene case. Exact production pure declarations/algorithms; no AVFoundation/Vision/SwiftUI execution.
+ROOT CAUSE: the scene-only presentation shortcut accepted an unconfirmed object from READY state/message alone. Low confidence and null bounds incorrectly bypassed object validation.
+CORRECTION: an explicit sceneFrameVerified flag comes from currentFrameVerified plus the real scene-anchor shot; scene-only READY additionally requires completed framing. Original object confidence/bounds checks remain intact. No framing, zoom, capture or AF algorithm rewrite.
+PARSE: all 135 Swift sources pass frontend syntax parsing, not Apple SDK type checking.
+STRUCTURE PASS: deterministic project; 99 application/36 test files; 609 native XCTest functions; baseline/resources/YAML/duplicate-type/manual-shutter/gesture/capture/scene-wiring/whitespace checks. Sony production files unchanged.
+LOCAL INFRASTRUCTURE: initial reruns ran out of temporary disk before test execution; only old generated test packages were removed, then the saved pre-fix/fixed snapshots were rebuilt and tested.
+NATIVE ATTEMPT: xcodebuild absent, exit 127. New native build, all 609 native tests, archive and physical iPhone behavior are unverified. Run Codemagic ios-sideload from latest main.
+REPORT: docs/intelligence/READY-PRESENTATION-REGRESSION.md

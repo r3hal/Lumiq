@@ -42,6 +42,18 @@ if not args.baseline:
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
  (app/'SubjectAutofocus.swift').write_text(source('Focal/Camera/SubjectAutofocus.swift'))
  (app/'CameraGuideState.swift').write_text('import Foundation\n'+declaration('Focal/Camera/CameraGuidanceCard.swift','CameraGuideState'))
+ (app/'CameraViewportLayout.swift').write_text('import Foundation\n'+declaration('Focal/Camera/CameraGuidanceCard.swift','CameraViewportLayout'))
+ (app/'PhotoAspect.swift').write_text('import Foundation\n'+declaration('Focal/App/CameraSettings.swift','PhotoAspect'))
+ # Run the native design-state assertions unchanged. Only the Vision-backed
+ # tracker method and separate Apple-observable persistence class are excluded.
+ design=source('FocalTests/CameraDesignStateTests.swift').split('\n@MainActor\n')[0]
+ start=design.index('    func testTrackerConfiguresActualFeatureOptionsAndClearsPreviousSelection()')
+ brace=design.index('{',start);depth=1;end=brace+1
+ while depth:
+  if design[end]=='{':depth+=1
+  elif design[end]=='}':depth-=1
+  end+=1
+ (tests/'CameraDesignStateTests.swift').write_text(design[:start]+design[end:])
  shutil.copyfile(ROOT/'FocalTests/PhotoCapturePolicyTests.swift',tests/'PhotoCapturePolicyTests.swift')
  shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ContinuousFramingRecoveryTests.swift',tests/'ContinuousFramingRecoveryTests.swift')

@@ -33,6 +33,9 @@ struct CompositionReading {
     var plannedSubjectBounds: CGRect?
     var shotPlanID: String?
     var shotStatus: ShotDirectorState?
+    // Set by the camera service only for a director-verified whole-scene shot.
+    // A READY message or an invalid object box is not evidence of this state.
+    var sceneFrameVerified = false
     var mirrored = false // Physical pan directions reverse horizontally in a front preview.
     func alignmentPercent(previewAspect: Double) -> Double? {
         guard state != .searching, let subject, subject.x.isFinite, subject.y.isFinite, rollDegrees.isFinite else { return nil }

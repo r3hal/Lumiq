@@ -1,5 +1,7 @@
 # Focal 2.11.0 / build 37 — continuous guidance and measured outdoor compositions
 
+Follow-up: [build 38 corrects the scene-only READY presentation shortcut](READY-PRESENTATION-REGRESSION.md), preserves the original object-confidence assertions and expands the portable test selection. The build-37 validation below describes that release's checks, not a passing native test suite.
+
 ## What failed
 
 1. `CameraController.cancelZoomRamp(manualOverride:)` set **both** a persistent motor block and `automaticShotArmed = false`, then stopped the director with `.manualControl`. `beginManualZoom` and both coalesced `setZoom` stages also reset framing with `enabled:false`. Nothing released that latch after a pinch. The preview had a pinch-begin callback but no matching controller end callback.

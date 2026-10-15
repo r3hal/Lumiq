@@ -211,7 +211,7 @@ final class OutdoorGuidanceTests: XCTestCase {
         XCTAssertEqual(OutdoorCompositionPlanner.instruction(plan,mirrored:true).1,.panDown)
     }
     func testSceneReadyPresentationDoesNotRequireFakeSubjectBox() {
-        let reading = CompositionReading(state:.ready)
+        let reading = CompositionReading(state:.ready,sceneFrameVerified:true)
         let message = GuidanceMessage(kind:.ready,text:"Wide scene ready",action:GuidanceAction.none)
         XCTAssertEqual(CameraGuideState.resolve(enabled:true,reading:reading,phase:.framed,message:message),.ready)
         XCTAssertEqual(CameraGuideState.resolve(enabled:false,reading:reading,phase:.framed,message:message),.off)

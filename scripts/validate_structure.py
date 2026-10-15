@@ -57,7 +57,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','HEAD','--name-only','--','Focal/Sony').strip(),'Sony integration changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==607,count
+assert count==609,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
@@ -96,3 +96,9 @@ finish=controller.split('private func finishCapture(')[1]
 assert 'self.replanAfterManualFraming()' in finish and 'self.wantsScan = true' in finish
 assert 'framing.shotPlan?.sceneAnchor != true' in controller
 print('PASS: manual motor grace/gesture-end/capture-resumption/scene-only integration guards (source checks, not device execution).')
+
+# Whole-scene presentation must carry actual director verification, rather than
+# treating every unconfirmed READY object reading as a ready landscape.
+assert 'result.sceneFrameVerified = framing.currentFrameVerified && framing.shotPlan?.sceneAnchor == true' in controller
+guide=(ROOT/'Focal/Camera/CameraGuidanceCard.swift').read_text()
+assert 'reading.sceneFrameVerified,message.kind == .ready,reading.state == .ready,phase == .framed' in guide
