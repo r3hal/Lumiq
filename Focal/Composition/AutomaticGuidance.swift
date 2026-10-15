@@ -43,9 +43,12 @@ struct AutomaticGuidance {
                          compositionPlan: SceneCompositionPlan? = nil, sceneEvidence: SceneCompositionEvidence? = nil,
                          intent: PhotographyIntent = .auto, manualSubject: Bool = false,
                          manualComposition: Bool = false, anatomy: SubjectAnatomy? = nil,
-                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false, requireShotCompletion:Bool = false, currentFrameVerified:Bool = false) -> GuidanceMessage {
+                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false, requireShotCompletion:Bool = false, currentFrameVerified:Bool = false, framingInstruction:String? = nil) -> GuidanceMessage {
         guard timestamp.isFinite else { reset(); return GuidanceMessage() }
         if let observedScene, !observedScene.fresh { reset(); return .init(kind:.searching,text:"") }
+        if autoEnabled, let framingInstruction {
+            return .init(kind:.steady,text:framingInstruction,action:.hold)
+        }
         guard let bounds = reading.guidanceBounds ?? reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy(\.isFinite) else {

@@ -170,6 +170,7 @@ final class SubjectTracker {
         // During a lens ramp, only verify the chosen subject. No new acquisition
         // or semantic switching can silently redirect an automatic zoom.
         if trackingOnly { return retained.map { SubjectObservation($0) } }
+        if retainSelection, let retained { return SubjectObservation(retained) }
         // Manual tap remains available when automatic selection is disabled.
         guard features.allowsAcquisition(manual: manual) else { return retained.map { SubjectObservation($0) } }
         let interval: TimeInterval = !trackingEnabled ? 0 : retained == nil ? 0.65 : 1.1
@@ -178,7 +179,6 @@ final class SubjectTracker {
         let detected = detect(in: buffer, detailBuffer: detailBuffer ?? buffer, timestamp: timestamp, visibleRegion: visibleRegion, canContinue: canContinue)
         guard canContinue() else { return nil }
         candidates = detected
-        if retainSelection, let retained { return SubjectObservation(retained) }
         if let index = selector.select(detected.map(\.candidate), timestamp: timestamp,
                                        current: retained == nil ? nil : trackedCandidate, manualPoint: manual ? selectedPoint : nil) {
             start(detected[index])

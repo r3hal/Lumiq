@@ -23,7 +23,7 @@ enum GuidanceObservationPolicy {
     }
     static func permitsZoom(stable: Bool, relativeSpeed: Double?, fresh: Bool) -> Bool {
         guard stable, fresh, let relativeSpeed, relativeSpeed.isFinite else { return false }
-        return relativeSpeed >= 0 && relativeSpeed <= 0.12
+        return relativeSpeed >= 0 && relativeSpeed <= 0.35
     }
 }
 

@@ -81,13 +81,14 @@ struct CompositionCue {
     let target: UnitPoint2D
     let aligned: Bool
     let direction: String
+    let mirrored: Bool
     init?(reading: CompositionReading, previewAspect: Double) {
         guard reading.subjectConfidence >= 0.4, let bounds = reading.guidanceBounds ?? reading.subjectBounds,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
               [bounds.midX, bounds.midY, reading.target.x, reading.target.y].allSatisfy(\.isFinite),
               (0...1).contains(reading.target.x), (0...1).contains(reading.target.y) else { return nil }
-        subject = UnitPoint2D(x: bounds.midX, y: bounds.midY); target = reading.target
-        let dx = subject.x - target.x, dy = (subject.y - target.y) / max(0.1, previewAspect)
+        subject = UnitPoint2D(x: bounds.midX, y: bounds.midY); target = reading.target; mirrored = reading.mirrored
+        let dx = (subject.x - target.x) * (reading.mirrored ? -1 : 1), dy = (subject.y - target.y) / max(0.1, previewAspect)
         aligned = hypot(dx, dy) <= reading.alignmentTolerance
         direction = abs(dx) > abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
     }
@@ -95,7 +96,7 @@ struct CompositionCue {
         "Pan \(direction) · place the \(subjectName.lowercased()) on the mark"
     }
     var phoneInstruction: String {
-        let dx = subject.x - target.x, dy = subject.y - target.y
+        let dx = (subject.x - target.x) * (mirrored ? -1 : 1), dy = subject.y - target.y
         var directions = [String]()
         if abs(dx) > 0.03 { directions.append(dx > 0 ? "right" : "left") }
         if abs(dy) > 0.025 { directions.append(dy > 0 ? "down" : "up") }

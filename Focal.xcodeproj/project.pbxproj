@@ -285,6 +285,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "F6B45CBABD2940697E419928";
 		};
+		"3B35DA184A0A0F4A1A9BC2B2" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Composition/FramingProgress.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"1428AE5CB0BFBE1EC8F69142" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3B35DA184A0A0F4A1A9BC2B2";
+		};
 		"656B8A09847105F3FDDB36EF" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -955,6 +965,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "8324D6A7CE9CC4869FAFC59D";
 		};
+		"F641E1721DB85667A6DAF5AD" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/FramingProgressionTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"07A6CD591E0F755654475DC2" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F641E1721DB85667A6DAF5AD";
+		};
+		"B14F2B62D66F94492C2091DD" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/FramingVideoRegressionTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"0325BB86D5B01665F59D7A7D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B14F2B62D66F94492C2091DD";
+		};
 		"C99F84FF47F19324EAEDF41C" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -1225,6 +1255,7 @@
 				"352021BDB53D8B8114645869",
 				"FD37C76EF9CE840E81963971",
 				"F6B45CBABD2940697E419928",
+				"3B35DA184A0A0F4A1A9BC2B2",
 				"656B8A09847105F3FDDB36EF",
 				"B81F4F50DEAE66676E670FC5",
 				"C3B70496A8504763648E4D03",
@@ -1311,6 +1342,8 @@
 				"3EB3BCB88571190E821F50C1",
 				"6D43E56B273731D25F177F0D",
 				"8324D6A7CE9CC4869FAFC59D",
+				"F641E1721DB85667A6DAF5AD",
+				"B14F2B62D66F94492C2091DD",
 				"C99F84FF47F19324EAEDF41C",
 				"5C3B3616A7F5ED6C956D6874",
 				"053FA78A100AC313B965363B",
@@ -1352,8 +1385,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "26";
-				"MARKETING_VERSION" = "2.6.0";
+				"CURRENT_PROJECT_VERSION" = "27";
+				"MARKETING_VERSION" = "2.6.1";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -1375,8 +1408,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "26";
-				"MARKETING_VERSION" = "2.6.0";
+				"CURRENT_PROJECT_VERSION" = "27";
+				"MARKETING_VERSION" = "2.6.1";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -1429,6 +1462,7 @@
 				"90FAACECBDF0B523A8E11B26",
 				"07566F72E315C53805A9A166",
 				"23F2E3F4C147C1257AB0482D",
+				"1428AE5CB0BFBE1EC8F69142",
 				"9545CD8C4B2F79E097CAB68B",
 				"38010E52D6EA9D7AD0338DC4",
 				"CC0886663C8F400BDF8CB2E2",
@@ -1595,6 +1629,8 @@
 				"8B24F73D0554AF6B77DC5A24",
 				"E6152F63C3A3BECA18B4C2A2",
 				"A28AFF7E2E2C652907EAA52C",
+				"07A6CD591E0F755654475DC2",
+				"0325BB86D5B01665F59D7A7D",
 				"F4D215A068BAAF17CCA2299B",
 				"F4F77F7F01C7147B7C135B12",
 				"57B483D63B421FDD3B544BAD",

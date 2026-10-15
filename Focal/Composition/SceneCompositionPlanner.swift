@@ -22,6 +22,7 @@ struct SceneCompositionPlan {
     var alternatives: [CompositionOption]
     var subjectLabel: String
     var timestamp: TimeInterval
+    var id: String = UUID().uuidString
     var target: UnitPoint2D { selected.target }
     var permitsZoom: Bool { !selected.isCurrentFrame && selected.measuredImprovement >= IntentCompositionSearch.minimumImprovement && selected.zoomScale > 1.12 && [CompositionTechnique.centered,.fillFrame,.simplicity,.contrast,.thirds,.goldenRatio].contains(selected.technique) }
     var zoomAlignmentTarget: UnitPoint2D {

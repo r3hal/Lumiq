@@ -89,19 +89,19 @@ final class AutomaticShotFramingTests: XCTestCase {
         XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:2,stable:true,fresh:true,timestamp:2.6,previewAspect:1),.achieved)
         XCTAssertTrue(planner.shotVerified)
     }
-    func testTrackingLossAndIdentityChangeCancelRamp() throws {
+    func testTrackingLossPausesButIdentityChangeCancelsRamp() throws {
         let plan = try shot(); var planner = ramp(plan)
-        XCTAssertEqual(planner.verifyShot(bounds:nil,label:"Cat",confidence:0,zoom:1.5,stable:true,fresh:true,timestamp:2,previewAspect:1),.cancel)
+        XCTAssertEqual(planner.verifyShot(bounds:nil,label:"Cat",confidence:0,zoom:1.5,stable:true,fresh:true,timestamp:2,previewAspect:1),.recovering)
         XCTAssertEqual(planner.verifyShot(bounds:subject,label:"Chair",confidence:0.9,zoom:1.5,stable:true,fresh:true,timestamp:2,previewAspect:1),.cancel)
     }
-    func testClippingOrCameraMotionCancelsRamp() throws {
+    func testClippingCancelsButBriefCameraMotionPausesRamp() throws {
         let plan = try shot(); var planner = ramp(plan)
         XCTAssertEqual(planner.verifyShot(bounds:CGRect(x:0.7,y:0.3,width:0.3,height:0.3),label:"Cat",confidence:0.9,zoom:1.5,stable:true,fresh:true,timestamp:2,previewAspect:1),.cancel)
-        XCTAssertEqual(planner.verifyShot(bounds:subject,label:"Cat",confidence:0.9,zoom:1.5,stable:false,fresh:true,timestamp:2,previewAspect:1),.cancel)
+        XCTAssertEqual(planner.verifyShot(bounds:subject,label:"Cat",confidence:0.9,zoom:1.5,stable:false,fresh:true,timestamp:2,previewAspect:1),.recovering)
     }
     func testStaleResultCannotCompleteZoom() throws {
         let plan = try shot(); var planner = ramp(plan)
-        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:2,stable:true,fresh:false,timestamp:2,previewAspect:1),.cancel)
+        XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:0.9,zoom:2,stable:true,fresh:false,timestamp:2,previewAspect:1),.recovering)
     }
     func testManualCancellationDiscardsPendingShotVerification() throws {
         let plan = try shot(); var planner = ramp(plan)
@@ -182,7 +182,7 @@ final class AutomaticShotFramingTests: XCTestCase {
     func testStaleCameraTelemetryCannotAcknowledgeAppliedTarget() throws {
         let plan = try shot(); var planner = ramp(plan)
         XCTAssertEqual(planner.verifyShot(bounds:plan.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,fresh:true,timestamp:2,
-            previewAspect:1,cameraFresh:false),.cancel)
+            previewAspect:1,cameraFresh:false),.recovering)
         XCTAssertFalse(planner.shotVerified)
     }
     func testPendingZoomPlanCannotProduceReadyGuidance() {
