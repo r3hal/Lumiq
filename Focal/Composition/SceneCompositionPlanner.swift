@@ -129,7 +129,7 @@ struct SceneCompositionPlanner {
         let context = distinctSubjects(others,selected:subject)
         let group = context + [CompositionContextSubject(bounds:subject,label:"Selected",confidence:1)]
         let hasGroup = context.count > 0
-        let enclosing = enclosingFrames.filter { valid($0) && $0.contains(subject) && $0.width*$0.height > subject.width*subject.height*1.7 }
+        let enclosing = protectedFrames(enclosingFrames,subject:subject)
         // Exclude short subject contours from environment line evidence.
         let environmentLines = evidence.lines.filter { line in
             !subject.insetBy(dx:-0.03,dy:-0.03).contains(CGPoint(x:line.start.x,y:line.start.y))
@@ -167,10 +167,8 @@ struct SceneCompositionPlanner {
                 add(.balance,center,0.83,"keep the counterweight in view")
             }
             if group.count == 3 || group.count == 5 { add(.odds,center,0.82,"keep all \(group.count) subjects together") }
-            if group.count == 3 {
-                let a = group[0].bounds, b = group[1].bounds, c = group[2].bounds
-                let area = abs((b.midX-a.midX)*(c.midY-a.midY)-(c.midX-a.midX)*(b.midY-a.midY))/2
-                if area > 0.025 { add(.triangles,center,0.89,"preserve the three-point arrangement") }
+            if hasTriangularArrangement(group.map(\.bounds)) {
+                add(.triangles,center,0.89,"preserve the three-point arrangement")
             }
             if context.contains(where: { abs($0.bounds.midY-subject.midY) > 0.25 && abs($0.bounds.height-subject.height) > 0.12 }) {
                 add(.layers,center,0.8,"keep the separated elements for context")
@@ -247,7 +245,7 @@ struct SceneCompositionPlanner {
                 return $0.measuredImprovement == $1.measuredImprovement ? $0.score > $1.score : $0.measuredImprovement > $1.measuredImprovement
             }
         let directed = TargetRectangleSearch.options(subject:subject,label:label,intent:intent,evidence:evidence,others:others,
-            scales:scales.filter { $0 <= maximumScale },anatomy:anatomy)
+            scales:scales.filter { $0 <= maximumScale },anatomy:anatomy,enclosingFrames:enclosing)
         // Compare whole planned photographs, rather than declaring every subject
         // above a tiny visibility threshold to have optimal scale.
         let useful = (directed+improvements).sorted {
@@ -256,6 +254,18 @@ struct SceneCompositionPlanner {
         }
         return useful.isEmpty ? [keep]+ranked.sorted { $0.score > $1.score }
             : useful+[keep]+ranked.filter { $0.measuredImprovement < IntentCompositionSearch.minimumImprovement }.sorted { $0.score > $1.score }
+    }
+    // Shared by environmental and target-rectangle planning so a tighter
+    // portrait cannot silently override observed compositional structure.
+    static func protectedFrames(_ frames: [CGRect], subject: CGRect) -> [CGRect] {
+        frames.filter { valid($0) && TargetRectangleGeometry.contains($0,subject)
+            && $0.width*$0.height > subject.width*subject.height*1.7 }
+    }
+    static func hasTriangularArrangement(_ bounds: [CGRect]) -> Bool {
+        guard bounds.count == 3 else { return false }
+        let a = bounds[0], b = bounds[1], c = bounds[2]
+        let area = abs((b.midX-a.midX)*(c.midY-a.midY)-(c.midX-a.midX)*(b.midY-a.midY))/2
+        return area > 0.025
     }
     static func distinctSubjects(_ subjects: [CompositionContextSubject], selected: CGRect) -> [CompositionContextSubject] {
         var distinct = [CompositionContextSubject]()

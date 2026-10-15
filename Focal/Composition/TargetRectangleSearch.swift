@@ -5,19 +5,25 @@ import Foundation
 enum TargetRectangleSearch {
     static let minimumGain = 0.12 // Avoid unnecessary crops of an already strong portrait.
     static func options(subject:CGRect,label:String,intent:PhotographyIntent,evidence:SceneCompositionEvidence,
-                        others:[CompositionContextSubject],scales:[Double],anatomy:SubjectAnatomy? = nil) -> [CompositionOption] {
+                        others:[CompositionContextSubject],scales:[Double],anatomy:SubjectAnatomy? = nil,
+                        enclosingFrames:[CGRect] = []) -> [CompositionOption] {
         guard AutomaticShotPlan.valid(subject), TargetRectangleGeometry.contains(SceneCompositionEvidence.full,subject),
               intent.permitsZoom, SubjectCategory.classified(label) != .background else { return [] }
         let category = SubjectCategory.classified(label)
-        let companions = SceneCompositionPlanner.distinctSubjects(others,selected:subject).filter {
+        let context = SceneCompositionPlanner.distinctSubjects(others,selected:subject)
+        let enclosing = SceneCompositionPlanner.protectedFrames(enclosingFrames,subject:subject)
+        let triangle = SceneCompositionPlanner.hasTriangularArrangement(context.map(\.bounds)+[subject])
+        let companions = context.filter {
             let otherCategory = SubjectCategory.classified($0.label)
             return (category == .pet || category == .person || category == .face)
                 && (otherCategory == .pet || otherCategory == .person || otherCategory == .face)
                 && $0.confidence >= 0.8 && $0.bounds.width*$0.bounds.height >= subject.width*subject.height*0.15
                 && hypot($0.bounds.midX-subject.midX,$0.bounds.midY-subject.midY) < 0.45
         }
-        // Preserve a meaningful group with the existing environmental planner.
-        guard companions.isEmpty else { return [] }
+        // Let the environmental planner retain enclosing frames and measured
+        // three-point groups, including mixed named objects. An incidental
+        // background chair alone is still not a companion to a pet portrait.
+        guard enclosing.isEmpty, !triangle, companions.isEmpty else { return [] }
         let goal = TargetRectangleGeometry.desiredArea(label:label,intent:intent)
         let baseline = score(subject:subject,crop:SceneCompositionEvidence.full,goal:goal,evidence:evidence,scale:1)
         let freshFace = anatomy.flatMap { evidence.timestamp >= $0.timestamp-0.5 && abs(evidence.timestamp-$0.timestamp) <= 1.5 ? $0.face : nil }
@@ -57,8 +63,10 @@ enum TargetRectangleSearch {
         }
     }
     static func plan(subject:CGRect,label:String,intent:PhotographyIntent,evidence:SceneCompositionEvidence,
-                     others:[CompositionContextSubject],scales:[Double],forceCenter:Bool,anatomy:SubjectAnatomy?) -> SceneCompositionPlan? {
-        let candidates = options(subject:subject,label:label,intent:intent,evidence:evidence,others:others,scales:scales,anatomy:anatomy)
+                     others:[CompositionContextSubject],scales:[Double],forceCenter:Bool,anatomy:SubjectAnatomy?,
+                     enclosingFrames:[CGRect] = []) -> SceneCompositionPlan? {
+        let candidates = options(subject:subject,label:label,intent:intent,evidence:evidence,others:others,scales:scales,
+            anatomy:anatomy,enclosingFrames:enclosingFrames)
             .filter { !forceCenter || (abs($0.target.x-0.5) < 0.001 && abs($0.target.y-0.5) < 0.001) }
         guard let selected = candidates.first else { return nil }
         return .init(selected:selected,alternatives:Array(candidates.dropFirst().prefix(3)),subjectLabel:label,timestamp:evidence.timestamp)

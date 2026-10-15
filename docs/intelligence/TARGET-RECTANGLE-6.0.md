@@ -1,4 +1,4 @@
-# Focal Composition Engine 6.0 — app 2.7.0 / build 28
+# Focal Composition Engine 6.0 — app 2.7.1 / build 29
 
 ## 1. Reference comparison and confirmed root causes
 
@@ -95,19 +95,25 @@ The user owns the shutter. No photograph is taken at discovery or on READY. One 
 
 ## 9. Tests and diagnostics
 
-Executed on Linux with Swift 6.0.3: **169 XCTest cases passed, zero failures**, including **25 new** target-rectangle cases. The runner now compiles the actual pure selection/planning/reasoning/readiness stack, not just the earlier small ramp subset. Apple pixel adapters, SwiftUI, Vision runtime and AVFoundation hardware calls are excluded. Supporting photo measurement data/luma code is copied verbatim; no fake camera substitutes for device validation.
+Executed on Linux with Swift 6.0.3: **197 XCTest cases passed, zero failures**, including all **25** existing scene-planner cases and **28** target-rectangle cases. The runner now compiles the actual pure selection/planning/reasoning/readiness stack, not just the earlier small ramp subset. Apple pixel adapters, SwiftUI, Vision runtime and AVFoundation hardware calls are excluded. Supporting photo measurement data/luma code is copied verbatim; no fake camera substitutes for device validation.
 
 New tests cover cat prominence above the old minimum, chair selection before aiming, persistent plan IDs, full cat plan→aim→zoom-observation→verify→user-capture-payload flow, chair native command geometry, no premature READY, separate stability gates, target locking, same-named identity changes, crop/aspect/mirror transforms, already-good framing, known-source boundaries, group/context preservation, intermediate quality budgets, unavailable anatomy, tracked head protection, target rectangle through zoom, terminal states, scene readiness and correct reason routing. Existing acceptance/refinement tests also run. One existing fractional-crop assertion now uses the same explicit normalized containment operation as production.
 
-Swift frontend grammar parsing passes for **118 Swift files**. Structural checks pass: 89 app / 29 test sources, **434 total registered XCTest functions**, deterministic project, resources/configuration, frozen baselines, unchanged Sony sources, user-only shutter wiring and the controller/readiness argument contract.
+Swift frontend grammar parsing passes for **118 Swift files**. Structural checks pass: 89 app / 29 test sources, **437 total registered XCTest functions**, deterministic project, resources/configuration, frozen baselines, unchanged Sony sources, user-only shutter wiring and the controller/readiness argument contract.
 
-The attempted Xcode simulator build cannot run here: `xcodebuild: command not found` (exit 127). The complete 434-case iOS suite, Apple API type checking/linking and device archive must still pass in Codemagic. Syntax parsing and portable tests do not replace those checks.
+The supplied Codemagic run for build 28 compiled the app and executed 434 native tests: 432 passed; the enclosing-frame and group-triangle scene-planner tests failed. Those exact failures were reproduced locally after adding the unchanged `SceneCompositionPlannerTests.swift` suite to the portable runner (194 cases, two failures). After the correction and three additional tests, all 197 portable cases pass. Xcode is unavailable in this Linux workspace. The updated 437-case native suite and device archive require a Codemagic rerun; portable tests and syntax parsing do not replace that check.
+
+### Build 29 regression correction
+
+The new tighter-portrait search previously omitted enclosing-frame evidence and only protected nearby human/pet companions. As a result it could override the environmental planner's enclosing-frame or mixed-object triangle composition. The environmental planner and target search now share frame validation and the existing measured three-point-arrangement check. The controller passes real enclosing-frame observations to direct target planning as well as full composition planning. In these cases the environmental composition remains authoritative; no synthetic zoom or message-only workaround is added.
+
+Three additional tests cover enclosing-frame retention through both planning paths, a named-chair/mixed-subject triangle, and invalid/unrelated/too-small rectangles that must not suppress useful zoom. Existing cat-with-background-chair, pet companion, aiming, zoom progression, crop safety and manual override cases continue to pass. The original two failing assertions are unchanged. No Sony connectivity or UI behavior changed; the settings version label is updated.
 
 Development/evaluation logs now include plan/tracker identity, current/desired/canonical source rectangles, relative score/type, alignment/width/height/zoom errors, displayed/native/target-native factors, motor state, confidence, rotation/acceleration/age, aiming versus capture stability, permission/quality limits, state/block reason, recovery and ramp start/pause/resume/completion/cancellation. They remain development-only.
 
 ## 10. Physical iPhone 16 Pro Max acceptance
 
-Build `main` with Codemagic `ios-sideload`, install the successful 2.7.0/build 28 IPA through AltStore. Set the starting zoom first, then enable AI Guidance with Automatic Zoom and Subject Tracking. Manual zoom after enabling AI deliberately overrides it; toggle guidance off/on to start a new shot.
+Build `main` with Codemagic `ios-sideload`, install the successful 2.7.1/build 29 IPA through AltStore. Set the starting zoom first, then enable AI Guidance with Automatic Zoom and Subject Tracking. Manual zoom after enabling AI deliberately overrides it; toggle guidance off/on to start a new shot.
 
 Test the cat under the table and an isolated chair: selected source frame is distinct from the subject box, directional cues guide aiming, alignment starts actual smooth zoom, the number/FOV changes, tracking survives, and READY follows completion. Compare final saved framing with the preview. A quality/device limit must result in an explicit reason or justified wider plan, not a fabricated target achievement.
 

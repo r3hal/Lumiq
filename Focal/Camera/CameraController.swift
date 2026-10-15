@@ -1570,7 +1570,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         else if !planning, autoFrameEnabled, mode != .thirds, analysisSource == .iPhone,
            let bounds, let evidence = compositionEvidence, evidence.isFresh(at:evaluatedAt) {
             plan = TargetRectangleSearch.plan(subject:bounds,label:tracker.label,intent:photographyIntent,evidence:evidence,
-                others:contextSubjects,scales:availableScales,forceCenter:mode == .centered,anatomy:observedAnatomy)
+                others:contextSubjects,scales:availableScales,forceCenter:mode == .centered,anatomy:observedAnatomy,enclosingFrames:frames)
                 ?? IntentCompositionSearch.zoomPlan(subject:bounds,label:tracker.label,intent:photographyIntent,evidence:evidence,
                     others:contextSubjects,frames:frames,scales:availableScales,forceCenter:mode == .centered)
             directZoomPlan = plan

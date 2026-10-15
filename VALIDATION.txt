@@ -1,10 +1,10 @@
-Focal 2.7.0 / build 28 — Composition Engine 6.0 target-rectangle director
-REFERENCES: supplied screenshots plus 4.900s chair and 8.267s Focal cat recordings; behavior references, not internal model/sensor telemetry.
-PASS: 169 portable XCTest cases on Swift 6.0.3/Linux, including 25 new target-rectangle regressions. Compiles actual pure selection/planning/reasoning/readiness logic; Apple frameworks/hardware excluded.
-PARSE: all 118 app/test Swift files pass Swift frontend syntax parsing. iOS API type checking/linking not performed.
+Focal 2.7.1 / build 29 — Composition Engine 6.0 context safeguards
+SUPPLIED NATIVE RESULT (build 28): app compiled; 434 tests executed, 432 passed, 2 failed (SceneCompositionPlannerTests enclosing-frame and group-triangle cases).
+REPRODUCED: unchanged scene-planner suite added to Linux runner; 194 tests executed, exactly the same 2 failures before the fix.
+PASS AFTER FIX: 197 portable XCTest cases on Swift 6.0.3/Linux, including all 25 scene-planner cases, 28 target-rectangle cases and the 3 added context regressions. Actual pure production selection/planning/reasoning/readiness logic; Apple frameworks/hardware excluded.
+PARSE: all 118 app/test Swift files pass Swift frontend syntax parsing. iOS API type checking/linking not performed locally.
 STRUCTURE PASS: deterministic project; 89 app/29 test sources; duplicate module types; resources; YAML/build shell syntax; frozen hashes; Sony connectivity unchanged; user-only shutter wiring; readiness/guidance call contract; whitespace.
-REGISTERED: 434 total XCTest functions. Complete iOS suite execution remains pending in Codemagic.
-FIXED: build-27 framingInstruction argument attached to the wrong controller readiness API; now routed to AutomaticGuidance.update.
-ATTEMPTED: simulator build exits 127, xcodebuild: command not found.
+REGISTERED: 437 total XCTest functions. Updated full native run remains pending in Codemagic; Xcode is unavailable here.
+FIXED: target-rectangle search shares environmental enclosure/triangle protections; actual enclosing observations now reach both full and direct target planning. Isolated-subject automatic zoom remains supported. Original failing test assertions unchanged.
 DEVICE: iPhone 16 Pro Max actual motor/selection/tracking/quality/lens transition/capture matching unverified here. Existing lower-resolution earlier wide preview remains; final still uses existing camera pipeline.
 REPORT: docs/intelligence/TARGET-RECTANGLE-6.0.md

@@ -219,6 +219,41 @@ final class TargetRectangleDirectorTests: XCTestCase {
         let options = TargetRectangleSearch.options(subject:cat,label:"Cat",intent:.pet,evidence:try evidence(subject:cat),others:[furniture],scales:[1,2,3])
         XCTAssertFalse(options.isEmpty); XCTAssertEqual(options.first?.protectedContext,[])
     }
+    func testEnclosingFrameIsHonoredByBothTargetPlanningPaths() throws {
+        let cat = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
+        let frame = CGRect(x:0.05,y:0.05,width:0.9,height:0.9)
+        let pixels = try evidence(subject:cat)
+        XCTAssertNil(TargetRectangleSearch.plan(subject:cat,label:"Cat",intent:.pet,evidence:pixels,
+            others:[],scales:[1,2,3],forceCenter:false,anatomy:nil,enclosingFrames:[frame]))
+        let options = SceneCompositionPlanner.compare(subject:cat,evidence:pixels,enclosingFrames:[frame],
+            maximumScale:3,intent:.pet,label:"Cat")
+        XCTAssertFalse(options.isEmpty)
+        XCTAssertTrue(options.contains { $0.technique == .framing })
+        XCTAssertTrue(options.allSatisfy { $0.zoomScale == 1 && TargetRectangleGeometry.contains($0.crop,frame) })
+    }
+    func testMixedNamedSubjectTriangleCannotBecomeAnIsolatedPortrait() throws {
+        let chair = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
+        let others = [CompositionContextSubject(bounds:CGRect(x:0.05,y:0.15,width:0.15,height:0.2),label:"Dog",confidence:0.9),
+                      CompositionContextSubject(bounds:CGRect(x:0.75,y:0.1,width:0.15,height:0.2),label:"Chair",confidence:0.9)]
+        let pixels = try evidence(subject:chair)
+        XCTAssertNil(TargetRectangleSearch.plan(subject:chair,label:"Chair",intent:.auto,evidence:pixels,
+            others:others,scales:[1,2,3],forceCenter:false,anatomy:nil))
+        let options = SceneCompositionPlanner.compare(subject:chair,evidence:pixels,others:others,maximumScale:3,label:"Chair")
+        XCTAssertFalse(options.isEmpty)
+        XCTAssertTrue(options.contains { $0.technique == .triangles })
+        XCTAssertTrue(options.allSatisfy { option in option.zoomScale == 1
+            && others.allSatisfy { TargetRectangleGeometry.contains(option.crop,$0.bounds) } })
+    }
+    func testUnrelatedOrInvalidRectangleCannotSuppressUsefulTargetZoom() throws {
+        let cat = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
+        let frames = [CGRect(x:0.02,y:0.02,width:0.2,height:0.2),
+                      CGRect(x:-0.2,y:-0.2,width:1.4,height:1.4),
+                      CGRect(x:0.39,y:0.39,width:0.22,height:0.22)]
+        let plan = try XCTUnwrap(TargetRectangleSearch.plan(subject:cat,label:"Cat",intent:.pet,
+            evidence:try evidence(subject:cat),others:[],scales:[1,2,3],forceCenter:false,anatomy:nil,enclosingFrames:frames))
+        XCTAssertTrue(plan.permitsZoom)
+        XCTAssertGreaterThan(plan.selected.zoomScale,1)
+    }
     func testNearTopPetCanPlanModestSupportedZoomWithoutInventingOutsidePixels() throws {
         let cat = CGRect(x:0.3,y:0.16,width:0.45,height:0.4)
         let options = TargetRectangleSearch.options(subject:cat,label:"Cat",intent:.pet,evidence:try evidence(subject:cat),others:[],scales:[1,1.15,1.25])

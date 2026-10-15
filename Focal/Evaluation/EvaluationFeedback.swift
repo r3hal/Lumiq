@@ -21,6 +21,6 @@ struct EvaluationFeedback: Codable, Sendable {
     var petStyle: PetFramingStyle?
     var result: EvaluationOutcome
     var source = "consented image evaluation"
-    var appVersion = "2.7.0 (28)"
+    var appVersion = "2.7.1 (29)"
 }
 #endif

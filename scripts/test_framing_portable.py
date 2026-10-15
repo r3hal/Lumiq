@@ -58,7 +58,7 @@ else:
  parts.append('enum IntentCompositionSearch {\n'+constant+'\n}')
  (app/'SupportingDeclarations.swift').write_text('\n\n'.join(parts)+'\n')
 # Tests remain the same source used by Xcode; baseline runs only the video cases.
-for name in (['FramingVideoRegressionTests'] if args.baseline else ['FramingVideoRegressionTests','FramingProgressionTests','FramingPlannerTests','TargetRectangleDirectorTests']):
+for name in (['FramingVideoRegressionTests'] if args.baseline else ['FramingVideoRegressionTests','FramingProgressionTests','FramingPlannerTests','TargetRectangleDirectorTests','SceneCompositionPlannerTests']):
  shutil.copyfile(ROOT/'FocalTests'/f'{name}.swift',tests/f'{name}.swift')
 if not args.baseline:
  shutil.copyfile(ROOT/'FocalTests/AutomaticShotFramingTests.swift',tests/'AutomaticShotFramingTests.swift')
