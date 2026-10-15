@@ -1,11 +1,12 @@
-Focal 2.10.2 / build 36 — Sony confirmed state and polling repair
-PASS: 75 portable Sony XCTest cases: 45 existing + 30 snapshot/read-fallback/mode/scheduling/per-control/redaction cases. Scripted M/A/S capability responses, real Foundation/URLSession code and URLProtocol fixtures; no physical Sony commands executed.
-PASS: 287 framing/session/subject-autofocus preservation tests. No production changes outside Focal/Sony.
-PARSE: all 132 Swift files pass frontend syntax parsing; not an Apple SDK type check.
-STRUCTURE PASS: deterministic project; 97 application/35 test Swift files; 580 registered native XCTest functions; resources/YAML/baselines/scope/duplicate-type/user-only-shutter/whitespace checks; one guarded Sony monitor, no separate refresh task or global refresh busy gating.
-ROOT CAUSES: background refresh disabled the entire panel, destructive capability/mode/error resets erased confirmed data, event omissions replaced values/candidates, redundant event readers interleaved with monitoring and failed availability getters prevented direct getter fallback.
-IMPLEMENTED: semantic atomic confirmed snapshots; explicit read and availability states; per-control pending writes; queued existing write/ack/readback workflow; 3-second short event polling and 15-second capability/value refresh; stale/mixed-mode rejection; preserved confirmed values on transient errors; stable explicit setter refusal; redacted HTTP/protocol/control-transition diagnostics.
-PRESERVED: actual Sony discovery/stream/decoder/capture/AF and no remote zoom. All iPhone/AI/autofocus/autozoom and other camera production code unchanged.
-NATIVE BUILD ATTEMPT: xcodebuild absent, exit 127. No successful native test run, UI interaction, IPA archive, actual A7 III setting change or physical FPS result claimed. Codemagic must run all 580 tests and archive this update.
-DEVICE: validate actual ISO read/change/readback in M first; then camera-advertised aperture/shutter/WB/EV in M/A/S/P. Check open pickers across polling/mode changes, true unsupported controls, real live view/AF/shutter and reconnection on both bodies/lenses separately.
-REPORT: docs/sony/STABLE-REMOTE-CONTROLS.md
+Focal 2.11.0 / build 37 — continuous AI guidance and measured outdoor compositions
+PASS: 318 portable framing/session/AF/presentation/preview-policy XCTest cases, including 27 new outdoor/manual-zoom regressions and four existing preview-policy cases. Production algorithms and pure declaration extracts; no Apple camera, Vision or SwiftUI execution.
+PASS: 75 Sony protocol/settings tests with scripted URLProtocol feedback. Sony production source unchanged; no physical remote commands.
+PARSE: all 135 Swift files pass frontend syntax parsing, not Apple SDK type checking.
+STRUCTURE PASS: deterministic project; 99 application/36 test files; 607 registered native XCTest functions; baseline hashes/resources/YAML/scope/duplicate-type/manual-shutter/gesture/capture/scene-wiring/whitespace checks.
+ROOT CAUSES: manual zoom latched the motor and shot director off with no gesture-end recovery; landscape/no-zoom intents disabled framing; scene planner required subject bounds; whole-scene plans entered object-loss recovery; capture did not explicitly evaluate a fresh composition.
+IMPLEMENTED: motor-only manual grace, retained visible identity and FOV rebasing, safe fresh replan, whole-scene measured color/line/symmetry/repetition/texture/horizon suggestions, distinct alternatives with hysteresis, short wide-frame READY confirmation, next-shot evaluation after user capture.
+PRESERVED: existing real AVFoundation zoom/crop verification and subject AF, professional controls, RAW/capture/gallery/paired saving and Sony services. No remote zoom or new paid/cloud dependency. No Fujifilm implementation exists in this checkout.
+DEFERRED: unvalidated species/path/S-curve/fog/reflection/sun-ray/depth detectors; no claim to identify all forest subjects or guarantee the best photograph. No performance/battery improvement claimed without measurement.
+NATIVE BUILD ATTEMPT: xcodebuild absent, exit 127. No successful native build/test suite, archive, hardware zoom, actual AF or field performance result claimed. Codemagic must run all 607 tests and build the IPA.
+DEVICE: verify repeated manual zoom continuity/grace/AF, physical autozoom, no-subject forest choices and READY, alternative stability, lost-subject rediscovery, exposure/lens/lifecycle changes, paired saving/next-shot analysis and sustained thermal/cadence/memory/battery behavior on iPhone 16 Pro Max before relying on the update outdoors.
+REPORT: docs/intelligence/FOREST-GUIDANCE-CONTINUITY.md

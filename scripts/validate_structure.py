@@ -53,12 +53,12 @@ ref30=manifest30['localSnapshotCommit']
 for path,expected in manifest30['sha256'].items():
  original=subprocess.check_output(['git','show',ref30+':'+path],cwd=ROOT)
  assert hashlib.sha256(original).hexdigest()==expected,path
-# Sony controls are the authorized scope; protect all iPhone/AI implementation.
-assert not run('git','diff','HEAD','--name-only','--','Focal/Camera','Focal/Composition','Focal/Precision').strip(),'iPhone camera or AI implementation changed'
+# AI guidance is the authorized scope; protect the working Sony integration.
+assert not run('git','diff','HEAD','--name-only','--','Focal/Sony').strip(),'Sony integration changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==580,count
-print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; iPhone/AI sources unchanged; whitespace.')
+assert count==607,count
+print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
 # AI framing must never release the shutter from readiness polling.
@@ -81,3 +81,18 @@ assert 'guard monitorTask == nil else { return }' in sony
 assert 'refreshTask' not in sony and 'remoteSettings = [:]' not in sony
 busy=re.search(r'var controlsBusy: Bool \{([^\n]+)',sony).group(1)
 assert 'isRefreshingSettings' not in busy
+
+# Continuous guidance: manual zoom suspends only the motor, and both gesture
+# end and capture completion must have their production integration wired.
+assert 'automaticShotArmed = false' not in controller
+assert 'framing.stop(reason:manualOverride' not in controller
+assert 'evaluatedAt >= analysisManualZoomUntil' in controller
+manual_replan=controller.split('private func replanAfterManualFraming()')[1].split('private func publishFraming()')[0]
+assert 'tracker.reset()' not in manual_replan and 'subjectAutofocus.reset()' not in manual_replan
+preview=(ROOT/'Focal/Camera/CameraPreview.swift').read_text()
+assert 'view.finishPinch()' in preview and 'onPinchEnd?()' in preview
+assert re.search(r'onPinchEnd:\s*\{\s*camera.endManualZoom\(\)\s*\}',cameraView)
+finish=controller.split('private func finishCapture(')[1]
+assert 'self.replanAfterManualFraming()' in finish and 'self.wantsScan = true' in finish
+assert 'framing.shotPlan?.sceneAnchor != true' in controller
+print('PASS: manual motor grace/gesture-end/capture-resumption/scene-only integration guards (source checks, not device execution).')

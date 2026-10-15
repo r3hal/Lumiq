@@ -52,6 +52,17 @@ struct AutomaticGuidance {
         if continuousFraming, autoEnabled, phase.isAutoFraming {
             return .init(kind:.framing,text:phase == .verifying ? "Checking the final framing…" : "Framing your shot…")
         }
+        if let compositionPlan,compositionPlan.selected.sceneAnchor != nil,let sceneEvidence,sceneEvidence.isFresh(at:timestamp) {
+            // Current pixels decide lighting advice; do not reuse an old
+            // subject's exposure reading for this whole-scene recommendation.
+            if let lighting = PhotoMeasurements.from(luma:sceneEvidence.image.pixels.map(\.luma),width:sceneEvidence.image.width,height:sceneEvidence.image.height) {
+                if lighting.highlightFraction > 0.12 { return .init(kind:.scene,text:"Lower exposure to protect the bright areas",action:.reduceExposure) }
+                if lighting.brightness < 0.12 { return .init(kind:.scene,text:"Low light: keep a wide frame and choose a brighter angle",action:.addLight) }
+            }
+            let direction = OutdoorCompositionPlanner.instruction(compositionPlan,mirrored:reading.mirrored)
+            if currentFrameVerified,OutdoorCompositionPlanner.aligned(compositionPlan) { return .init(kind:.ready,text:"Wide scene ready",action:GuidanceAction.none) }
+            return .init(kind:.scene,text:direction.0,action:direction.1)
+        }
         if let framingInstruction {
             return .init(kind:continuousFraming ? .framing : .steady,text:framingInstruction)
         }

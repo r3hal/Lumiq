@@ -7,6 +7,7 @@ final class PreviewSurface: UIView {
     var onFocus: ((CGPoint) -> Void)?
     var onSelect: ((UnitPoint2D) -> Void)?
     var onZoom: ((Double) -> Void)?
+    var onPinchEnd: (() -> Void)?
     var onPinchBegin: ((@escaping (Double)->Void)->Void)?
     var currentZoom: Double = 1
     var showTapIndicator = true
@@ -56,7 +57,12 @@ final class PreviewSurface: UIView {
             pendingScale = gesture.scale
             if baseReady { onZoom?(pinchStart*Double(gesture.scale)) }
         }
-        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed { pinching = false; baseReady = false }
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed { finishPinch() }
+    }
+    func finishPinch() {
+        let wasPinching = pinching
+        pinching = false; baseReady = false
+        if wasPinching { onPinchEnd?() }
     }
 
 }
@@ -68,6 +74,7 @@ struct CameraPreview: UIViewRepresentable {
     let onZoom: (Double) -> Void
     let zoom: Double
     let onPinchBegin: (@escaping (Double)->Void)->Void
+    var onPinchEnd: (() -> Void)? = nil
     var mirrored = false
     var showTapIndicator = true
     var onPreviewLayer: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
@@ -80,6 +87,7 @@ struct CameraPreview: UIViewRepresentable {
         view.onSelect = onSelect
         view.onZoom = onZoom
         view.onPinchBegin = onPinchBegin
+        view.onPinchEnd = onPinchEnd
         view.currentZoom = zoom
         view.showTapIndicator = showTapIndicator
         rotate(view)
@@ -95,9 +103,11 @@ struct CameraPreview: UIViewRepresentable {
         view.onSelect = onSelect
         view.onZoom = onZoom
         view.onPinchBegin = onPinchBegin
+        view.onPinchEnd = onPinchEnd
         rotate(view)
         onPreviewLayer?(view.previewLayer)
     }
+    static func dismantleUIView(_ view:PreviewSurface,coordinator:()) { view.finishPinch() }
     private func rotate(_ view: PreviewSurface) {
         if let connection = view.previewLayer.connection, connection.isVideoMirroringSupported {
             if connection.automaticallyAdjustsVideoMirroring { connection.automaticallyAdjustsVideoMirroring = false }

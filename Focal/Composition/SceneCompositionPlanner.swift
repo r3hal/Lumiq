@@ -17,6 +17,7 @@ struct CompositionOption {
     var isCurrentFrame = false
     var kind: ShotCompositionKind? = nil
     var protectedContext: [CGRect]? = nil
+    var sceneAnchor:UnitPoint2D? = nil
 }
 
 struct SceneCompositionPlan {
@@ -45,6 +46,11 @@ struct SceneCompositionPlan {
 /// model and not a claim to see the greatest photograph outside the live view.
 struct SceneCompositionPlanner {
     private(set) var plan: SceneCompositionPlan?
+    private var outdoor = OutdoorCompositionPlanner()
+    private var alternativeRequested = false
+    private var forcedTechnique:CompositionTechnique?
+    private var forcedUntil:TimeInterval = 0
+    mutating func requestAlternative() { alternativeRequested = true; outdoor.requestAlternative() }
     private var pending: CompositionTechnique?
     private var pendingSince: TimeInterval = 0
     private var previousBounds: CGRect?
@@ -62,6 +68,11 @@ struct SceneCompositionPlanner {
                          others: [CompositionContextSubject] = [], enclosingFrames: [CGRect] = [],
                          timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, anatomy:SubjectAnatomy? = nil) -> SceneCompositionPlan? {
         guard timestamp.isFinite else { reset(); return nil }
+        if subject == nil || intent == .landscape {
+            let result = outdoor.update(evidence:evidence,at:timestamp)
+            alternativeRequested = false
+            plan = result; return result
+        }
         guard let subject, Self.valid(subject), confidence >= 0.55 else {
             // Return no plan/box during loss; preserve the choice only for a
             // short tracker recovery, never across a different subject.
@@ -96,7 +107,15 @@ struct SceneCompositionPlanner {
         }
         guard let best = options.first else { reset(); return nil }
         let chosen: CompositionOption
-        if best.isCurrentFrame { chosen = best; pending = nil }
+        if alternativeRequested, let old = plan, let index = options.firstIndex(where:{$0.technique == old.selected.technique}), options.count > 1 {
+            // Ranked object crops can contain several versions of one rule.
+            // Prefer a genuinely different supported layout on explicit request.
+            chosen = options.dropFirst(index+1).first{$0.technique != old.selected.technique}
+                ?? options.first{$0.technique != old.selected.technique} ?? best
+            forcedTechnique = chosen.technique; forcedUntil = timestamp+4
+            alternativeRequested = false; pending = nil
+        } else if timestamp < forcedUntil, let forcedTechnique, let forced = options.first(where:{$0.technique == forcedTechnique}) { chosen = forced }
+        else if best.isCurrentFrame { chosen = best; pending = nil }
         else if let old = plan,
            let stillSupported = options.first(where: { $0.technique == old.selected.technique }) {
             if best.technique != old.selected.technique && best.score > stillSupported.score+0.035 {

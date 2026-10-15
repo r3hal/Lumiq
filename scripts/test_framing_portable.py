@@ -28,7 +28,7 @@ if args.baseline:
  whole=['CompositionEngine','FramingPlanner','AutomaticShotPlan','PreviewProjection','CompositionLibrary','FramingProgress']
 else:
  whole=['CompositionEngine','FramingPlanner','AutomaticShotPlan','PreviewProjection','CompositionLibrary','FramingProgress',
-        'AutomaticGuidance','CompositionAssessment','GuidanceTimingAccumulator','IntentCompositionSearch','PetFramingStyle',
+        'ManualZoomGrace','OutdoorCompositionPlanner','AutomaticGuidance','CompositionAssessment','GuidanceTimingAccumulator','IntentCompositionSearch','PetFramingStyle',
         'PhotographicReasoner','PhotographyIntent','RecommendationMemory','SceneCompositionEvidence','SceneCompositionPlanner',
         'ShotReadiness','SubjectIdentity','SubjectSelection','TargetRectangleGeometry','TargetRectangleSearch','GuidanceObservation','FramingTrace']
 for name in whole:
@@ -41,11 +41,20 @@ if not args.baseline:
  (app/'CameraControls.swift').write_text(source('Focal/Camera/CameraControls.swift'))
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
  (app/'SubjectAutofocus.swift').write_text(source('Focal/Camera/SubjectAutofocus.swift'))
+ (app/'CameraGuideState.swift').write_text('import Foundation\n'+declaration('Focal/Camera/CameraGuidanceCard.swift','CameraGuideState'))
  shutil.copyfile(ROOT/'FocalTests/PhotoCapturePolicyTests.swift',tests/'PhotoCapturePolicyTests.swift')
  shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ContinuousFramingRecoveryTests.swift',tests/'ContinuousFramingRecoveryTests.swift')
  shutil.copyfile(ROOT/'FocalTests/SubjectAutofocusTests.swift',tests/'SubjectAutofocusTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ShotCaptureSessionTests.swift',tests/'ShotCaptureSessionTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/OutdoorGuidanceTests.swift',tests/'OutdoorGuidanceTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/PreviewFramePolicyTests.swift',tests/'PreviewFramePolicyTests.swift')
+ # Admission/cadence/coalescing run unchanged. Only the Apple thermal adapter is
+ # excluded on Linux, whose Foundation lacks ProcessInfo.ThermalState.
+ preview=source('Focal/Composition/PreviewFramePolicy.swift')
+ thermal=preview.index('    static func thermalInterval(')
+ end=preview.index('\n}\n',thermal)
+ (app/'PreviewFramePolicy.swift').write_text(preview[:thermal]+preview[end:])
 if not args.baseline:
  # Copy the original model and pure luma implementation verbatim, excluding its
  # CoreVideo/CoreImage/ImageIO adapters (not available on Linux).

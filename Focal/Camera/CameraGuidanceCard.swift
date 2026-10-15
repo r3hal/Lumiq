@@ -16,6 +16,7 @@ enum CameraGuideState: Equatable {
         if phase.isRecovering { return .recovering }
         let validBounds = reading.subjectBounds.map { !$0.isNull && $0.width > 0 && $0.height > 0 && [$0.minX, $0.minY, $0.width, $0.height].allSatisfy(\.isFinite) } ?? false
         let confirmed = validBounds && reading.subjectConfidence >= 0.4
+        if !confirmed,message.kind == .ready,reading.state == .ready,!phase.isPreparing { return .ready }
         guard confirmed else { return message.kind == .steady ? .recovering : message.kind == .scene ? .scene : .searching }
         if phase.isAutoFraming { return .zooming }
         if message.kind == .ready && reading.state == .ready && !phase.isPreparing { return .ready }

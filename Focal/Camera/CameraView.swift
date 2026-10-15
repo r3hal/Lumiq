@@ -323,7 +323,7 @@ struct CameraView: View {
                     exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if hasLivePreview && settings.guide {
                     CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
-                                       composition:camera.compositionPlan.flatMap { $0.selected.isCurrentFrame ? nil : $0.selected.technique.rawValue })
+                                       composition:camera.compositionPlan.flatMap { $0.selected.isCurrentFrame && $0.selected.sceneAnchor == nil ? nil : $0.selected.technique.rawValue })
                         .allowsHitTesting(false)
                 }
                 if source == .iPhone && (demo || camera.access == .available) { lensButtons }
@@ -345,7 +345,7 @@ struct CameraView: View {
             session: camera.session, onFocus: { camera.focus(at: $0) },
             onSelect: { camera.selectSubject(at: $0) },
             onZoom: { camera.setZoom($0) }, zoom: camera.zoom,
-            onPinchBegin: { camera.beginManualZoom(completion: $0) }, mirrored: camera.isFrontCamera,
+            onPinchBegin: { camera.beginManualZoom(completion: $0) }, onPinchEnd:{ camera.endManualZoom() }, mirrored: camera.isFrontCamera,
             showTapIndicator:camera.controls.canTapFocus && !camera.controls.manualFocus,
             onPreviewLayer:{ camera.attachAutofocusPreviewLayer($0) })
             .disabled(controlsBusy)
@@ -416,7 +416,7 @@ struct CameraView: View {
                 reading: reading, showGrid: settings.grid, guideEnabled: settings.guide,
                 showLevel: settings.level && camera.levelReliable && source == .iPhone,
                 subjectLabel: subjectName, framingPhase: camera.framingPhase, guidanceReady: camera.guidance.kind == .ready,
-                showDirection:camera.guidance.showsDirection)
+                showDirection:camera.guidance.showsDirection,scenePlan:camera.compositionPlan)
         }
     }
 
@@ -629,7 +629,10 @@ struct CameraView: View {
             }
         }.buttonStyle(CameraPressStyle()).accessibilityLabel("Focal Intelligence")
             .accessibilityValue(settings.guide ? "On" : "Off")
-            .accessibilityHint("Toggle composition guidance and automatic zoom")
+            .accessibilityHint("Toggle composition guidance. Long press for another composition.")
+            .contextMenu {
+                if settings.guide { Button("Try Another Composition",systemImage:"arrow.triangle.2.circlepath") { camera.tryAnotherComposition() } }
+            }
             .animation(.easeInOut(duration: 0.18), value: settings.guide)
     }
 

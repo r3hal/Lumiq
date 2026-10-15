@@ -22,6 +22,7 @@ struct CompositionOverlay: View {
     var framingPhase: FramingPhase = .off
     var guidanceReady = true
     var showDirection = true
+    var scenePlan:SceneCompositionPlan? = nil
     var body: some View {
         GeometryReader { geometry in
             if showGrid { ThirdsGrid().stroke(.white.opacity(0.22), lineWidth: 0.6) }
@@ -31,6 +32,14 @@ struct CompositionOverlay: View {
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 Rectangle().fill(abs(reading.rollDegrees) < 4 ? Palette.mint : Palette.yellow)
                     .frame(width: 2, height: 16).position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            }
+            if guideEnabled, showDirection, let scenePlan, let anchor = scenePlan.selected.sceneAnchor,
+               !OutdoorCompositionPlanner.aligned(scenePlan) {
+                // A measured scene feature, not a fabricated detected object box.
+                CameraPanLine(subject:anchor,target:scenePlan.target)
+                    .stroke(Palette.yellow.opacity(0.85),style:StrokeStyle(lineWidth:1.5,dash:[5,5]))
+                Circle().stroke(Palette.yellow,lineWidth:1.5).frame(width:12,height:12)
+                    .position(x:scenePlan.target.x*geometry.size.width,y:scenePlan.target.y*geometry.size.height)
             }
             if guideEnabled, reading.subjectConfidence >= 0.4, let actual = reading.subjectBounds {
                 if let target = reading.targetCompositionRect, reading.shotPlanID != nil, framingPhase.isPreparing {
