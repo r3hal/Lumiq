@@ -17,8 +17,14 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var zoomStops: [Double] = [1, 2]
     @Published private(set) var subjectLabel = "Auto subject"
     @Published private(set) var photoResolution = "Full resolution"
-    @Published private(set) var supportsRAW = false
-    @Published private(set) var supportsProRAW = false
+    @Published private(set) var photoCapabilities = PhotoCaptureCapabilities()
+    var supportsRAW: Bool { photoCapabilities.supportsRAW }
+    var supportsProRAW: Bool { photoCapabilities.supportsProRAW }
+    var rawUnavailableReason: String {
+        if isSwitchingCamera || access == .checking { return "Checking RAW support…" }
+        if !isRunning { return "Start the camera to check RAW support." }
+        return isFrontCamera ? "RAW is not available on this front camera." : "RAW is unavailable on this camera. Try another rear lens in Pro controls."
+    }
     @Published private(set) var supportsFlash = false
     @Published private(set) var canMuteShutter = false
     @Published private(set) var scanData: Data?
@@ -161,12 +167,20 @@ final class CameraController: NSObject, ObservableObject {
     private var captureCompletion: ((Result<CameraCapture, Error>) -> Void)?
     private var pendingProcessed: Data?
     private var pendingRAW: Data?
+    private var pendingPhotoSelection: PhotoCaptureSelection?
     private var pendingError: Error?
     private var pendingCaptureID: Int64?
     private var observers: [NSObjectProtocol] = []
+    private var photoSupportObservation: NSKeyValueObservation?
+    private var photoFormatObservation: NSKeyValueObservation?
 
     override init() {
         super.init()
+        // Support can change after commit/start or when AVFoundation changes
+        // the active format. Never leave the UI with the pre-commit snapshot.
+        photoSupportObservation = output.observe(\.isAppleProRAWSupported, options: [.new]) { [weak self] _, _ in
+            self?.schedulePhotoCapabilityRefresh()
+        }
         framing.reset(enabled: false)
         observers.append(NotificationCenter.default.addObserver(
             forName: .AVCaptureSessionWasInterrupted, object: session, queue: .main
@@ -268,6 +282,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func discardConfiguration() {
+        photoFormatObservation = nil
         if session.isRunning { session.stopRunning() }
         session.beginConfiguration()
         if output.isAppleProRAWEnabled { output.isAppleProRAWEnabled = false }
@@ -281,6 +296,7 @@ final class CameraController: NSObject, ObservableObject {
         cameraLensOptions = []
         DispatchQueue.main.async {
             self.isRunning = false; self.controls = transition
+            self.photoCapabilities = PhotoCaptureCapabilities()
             self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset()
         }
     }
@@ -764,13 +780,19 @@ final class CameraController: NSObject, ObservableObject {
                 self.pendingProcessed = nil
                 self.pendingRAW = nil
                 self.pendingError = nil
-                let settings = self.photoSettings(options: options)
-                self.pendingCaptureID = settings.uniqueID
-                let captureID = settings.uniqueID
-                self.output.capturePhoto(with: settings, delegate: self)
-                self.queue.asyncAfter(deadline: .now() + 30) {
-                    guard self.pendingCaptureID == captureID, self.captureCompletion != nil else { return }
-                    self.finishCapture(.failure(CameraError.timeout))
+                do {
+                    let selection = try self.refreshPhotoCapabilities().selection(rawRequested:options.raw,encoding:options.encoding)
+                    let settings = self.photoSettings(options:options,selection:selection)
+                    self.pendingPhotoSelection = selection
+                    self.pendingCaptureID = settings.uniqueID
+                    let captureID = settings.uniqueID
+                    self.output.capturePhoto(with: settings, delegate: self)
+                    self.queue.asyncAfter(deadline: .now() + 30) {
+                        guard self.pendingCaptureID == captureID, self.captureCompletion != nil else { return }
+                        self.finishCapture(.failure(CameraError.timeout))
+                    }
+                } catch {
+                    self.finishCapture(.failure(error))
                 }
             }
         }
@@ -780,19 +802,16 @@ final class CameraController: NSObject, ObservableObject {
         queue.async { if self.wantsToRun { self.configureAndStart() } }
     }
 
-    private func photoSettings(options: CaptureOptions = CaptureOptions()) -> AVCapturePhotoSettings {
-        let rawFormat = output.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) })
-            ?? output.availableRawPhotoPixelFormatTypes.first
-        let bayerRAW = options.raw && rawFormat.map { !AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) } == true
-        let codec: AVVideoCodecType = !bayerRAW && options.encoding == .heif && output.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
+    private func photoSettings(options: CaptureOptions, selection: PhotoCaptureSelection) -> AVCapturePhotoSettings {
+        let codec: AVVideoCodecType = selection.encoding == .heif ? .hevc : .jpeg
         let format: [String: Any] = [AVVideoCodecKey: codec]
         let settings: AVCapturePhotoSettings
-        if options.raw, let rawFormat {
-            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat, processedFormat: format)
+        if let rawFormat = selection.raw {
+            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat.pixelFormat, processedFormat: format)
         } else { settings = AVCapturePhotoSettings(format: format) }
         settings.maxPhotoDimensions = output.maxPhotoDimensions
         // Bayer RAW bypasses computational processing; ProRAW supports quality processing.
-        settings.photoQualityPrioritization = bayerRAW ? .speed : .quality
+        settings.photoQualityPrioritization = selection.isBayerRAW ? .speed : .quality
         let flash = AVCaptureDevice.FlashMode(rawValue: options.flash.rawValue) ?? .off
         settings.flashMode = output.supportedFlashModes.contains(flash) ? flash : .off
         if #available(iOS 18.0, *), output.isShutterSoundSuppressionSupported {
@@ -801,36 +820,97 @@ final class CameraController: NSObject, ObservableObject {
         return settings
     }
 
+    /// Called only on the camera queue after session configuration is committed.
+    private func readPhotoCapabilities() -> PhotoCaptureCapabilities {
+        if output.isAppleProRAWSupported {
+            if !output.isAppleProRAWEnabled { output.isAppleProRAWEnabled = true }
+        } else if output.isAppleProRAWEnabled { output.isAppleProRAWEnabled = false }
+        let formats = output.availableRawPhotoPixelFormatTypes.compactMap { pixel -> RAWPhotoFormat? in
+            if AVCapturePhotoOutput.isAppleProRAWPixelFormat(pixel) {
+                return .init(pixelFormat:pixel,kind:.appleProRAW)
+            }
+            if AVCapturePhotoOutput.isBayerRAWPixelFormat(pixel) {
+                return .init(pixelFormat:pixel,kind:.bayer)
+            }
+            return nil
+        }
+        return .init(rawFormats:formats,encodings:output.availablePhotoCodecTypes.contains(.hevc) ? [.jpeg,.heif] : [.jpeg])
+    }
+    @discardableResult private func refreshPhotoCapabilities() -> PhotoCaptureCapabilities {
+        let capabilities = readPhotoCapabilities()
+        DispatchQueue.main.async { self.photoCapabilities = capabilities }
+        return capabilities
+    }
+    private func schedulePhotoCapabilityRefresh() {
+        queue.async { [weak self] in
+            guard let self, self.configured, self.wantsToRun, self.captureCompletion == nil else { return }
+            self.refreshPhotoCapabilities()
+        }
+    }
+
+    private func configureSessionInputs(allowFallback: Bool) throws -> AVCaptureDevice {
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        session.sessionPreset = .photo
+        let types: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera,
+                                                 .builtInDualCamera, .builtInWideAngleCamera]
+        let selectedTypes: [AVCaptureDevice.DeviceType] = position == .back ? types : [.builtInTrueDepthCamera, .builtInWideAngleCamera]
+        let discovered = selectedTypes.compactMap { AVCaptureDevice.default($0,for:.video,position:position) }
+        let explicit = selectedCameraID.flatMap { id in
+            AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:position).devices.first { $0.uniqueID == id }
+        }
+        let fallback = !allowFallback ? AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position) : nil
+        guard let camera = explicit ?? fallback ?? discovered.first else { throw CameraError.configuration }
+        let input = try AVCaptureDeviceInput(device: camera)
+        guard session.canAddInput(input), session.canAddOutput(output), session.canAddOutput(videoOutput) else {
+            throw CameraError.configuration
+        }
+        session.addInput(input)
+        session.addOutput(output)
+        session.addOutput(videoOutput)
+        return camera
+    }
+
+    private func configurePhotoPreview(_ camera: AVCaptureDevice) throws {
+        // Establish genuine still-photo support before the preview optimizer
+        // changes activeFormat (which switches the preset to inputPriority).
+        let photoConfiguration = readPhotoCapabilities()
+        session.beginConfiguration()
+        do {
+            if output.isAppleProRAWEnabled { output.isAppleProRAWEnabled = false }
+            try configurePreviewFormat(camera)
+            session.commitConfiguration()
+        } catch {
+            session.commitConfiguration()
+            throw error
+        }
+        guard !readPhotoCapabilities().preservesRAW(of:photoConfiguration) else { return }
+        // A faster preview is not allowed to disable RAW/ProRAW. Let the photo
+        // preset negotiate its supported sensor format, retaining real video
+        // frames for the existing preview/analysis pipeline.
+        session.beginConfiguration()
+        if output.isAppleProRAWEnabled { output.isAppleProRAWEnabled = false }
+        session.sessionPreset = .photo
+        session.commitConfiguration()
+        try camera.lockForConfiguration()
+        defer { camera.unlockForConfiguration() }
+        configuredPreviewRate = 30
+        if camera.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }) {
+            camera.activeVideoMinFrameDuration = CMTime(value:1,timescale:30)
+            camera.activeVideoMaxFrameDuration = CMTime(value:1,timescale:30)
+        }
+    }
+
     private func configureAndStart(allowFallback: Bool = true) {
         guard wantsToRun else { return }
         if !configured { DispatchQueue.main.async { self.access = .checking } }
         do {
             if !configured {
+                let camera = try configureSessionInputs(allowFallback:allowFallback)
+                try configurePhotoPreview(camera)
                 session.beginConfiguration()
                 defer { session.commitConfiguration() }
-                session.sessionPreset = .photo
-                let types: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera,
-                                                         .builtInDualCamera, .builtInWideAngleCamera]
-                let selectedTypes: [AVCaptureDevice.DeviceType] = position == .back ? types : [.builtInTrueDepthCamera, .builtInWideAngleCamera]
-                let discovered = selectedTypes.compactMap { AVCaptureDevice.default($0,for:.video,position:position) }
-                let explicit = selectedCameraID.flatMap { id in
-                    AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInWideAngleCamera,.builtInUltraWideCamera,.builtInTelephotoCamera,.builtInTrueDepthCamera,.builtInTripleCamera,.builtInDualWideCamera,.builtInDualCamera],mediaType:.video,position:position).devices.first { $0.uniqueID == id }
-                }
-                let fallback = !allowFallback ? AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position) : nil
-                guard let camera = explicit ?? fallback ?? discovered.first else {
-                    DispatchQueue.main.async { self.access = .unavailable }
-                    return
-                }
-                let input = try AVCaptureDeviceInput(device: camera)
-                guard session.canAddInput(input), session.canAddOutput(output), session.canAddOutput(videoOutput) else {
-                    throw CameraError.configuration
-                }
-                session.addInput(input)
-                session.addOutput(output)
-                session.addOutput(videoOutput)
-                try configurePreviewFormat(camera)
                 output.maxPhotoQualityPrioritization = .quality
-                if output.isAppleProRAWSupported { output.isAppleProRAWEnabled = true }
                 if let dimensions = camera.activeFormat.supportedMaxPhotoDimensions.max(by: {
                     Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
                 }) {
@@ -897,21 +977,28 @@ final class CameraController: NSObject, ObservableObject {
                     self.maximumZoom = upper
                     self.zoomStops = available
                     self.zoom = Double(camera.videoZoomFactor / self.zoomMultiplier)
-                    self.supportsProRAW = self.output.isAppleProRAWSupported
-                    self.supportsRAW = !self.output.availableRawPhotoPixelFormatTypes.isEmpty
                     self.supportsFlash = camera.hasFlash
                     if #available(iOS 18.0, *) { self.canMuteShutter = self.output.isShutterSoundSuppressionSupported }
                 }
                 configured = true
+                photoFormatObservation = camera.observe(\.activeFormat, options:[.new]) { [weak self] _, _ in
+                    self?.schedulePhotoCapabilityRefresh()
+                }
                 publishControls()
             }
+            // Enable the negotiated RAW pipeline before startRunning; the
+            // compatibility fallback may have disabled ProRAW during setup.
+            _ = readPhotoCapabilities()
             if !session.isRunning {
                 session.startRunning()
                 // A new session after capture review needs a fresh scan. An
                 // already-running session retains manual zoom/cancel intent.
                 self.analysisQueue.async { self.resetAnalysis() }
             }
-            output.setPreparedPhotoSettingsArray([photoSettings()], completionHandler: nil)
+            let capabilities = refreshPhotoCapabilities()
+            publishControls()
+            let prepared = try capabilities.selection(rawRequested:false,encoding:.jpeg)
+            output.setPreparedPhotoSettingsArray([photoSettings(options:CaptureOptions(),selection:prepared)], completionHandler: nil)
             if motion.isDeviceMotionAvailable {
                 motion.deviceMotionUpdateInterval = 0.15
                 motion.startDeviceMotionUpdates()
@@ -1867,7 +1954,10 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
             if let error { self.pendingError = error }
             if let error = self.pendingError { self.finishCapture(.failure(error)) }
             else if let processed = self.pendingProcessed {
-                self.finishCapture(.success(CameraCapture(processed: processed, raw: self.pendingRAW,framing:self.pendingFramingCapture)))
+                do {
+                    try self.pendingPhotoSelection?.validateDelivery(rawData:self.pendingRAW)
+                    self.finishCapture(.success(CameraCapture(processed: processed, raw: self.pendingRAW,framing:self.pendingFramingCapture)))
+                } catch { self.finishCapture(.failure(error)) }
             } else { self.finishCapture(.failure(CameraError.missingPhoto)) }
         }
     }
@@ -1892,7 +1982,9 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
             self.captureCompletion = nil
             self.pendingCaptureID = nil
             self.pendingProcessed = nil; self.pendingRAW = nil; self.pendingError = nil; self.pendingFramingCapture = nil
+            self.pendingPhotoSelection = nil
             guard let completion else { return }
+            if self.configured { self.refreshPhotoCapabilities() }
             self.analysisQueue.async { self.analysisPaused = false }
             DispatchQueue.main.async {
                 self.isCapturing = false

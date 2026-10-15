@@ -42,6 +42,10 @@ struct CameraView: View {
     }
     private var aspectTitle: String { source == .sony && sonyFullFrame ? "Camera" : settings.aspect.rawValue }
     private var closestStop: Double { camera.zoomStops.min(by: { abs($0 - camera.zoom) < abs($1 - camera.zoom) }) ?? 1 }
+    private var rawEnabled: Bool { source == .iPhone && !demo && settings.raw && camera.supportsRAW }
+    private var rawBinding: Binding<Bool> {
+        Binding(get: { rawEnabled }, set: { settings.raw = $0 })
+    }
 
     // Opaque view boundaries keep SwiftUI's constraint solver from checking the
     // layout, every observer and every presentation as one enormous expression.
@@ -232,7 +236,7 @@ struct CameraView: View {
                 Image(systemName: source == .sony && sonyFullFrame ? "rectangle" : aspectSymbol(settings.aspect)).font(.system(size: 17))
                 VStack(alignment: .leading, spacing: 0) {
                     Text(aspectTitle).font(.system(size: 13, weight: .semibold))
-                    if settings.raw && camera.supportsRAW && source == .iPhone {
+                    if rawEnabled {
                         Text("RAW").font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(Palette.yellow)
                     }
                 }
@@ -247,11 +251,11 @@ struct CameraView: View {
         HStack(spacing:12) {
             if source == .iPhone {
                 Menu {
-                    ForEach(camera.controls.encodings.filter { !settings.raw || !camera.supportsRAW || camera.supportsProRAW || $0 == .jpeg }) { encoding in Button(encoding.rawValue) { settings.encoding = encoding } }
-                    if camera.supportsRAW { Toggle("RAW original",isOn:$settings.raw) }
+                    ForEach(camera.controls.encodings.filter { !rawEnabled || camera.supportsProRAW || $0 == .jpeg }) { encoding in Button(encoding.rawValue) { settings.encoding = encoding } }
+                    if camera.supportsRAW { Toggle(camera.supportsProRAW ? "ProRAW original" : "RAW original",isOn:rawBinding) }
                     Text("HEIF originals; edited/cropped derivatives may be JPEG")
                 } label: {
-                    Text((settings.raw && camera.supportsRAW ? "RAW + " : "") + actualEncoding.rawValue).font(.system(.caption2,design:.monospaced,weight:.semibold))
+                    Text((rawEnabled ? "RAW + " : "") + actualEncoding.rawValue).font(.system(.caption2,design:.monospaced,weight:.semibold))
                 }.foregroundStyle(Palette.yellow).disabled(!camera.isRunning || controlsBusy)
                 Button { camera.setControlMode(camera.controls.mode == .auto ? .pro : .auto) } label: {
                     Text(camera.controls.mode.rawValue).font(.system(.caption,design:.monospaced,weight:.semibold)).padding(.horizontal,10).frame(minHeight:34)
@@ -264,7 +268,7 @@ struct CameraView: View {
         }.padding(.horizontal,20)
     }
     private var actualEncoding: PhotoEncoding {
-        if settings.raw && camera.supportsRAW && !camera.supportsProRAW { return .jpeg }
+        if rawEnabled && !camera.supportsProRAW { return .jpeg }
         return camera.controls.encodings.contains(settings.encoding) ? settings.encoding : .jpeg
     }
 
@@ -544,13 +548,17 @@ struct CameraView: View {
     }
 
     private var rawToggle: some View {
-        Toggle(isOn: $settings.raw) {
-            HStack(spacing: 9) {
-                Image(systemName: "camera.aperture").foregroundStyle(Palette.yellow).font(.system(size: 13))
-                Text(camera.supportsProRAW ? "ProRAW" : "RAW").font(.system(size: 16, weight: .medium))
+        VStack(alignment:.leading,spacing:5) {
+            Toggle(isOn: rawBinding) {
+                HStack(spacing: 9) {
+                    Image(systemName: "camera.aperture").foregroundStyle(Palette.yellow).font(.system(size: 13))
+                    Text(camera.supportsProRAW ? "ProRAW" : "RAW").font(.system(size: 16, weight: .medium))
+                }
+            }.tint(Palette.yellow).controlSize(.mini).disabled(!camera.supportsRAW || controlsBusy || demo || source == .sony)
+            if !camera.supportsRAW && !demo && source == .iPhone {
+                Text(camera.rawUnavailableReason).font(.caption2).foregroundStyle(.secondary)
             }
-        }.tint(Palette.yellow).controlSize(.mini).disabled(!camera.supportsRAW || demo || source == .sony)
-            .padding(.horizontal, 14).padding(.bottom, 13)
+        }.padding(.horizontal, 14).padding(.bottom, 13)
     }
 
     private var guideState: CameraGuideState {
@@ -685,7 +693,7 @@ struct CameraView: View {
         let capturedMode = settings.guide ? (mode == .automatic ? camera.compositionPlan?.selected.technique.rawValue ?? mode.rawValue : mode.rawValue) : "Free shoot"
         let capturedIntent = settings.intent.rawValue
         let challenge = settings.challenge.isEmpty ? nil : settings.challenge
-        let options = CaptureOptions(raw: settings.raw && camera.supportsRAW && source == .iPhone,flash: settings.flash,shutterSound: settings.shutterSound,encoding:actualEncoding)
+        let options = CaptureOptions(raw:rawEnabled,flash:settings.flash,shutterSound:settings.shutterSound,encoding:actualEncoding)
         captureTask = Task {
             var added = [SavedPhoto]()
             do {

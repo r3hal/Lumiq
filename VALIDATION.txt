@@ -1,10 +1,10 @@
-Focal 2.7.1 / build 29 — Composition Engine 6.0 context safeguards
-SUPPLIED NATIVE RESULT (build 28): app compiled; 434 tests executed, 432 passed, 2 failed (SceneCompositionPlannerTests enclosing-frame and group-triangle cases).
-REPRODUCED: unchanged scene-planner suite added to Linux runner; 194 tests executed, exactly the same 2 failures before the fix.
-PASS AFTER FIX: 197 portable XCTest cases on Swift 6.0.3/Linux, including all 25 scene-planner cases, 28 target-rectangle cases and the 3 added context regressions. Actual pure production selection/planning/reasoning/readiness logic; Apple frameworks/hardware excluded.
-PARSE: all 118 app/test Swift files pass Swift frontend syntax parsing. iOS API type checking/linking not performed locally.
-STRUCTURE PASS: deterministic project; 89 app/29 test sources; duplicate module types; resources; YAML/build shell syntax; frozen hashes; Sony connectivity unchanged; user-only shutter wiring; readiness/guidance call contract; whitespace.
-REGISTERED: 437 total XCTest functions. Updated full native run remains pending in Codemagic; Xcode is unavailable here.
-FIXED: target-rectangle search shares environmental enclosure/triangle protections; actual enclosing observations now reach both full and direct target planning. Isolated-subject automatic zoom remains supported. Original failing test assertions unchanged.
-DEVICE: iPhone 16 Pro Max actual motor/selection/tracking/quality/lens transition/capture matching unverified here. Existing lower-resolution earlier wide preview remains; final still uses existing camera pipeline.
-REPORT: docs/intelligence/TARGET-RECTANGLE-6.0.md
+Focal 2.7.2 / build 30 — iPhone RAW/ProRAW availability and capture correction
+PASS: 211 portable XCTest cases on Swift 6.0.3/Linux, including 14 new RAW policy cases and all existing scene/target/framing regressions. Actual pure production policies are compiled; Apple frameworks/hardware excluded.
+PARSE: all 120 app/test Swift files pass Swift frontend syntax parsing. iOS API type checking/linking not performed locally.
+STRUCTURE PASS: deterministic project; 90 app/30 test sources; duplicate module types; resources; YAML/build shell syntax; frozen hashes; Sony connectivity unchanged; user-only shutter wiring; readiness/guidance call contract; whitespace.
+REGISTERED: 451 total XCTest functions. Updated full native run remains pending in Codemagic; Xcode is unavailable here.
+FIXED: establish committed .photo RAW support before preview optimization; restore photo configuration when optimization removes RAW/ProRAW; refresh actual format capability after start/format changes and around capture; preserve preference across unsupported cameras; no silent RAW capture fallback or missing-DNG success.
+PRESERVED: RAW originals keep/discard preference, existing DNG library/development/share/export, actual photo output, AI framing, phone controls, Sony connectivity.
+PREVIOUS USER-SUPPLIED NATIVE RESULT (build 28): compiled; 434 tests executed, 432 passed, 2 scene-planner failures. Those failures were reproduced and corrected in build 29; the updated full native run is still pending.
+DEVICE: physical iPhone RAW/ProRAW availability, KVO/session negotiation, actual DNG encoding/delivery/export, preview performance and lens changes unverified here.
+REPORT: docs/IPHONE-RAW-FIX.md; framing report: docs/intelligence/TARGET-RECTANGLE-6.0.md

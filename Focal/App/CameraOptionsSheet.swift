@@ -45,8 +45,14 @@ struct CameraOptionsSheet: View {
             } label: { row("Aspect Ratio", symbol: "aspectratio", value: source == .sony && sonyFullFrame ? "Camera frame" : settings.aspect.rawValue) }
             divider
             if source == .iPhone {
-                Toggle(isOn: $settings.raw) { Label(camera.supportsProRAW ? "ProRAW" : "RAW", systemImage: "rectangle.portrait") }
-                    .font(.system(size: 14)).padding(.horizontal, 15).frame(minHeight: 54).disabled(source == .sony || !camera.supportsRAW)
+                VStack(alignment:.leading,spacing:4) {
+                    Toggle(isOn: Binding(get: { settings.raw && camera.supportsRAW }, set: { settings.raw = $0 })) {
+                        Label(camera.supportsProRAW ? "ProRAW" : "RAW", systemImage: "rectangle.portrait")
+                    }.disabled(!camera.supportsRAW || camera.isSwitchingCamera || camera.isCapturing)
+                    if !camera.supportsRAW {
+                        Text(camera.rawUnavailableReason).font(.caption).foregroundStyle(.secondary)
+                    }
+                }.font(.system(size: 14)).padding(.horizontal, 15).padding(.vertical,12).frame(minHeight:54)
                 divider
                 Menu {
                     ForEach(CameraFlash.allCases) { flash in Button(flash.label) { settings.flash = flash } }
