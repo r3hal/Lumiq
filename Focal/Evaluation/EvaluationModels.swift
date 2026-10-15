@@ -96,7 +96,7 @@ struct EvaluationMetrics: Codable, Sendable {
             if let appropriate = label.automaticZoomAppropriate {
                 let proposes = (outcome.proposedZoomScale ?? 1) > 1.12
                 // Baselines without proposal instrumentation cannot supply this metric.
-                if ["Focal Intelligence 3.0","Focal Intelligence 4.0"].contains(outcome.algorithm) {
+                if ["Focal Intelligence 3.0","Focal Intelligence 4.0","Focal Intelligence 6.0"].contains(outcome.algorithm) {
                     if result.autoZoomMistakes == nil { result.autoZoomMistakes = EvaluationRate() }
                     result.autoZoomMistakes?.count(proposes && !appropriate)
                 }

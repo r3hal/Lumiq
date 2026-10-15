@@ -52,11 +52,17 @@ struct FramingPlanner {
         }
         return .recovering
     }
+    mutating func selectShot(_ plan:AutomaticShotPlan) {
+        guard phase.isPreparing, !phase.isAutoFraming, !shotVerified else { return }
+        if let current = shotPlan, current.requiresZoom { return }
+        shotPlan = plan
+    }
     mutating func commitShot(_ plan:AutomaticShotPlan) { shotPlan = plan; shotVerified = false; completionSince = nil; lastVerification = nil }
     mutating func verifyShot(bounds:CGRect?,label:String,confidence:Float,zoom:Double,stable:Bool,fresh:Bool,
                              timestamp:TimeInterval,previewAspect:Double,regions:[CGRect] = [], cameraRamping:Bool = false,
-                             cameraFresh:Bool = true,cropPermitted:Bool = true) -> ShotProgress {
+                             cameraFresh:Bool = true,cropPermitted:Bool = true,captureStable:Bool = true,trackingReference:String? = nil) -> ShotProgress {
         guard phase.isAutoFraming, let shotPlan, timestamp.isFinite else { return .cancel }
+        guard shotPlan.trackingReference == nil || shotPlan.trackingReference == trackingReference else { blockReason = .tracking; return .cancel }
         guard label == shotPlan.subjectLabel else { blockReason = .tracking; return .cancel }
         guard fresh else { return recover(reason:.staleFrame,at:timestamp) }
         guard cameraFresh else { return recover(reason:.telemetry,at:timestamp) }
@@ -80,7 +86,7 @@ struct FramingPlanner {
         lastVerification = timestamp
         if achieved {
             phase = .verifying
-            if cameraRamping { completionSince = nil; return .holding }
+            if cameraRamping || !captureStable { completionSince = nil; return .holding }
             if completionSince == nil { completionSince = timestamp }
             if timestamp-(completionSince ?? timestamp) >= 0.2 { shotVerified = true; finish(); return .achieved }
             return .holding
@@ -114,7 +120,7 @@ struct FramingPlanner {
         }
     }
     mutating func confirmCurrentFrame(eligible:Bool,timestamp:TimeInterval,holdDuration:Double) {
-        guard !phase.isAutoFraming, !shotVerified, phase != .off else { return }
+        guard !phase.isAutoFraming, !shotVerified, phase != .off, shotPlan?.requiresZoom != true else { return }
         guard eligible, timestamp.isFinite else {
             if currentFrameVerified { reset(enabled:true) }
             currentFrameSince = nil; currentFrameVerified = false
@@ -126,8 +132,12 @@ struct FramingPlanner {
         }
     }
     func directorState(hasPlan:Bool) -> ShotDirectorState {
+        if recovering { return .recovering }
         switch phase {
-        case .off: return .paused
+        case .off:
+            if blockReason == .manualControl || blockReason == .disabled { return .canceled }
+            if [.configuration,.zoomNotMoving,.deadline,.recoveryExpired,.unsafeCrop].contains(blockReason) { return .failed }
+            return .paused
         case .searching: return hasPlan ? .shotSelected : .discovering
         case .aligning: return .aiming
         case .settling: return .aligned
@@ -200,7 +210,7 @@ struct FramingPlanner {
             let projected = Self.zoomedRect(bounds,scale:scale)
             let margin = CGRect(x:0.025,y:0.025,width:0.95,height:0.95)
             let supported = Self.availableScales(currentZoom:currentZoom,maximumZoom:maximumZoom,detailZoomLimit:detailZoomLimit ?? maximumZoom,nativeStops:nativeStops,maximumScale:scale,desiredScale:scale)
-            guard preZoom.distance(to:alignmentTarget) < 0.001, margin.contains(projected),
+            guard preZoom.distance(to:alignmentTarget) < 0.001, TargetRectangleGeometry.contains(margin,projected),
                   hypot(Double(projected.midX)-destination.x,(Double(projected.midY)-destination.y)/max(0.1,previewAspect)) <= 0.065,
                   supported.contains(where: { abs($0-scale) < 0.001 }), target > currentZoom*1.12, target <= maximumZoom+0.001 else {
                 phase = requiresShotPlan ? .aligning : .framed; stableSince = nil; anchor = nil; eligibleHold = 0; noteBlock(.unsafeCrop,at:timestamp); return nil
@@ -240,7 +250,7 @@ struct FramingPlanner {
     static func availableScales(currentZoom: Double, maximumZoom: Double, detailZoomLimit: Double, nativeStops: [Double], maximumScale: Double, desiredScale:Double? = nil) -> [Double] {
         guard [currentZoom,maximumZoom,detailZoomLimit,maximumScale].allSatisfy(\.isFinite), currentZoom > 0, maximumZoom >= currentZoom, maximumScale >= 1 else { return [1] }
         let native = nativeStops.filter { $0.isFinite && $0 > currentZoom }.map { $0/currentZoom }
-        let proposals = [1.0,1.15,1.35,1.6,2.0,2.5,3.0] + native + [desiredScale].compactMap { $0 }
+        let proposals = [1.0,1.15,1.35,1.6,2.0,2.5,3.0,detailZoomLimit/currentZoom] + native + [desiredScale].compactMap { $0 }
         return Array(Set(proposals.filter { scale in
             scale >= 1 && scale <= maximumScale && currentZoom*scale <= maximumZoom+0.001
                 && (scale == 1 || currentZoom*scale <= detailZoomLimit+0.001 || native.contains(where: { abs($0-scale) < 0.001 }))

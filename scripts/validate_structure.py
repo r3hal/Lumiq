@@ -55,7 +55,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','--name-only','--','Focal/Sony').strip(),'Sony connectivity changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==409,count
+assert count==434,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony source unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
@@ -64,3 +64,10 @@ cameraView=(ROOT/'Focal/Camera/CameraView.swift').read_text()
 assert 'monitorSmartShutter' not in cameraView and 'shouldCapture(' not in cameraView
 assert 'Button(action: shoot)' in cameraView
 assert len(re.findall(r'\bshoot\s*\(',cameraView))==1,'Unexpected programmatic shutter trigger'
+
+# Guard the specific controller/API integration error found in build 27.
+controller=(ROOT/'Focal/Camera/CameraController.swift').read_text()
+ready_calls=re.findall(r'ShotReadiness\.permitsReady\((.*?)\), result\.state',controller,re.S)
+assert ready_calls and all('framingInstruction' not in call for call in ready_calls)
+guidance_call=re.search(r'let message = automaticGuidance\.update\((.*?)\n        #if',controller,re.S)
+assert guidance_call and 'framingInstruction:' in guidance_call.group(1)

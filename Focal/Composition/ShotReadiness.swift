@@ -2,7 +2,7 @@ import Foundation
 
 enum ShotDirectorState: String {
     case discovering = "DISCOVERING", shotSelected = "SHOT_SELECTED", aiming = "AIMING", aligned = "ALIGNED"
-    case autoZooming = "AUTO_ZOOMING", verifyingFraming = "VERIFYING_FRAMING", ready = "READY", paused = "PAUSED"
+    case autoZooming = "AUTO_ZOOMING", verifyingFraming = "VERIFYING_FRAMING", ready = "READY", paused = "PAUSED", recovering = "RECOVERING", canceled = "CANCELED", failed = "FAILED"
 }
 
 struct CameraZoomObservation {
@@ -31,6 +31,14 @@ enum ShotReadiness {
               !assessment.touchesEdge, assessment.sizePenalty <= 0.15, assessment.positionPenalty <= 0.05,
               !assessment.cameraMoving else { return false }
         if let light = assessment.exposure, light.highlightFraction > 0.18 || (light.brightness < 0.12 && light.shadowFraction > 0.75) { return false }
+        return true
+    }
+    static func measuredSceneFrame(scene:SubjectScene?,evidence:SceneCompositionEvidence?,measurements:PhotoMeasurements?,
+                                   stable:Bool,timestamp:TimeInterval) -> Bool {
+        guard let scene, scene.isLandscape || scene.isArchitecture, timestamp >= scene.timestamp, timestamp-scene.timestamp <= 6,
+              stable, let evidence, evidence.isFresh(at:timestamp), evidence.region(SceneCompositionEvidence.full).variance > 0.008,
+              let light = measurements, light.highlightFraction <= 0.18,
+              !(light.brightness < 0.12 && light.shadowFraction > 0.75) else { return false }
         return true
     }
     static func permitsReady(required:Bool,shotVerified:Bool,currentFrameVerified:Bool) -> Bool {

@@ -33,6 +33,9 @@ struct CompositionOverlay: View {
                     .frame(width: 2, height: 16).position(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
             if guideEnabled, reading.subjectConfidence >= 0.4, let actual = reading.subjectBounds {
+                if let target = reading.targetCompositionRect, reading.shotPlanID != nil, framingPhase.isPreparing {
+                    PlannedFrameOverlay(rect:target)
+                }
                 if showDirection { FramingDirectionOverlay(reading: reading, phase: framingPhase, guidanceReady: guidanceReady) }
                 let rect = actual.intersection(CGRect(x:0,y:0,width:1,height:1))
                 if !rect.isNull && rect.width > 0 && rect.height > 0 {
@@ -56,6 +59,26 @@ struct CompositionOverlay: View {
     }
 }
 
+/// A distinct source rectangle for the planned photograph, not another detector box.
+private struct PlannedFrameOverlay: View {
+    let rect: CGRect
+    var body: some View {
+        GeometryReader { geometry in
+            let clipped = rect.intersection(CGRect(x:0,y:0,width:1,height:1))
+            if !clipped.isNull && clipped.width > 0 && clipped.height > 0 {
+                RoundedRectangle(cornerRadius:8)
+                    .stroke(Palette.yellow.opacity(0.6),style:StrokeStyle(lineWidth:1,dash:[7,5]))
+                    .frame(width:clipped.width*geometry.size.width,height:clipped.height*geometry.size.height)
+                    .position(x:clipped.midX*geometry.size.width,y:clipped.midY*geometry.size.height)
+                Text("Planned frame").font(.system(size:10,weight:.medium))
+                    .foregroundStyle(Palette.yellow).padding(.horizontal,7).padding(.vertical,4)
+                    .background(.black.opacity(0.6),in:Capsule())
+                    .position(x:clipped.midX*geometry.size.width,y:max(14,clipped.minY*geometry.size.height-12))
+            }
+        }
+    }
+}
+
 private struct FramingDirectionOverlay: View {
     let reading: CompositionReading
     let phase: FramingPhase
@@ -66,7 +89,7 @@ private struct FramingDirectionOverlay: View {
             if let cue = CompositionCue(reading: reading, previewAspect: aspect) {
                 let ready = guidanceReady && cue.aligned && reading.state == .ready && !phase.isPreparing
                 let color = ready ? Palette.mint : Palette.yellow
-                if !cue.aligned && phase != .zooming {
+                if !cue.aligned && !phase.isAutoFraming {
                     CameraPanLine(subject: cue.subject, target: cue.target)
                         .stroke(color.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, dash: [5, 5]))
                     CameraPanArrow(subject: cue.subject, target: cue.target)

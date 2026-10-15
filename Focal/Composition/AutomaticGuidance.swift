@@ -46,7 +46,7 @@ struct AutomaticGuidance {
                          others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false, requireShotCompletion:Bool = false, currentFrameVerified:Bool = false, framingInstruction:String? = nil) -> GuidanceMessage {
         guard timestamp.isFinite else { reset(); return GuidanceMessage() }
         if let observedScene, !observedScene.fresh { reset(); return .init(kind:.searching,text:"") }
-        if autoEnabled, let framingInstruction {
+        if let framingInstruction {
             return .init(kind:.steady,text:framingInstruction,action:.hold)
         }
         guard let bounds = reading.guidanceBounds ?? reading.subjectBounds, reading.subjectConfidence >= 0.4,
@@ -60,8 +60,11 @@ struct AutomaticGuidance {
                 if subject != "Scene" { reset(); subject = "Scene" }
                 let retained = memory.update(decision,bounds:nil,label:architecture ? "Architecture" : "Landscape",intent:intent,timestamp:timestamp)
                 if requireShotCompletion, retained.action == .none,
-                   !stable || sceneEvidence?.isFresh(at:timestamp) != true || sceneMeasurements == nil {
+                   !stable || sceneEvidence?.isFresh(at:timestamp) != true || sceneMeasurements == nil || !currentFrameVerified {
                     return .init(kind:.framing,text:"Evaluating the scene…")
+                }
+                if requireShotCompletion, currentFrameVerified, retained.action == .none {
+                    return .init(kind:.ready,text:"Wide scene ready",action:GuidanceAction.none)
                 }
                 return .init(kind:.scene,text:retained.text,action:retained.action)
             }

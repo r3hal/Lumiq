@@ -165,7 +165,7 @@ final class IntelligenceAcceptanceTests: XCTestCase {
         let plan = try XCTUnwrap(IntentCompositionSearch.zoomPlan(subject:tiny,label:"Cat",intent:.pet,evidence:try evidence(),others:[],frames:[],scales:[1,1.6,3],forceCenter:false))
         XCTAssertEqual(plan.zoomAlignmentTarget.x,tiny.midX,accuracy:0.0001)
         XCTAssertEqual(plan.zoomAlignmentTarget.y,tiny.midY,accuracy:0.0001)
-        XCTAssertTrue(plan.selected.crop.contains(tiny))
+        XCTAssertTrue(TargetRectangleGeometry.contains(plan.selected.crop,tiny))
     }
     func testMeasuredHeadNearFrameEdgeJustifiesRoomWithoutGuessingHiddenAnatomy() {
         let body = CGRect(x:0.1,y:0,width:0.8,height:0.8)

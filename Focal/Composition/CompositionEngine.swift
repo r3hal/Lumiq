@@ -29,6 +29,10 @@ struct CompositionReading {
     var detail = "Point at a clear subject to get a little guidance."
     var guidanceBounds: CGRect?
     var alignmentTolerance: Double = 0.065
+    var targetCompositionRect: CGRect?
+    var plannedSubjectBounds: CGRect?
+    var shotPlanID: String?
+    var shotStatus: ShotDirectorState?
     var mirrored = false // Physical pan directions reverse horizontally in a front preview.
     func alignmentPercent(previewAspect: Double) -> Double? {
         guard state != .searching, let subject, subject.x.isFinite, subject.y.isFinite, rollDegrees.isFinite else { return nil }

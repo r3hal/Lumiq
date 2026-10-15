@@ -1,10 +1,10 @@
-Focal 2.6.1 / build 27 — stuck automatic framing regression
-VIDEO: inspected new 4.900s chair reference and 8.267s Focal cat recording. Videos show behavior, not sensor/device telemetry.
-BEFORE: previous production Swift source, 3 video-sequence regression cases: 1 pass, 2 reproduced failures (small subject motion starves hold; one missing tracking frame cancels).
-AFTER: 60 portable Foundation XCTest cases PASS on Swift 6.0.3/Linux, including 23 new tests. No fake camera is used; AVFoundation is excluded.
-PARSE: all 115 app/test Swift files pass Swift frontend syntax parsing. iOS type checking/linking not performed.
-STRUCTURE PASS: deterministic project; 87 app/28 test sources; duplicate module types; resources; YAML/build shell syntax; frozen source hashes; Sony sources unchanged; user-only shutter wiring; whitespace.
-REGISTERED: 409 total XCTest functions. Complete iOS suite execution remains pending in Codemagic.
+Focal 2.7.0 / build 28 — Composition Engine 6.0 target-rectangle director
+REFERENCES: supplied screenshots plus 4.900s chair and 8.267s Focal cat recordings; behavior references, not internal model/sensor telemetry.
+PASS: 169 portable XCTest cases on Swift 6.0.3/Linux, including 25 new target-rectangle regressions. Compiles actual pure selection/planning/reasoning/readiness logic; Apple frameworks/hardware excluded.
+PARSE: all 118 app/test Swift files pass Swift frontend syntax parsing. iOS API type checking/linking not performed.
+STRUCTURE PASS: deterministic project; 89 app/29 test sources; duplicate module types; resources; YAML/build shell syntax; frozen hashes; Sony connectivity unchanged; user-only shutter wiring; readiness/guidance call contract; whitespace.
+REGISTERED: 434 total XCTest functions. Complete iOS suite execution remains pending in Codemagic.
+FIXED: build-27 framingInstruction argument attached to the wrong controller readiness API; now routed to AutomaticGuidance.update.
 ATTEMPTED: simulator build exits 127, xcodebuild: command not found.
-DEVICE: physical iPhone 16 Pro Max zoom/retention/recovery/readiness/capture pairing unverified here. Existing lower-resolution earlier wide preview remains; final still uses existing camera pipeline.
-REPORT: docs/intelligence/STUCK-FRAMING-2.6.1.md
+DEVICE: iPhone 16 Pro Max actual motor/selection/tracking/quality/lens transition/capture matching unverified here. Existing lower-resolution earlier wide preview remains; final still uses existing camera pipeline.
+REPORT: docs/intelligence/TARGET-RECTANGLE-6.0.md

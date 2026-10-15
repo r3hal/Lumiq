@@ -36,8 +36,8 @@ enum IntentCompositionSearch {
             for center in centers {
                 let x = max(0,min(1-size,Double(center.x)-size/2)), y = max(0,min(1-size,Double(center.y)-size/2))
                 let crop = CGRect(x:x,y:y,width:size,height:size)
-                guard crop.insetBy(dx:0.018/scale,dy:0.018/scale).contains(subject),
-                      context.allSatisfy({ crop.contains($0.bounds) }),frames.allSatisfy({ crop.contains($0) }) else { continue }
+                guard TargetRectangleGeometry.contains(crop.insetBy(dx:0.018/scale,dy:0.018/scale),subject),
+                      context.allSatisfy({ TargetRectangleGeometry.contains(crop,$0.bounds) }),frames.allSatisfy({ TargetRectangleGeometry.contains(crop,$0) }) else { continue }
                 let relative = CGRect(x:(subject.minX-crop.minX)/crop.width,y:(subject.minY-crop.minY)/crop.height,width:subject.width/crop.width,height:subject.height/crop.height)
                 let relativeOthers = context.map { item in CompositionContextSubject(bounds:CGRect(x:(item.bounds.minX-crop.minX)/crop.width,y:(item.bounds.minY-crop.minY)/crop.height,width:item.bounds.width/crop.width,height:item.bounds.height/crop.height),label:item.label,confidence:item.confidence) }
                 let cropLight = evidence.region(crop).clipping

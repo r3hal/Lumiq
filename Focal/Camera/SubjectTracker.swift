@@ -41,6 +41,7 @@ final class SubjectTracker {
     private var lastPrinted: TimeInterval = -.infinity
     private(set) var manual = false
     private(set) var label = "Auto subject"
+    private(set) var trackingReference: String?
     private(set) var scene: SubjectScene?
     private(set) var isRecovering = false
     private(set) var features = SubjectAnalysisFeatures()
@@ -117,7 +118,7 @@ final class SubjectTracker {
         cropSchedule.reset(); cropIdentities.reset()
         facesForAssessment = []; posePoints = []; poseHeads = []; poseTime = -.infinity; lastPoseAttempt = -.infinity; faceTime = -.infinity
         lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
-        manual = false; label = "Auto subject"; isRecovering = false
+        manual = false; label = "Auto subject"; trackingReference = nil; isRecovering = false
     }
     func select(at imagePoint: UnitPoint2D) {
         let point = CGPoint(x: imagePoint.x, y: 1 - imagePoint.y)
@@ -164,7 +165,7 @@ final class SubjectTracker {
             } catch { /* Do not display an old rectangle as a new observation. */ }
             if health.lost(reliable: retained != nil, timestamp: timestamp) {
                 self.tracking = nil; trackedCandidate = nil; sequence = VNSequenceRequestHandler()
-                selector.reset(); candidates = []; label = manual ? "Your subject" : "Auto subject"
+                selector.reset(); candidates = []; trackingReference = nil; label = manual ? "Your subject" : "Auto subject"
             } else if retained == nil { isRecovering = true; return nil }
         }
         // During a lens ramp, only verify the chosen subject. No new acquisition
@@ -441,6 +442,8 @@ final class SubjectTracker {
         !detections.contains { $0.candidate.score(configuration: selector.configuration) != nil }
     }
     private func start(_ detection: Detection) {
+        let sameSubject = trackedCandidate.map { detection.candidate.continuesIdentity($0) } ?? false
+        if trackingReference == nil || !sameSubject { trackingReference = UUID().uuidString }
         sequence = VNSequenceRequestHandler(); health.reset()
         let seed = VNDetectedObjectObservation(boundingBox: detection.observation.boundingBox)
         let request = VNTrackObjectRequest(detectedObjectObservation: seed)
@@ -453,7 +456,9 @@ final class SubjectTracker {
         guard !clipped.isNull, valid(clipped) else { reset(); return }
         var candidate = trackedCandidate ?? SubjectCandidate(bounds: clipped, confidence: 0, category: .object, label: label)
         candidate.bounds = clipped; candidate.label = label
+        let reference = trackingReference
         start(Detection(observation: VNDetectedObjectObservation(boundingBox: clipped), candidate: candidate))
+        trackingReference = reference ?? trackingReference
         self.manual = manual
         if manual { selectedPoint = CGPoint(x: clipped.midX, y: clipped.midY) }
     }

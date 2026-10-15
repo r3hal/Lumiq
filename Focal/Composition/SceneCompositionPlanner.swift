@@ -15,6 +15,8 @@ struct CompositionOption {
     var zoomScale: Double
     var measuredImprovement: Double = 0
     var isCurrentFrame = false
+    var kind: ShotCompositionKind? = nil
+    var protectedContext: [CGRect]? = nil
 }
 
 struct SceneCompositionPlan {
@@ -58,7 +60,7 @@ struct SceneCompositionPlanner {
 
     mutating func update(subject: CGRect?, confidence: Float, label: String, evidence: SceneCompositionEvidence?,
                          others: [CompositionContextSubject] = [], enclosingFrames: [CGRect] = [],
-                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil) -> SceneCompositionPlan? {
+                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, anatomy:SubjectAnatomy? = nil) -> SceneCompositionPlan? {
         guard timestamp.isFinite else { reset(); return nil }
         guard let subject, Self.valid(subject), confidence >= 0.55 else {
             // Return no plan/box during loss; preserve the choice only for a
@@ -87,7 +89,7 @@ struct SceneCompositionPlanner {
                 return updated
             }
         } else {
-            options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent,availableScales:availableScales,label:label)
+            options = Self.compare(subject:subject,evidence:evidence,others:others,enclosingFrames:enclosingFrames,maximumScale:min(maximumScale,intent.maximumCropScale),intent:intent,availableScales:availableScales,label:label,anatomy:anatomy)
             evaluatedEvidenceTime = evidence.timestamp; evaluatedIntent = intent; evaluatedScales = availableScales
             evaluatedMaximumScale = maximumScale
             evaluatedBounds = subject; evaluatedContext = context; cachedOptions = options
@@ -118,7 +120,7 @@ struct SceneCompositionPlanner {
         return retained
     }
     static func compare(subject: CGRect, evidence: SceneCompositionEvidence, others: [CompositionContextSubject] = [],
-                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, label: String = "Subject") -> [CompositionOption] {
+                        enclosingFrames: [CGRect] = [], maximumScale: Double = 1, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, label: String = "Subject", anatomy:SubjectAnatomy? = nil) -> [CompositionOption] {
         guard intent != .landscape else { return [] }
         guard valid(subject), maximumScale.isFinite, maximumScale >= 1 else { return [] }
         let center = UnitPoint2D(x:subject.midX,y:subject.midY)
@@ -189,8 +191,8 @@ struct SceneCompositionPlanner {
                 // Physical phone zoom is centered. Score ONLY that observed
                 // crop; never score unknown scenery revealed by future panning.
                 let crop = CGRect(x:(1-1/scale)/2,y:(1-1/scale)/2,width:1/scale,height:1/scale)
-                guard crop.insetBy(dx:0.025/scale,dy:0.025/scale).contains(subject),
-                      context.allSatisfy({ crop.contains($0.bounds) }), enclosing.allSatisfy({ crop.contains($0) }) else { continue }
+                guard TargetRectangleGeometry.contains(crop.insetBy(dx:0.025/scale,dy:0.025/scale),subject),
+                      context.allSatisfy({ TargetRectangleGeometry.contains(crop,$0.bounds) }), enclosing.allSatisfy({ TargetRectangleGeometry.contains(crop,$0) }) else { continue }
                 let relative = CGRect(x:(subject.minX-crop.minX)/crop.width,y:(subject.minY-crop.minY)/crop.height,width:subject.width/crop.width,height:subject.height/crop.height)
                 // The whole subject must also fit at its intended final mark.
                 let safe = safeTarget(target,subject:relative)
@@ -244,7 +246,16 @@ struct SceneCompositionPlanner {
                 if abs($0.zoomScale-$1.zoomScale) > 0.001 { return $0.zoomScale < $1.zoomScale }
                 return $0.measuredImprovement == $1.measuredImprovement ? $0.score > $1.score : $0.measuredImprovement > $1.measuredImprovement
             }
-        return improvements.isEmpty ? [keep]+ranked.sorted { $0.score > $1.score } : improvements+[keep]+ranked.filter { $0.measuredImprovement < IntentCompositionSearch.minimumImprovement }.sorted { $0.score > $1.score }
+        let directed = TargetRectangleSearch.options(subject:subject,label:label,intent:intent,evidence:evidence,others:others,
+            scales:scales.filter { $0 <= maximumScale },anatomy:anatomy)
+        // Compare whole planned photographs, rather than declaring every subject
+        // above a tiny visibility threshold to have optimal scale.
+        let useful = (directed+improvements).sorted {
+            if abs($0.measuredImprovement-$1.measuredImprovement) > 0.001 { return $0.measuredImprovement > $1.measuredImprovement }
+            return $0.score > $1.score
+        }
+        return useful.isEmpty ? [keep]+ranked.sorted { $0.score > $1.score }
+            : useful+[keep]+ranked.filter { $0.measuredImprovement < IntentCompositionSearch.minimumImprovement }.sorted { $0.score > $1.score }
     }
     static func distinctSubjects(_ subjects: [CompositionContextSubject], selected: CGRect) -> [CompositionContextSubject] {
         var distinct = [CompositionContextSubject]()
@@ -265,6 +276,6 @@ struct SceneCompositionPlanner {
     }
     private static func valid(_ rect: CGRect) -> Bool {
         !rect.isNull && [rect.minX,rect.minY,rect.width,rect.height].allSatisfy(\.isFinite)
-            && rect.width > 0.025 && rect.height > 0.025 && SceneCompositionEvidence.full.contains(rect)
+            && rect.width > 0.025 && rect.height > 0.025 && TargetRectangleGeometry.contains(SceneCompositionEvidence.full,rect)
     }
 }

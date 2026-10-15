@@ -58,7 +58,7 @@ actor EvaluationRunner {
                 let permittedScale = petAllowsZoom && measured.permitsAutomaticCrop ? proposedScale : nil
                 baseline.append(.init(sampleID:sample.id,algorithm:"Intelligence 3.0 recommendation baseline",selected:primary,detections:analyzed.subjects,action:old.action,text:old.text,
                     inferenceMilliseconds:nil,aestheticScore:analyzed.aestheticScore,fitness:measured.fitness,assessment:AssessmentMeasurements(measured)))
-                updated.append(.init(sampleID:sample.id,algorithm:"Focal Intelligence 4.0",selected:primary,detections:analyzed.subjects,action:decision.action,text:decision.text,
+                updated.append(.init(sampleID:sample.id,algorithm:"Focal Intelligence 6.0",selected:primary,detections:analyzed.subjects,action:decision.action,text:decision.text,
                     inferenceMilliseconds:analyzed.inferenceMilliseconds,aestheticScore:analyzed.aestheticScore,fitness:measured.fitness,assessment:AssessmentMeasurements(measured),proposedZoomScale:permittedScale,previousSelectionOverlap:overlap,pairedDecisionMilliseconds:pairedDecisionMS))
             } catch is CancellationError { throw CancellationError() }
             catch { errors.append("\(sample.id): \(error.localizedDescription)") }

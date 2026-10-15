@@ -23,4 +23,12 @@ struct PreviewProjection {
         let origin = visiblePoint(.init(x: mirrored ? rect.maxX : rect.minX, y: rect.minY))
         return CGRect(x: origin.x, y: origin.y, width: rect.width * scaleX, height: rect.height * scaleY)
     }
+    func imageRect(_ visible:CGRect) -> CGRect {
+        let origin = imagePoint(.init(x:mirrored ? visible.maxX : visible.minX,y:visible.minY))
+        return CGRect(x:origin.x,y:origin.y,width:visible.width/scaleX,height:visible.height/scaleY)
+    }
+    func visibleVisionRect(_ vision:CGRect) -> CGRect {
+        visibleRect(CGRect(x:vision.minX,y:1-vision.maxY,width:vision.width,height:vision.height))
+    }
+
 }
