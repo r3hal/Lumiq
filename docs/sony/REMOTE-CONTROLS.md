@@ -1,6 +1,6 @@
 # Sony A7 III Wi-Fi Remote Controls — Focal 2.10.0, build 34
 
-Build 35 preserves this implementation and updates the regression tests. See [native-test follow-up](BUILD-35-TEST-FOLLOWUP.md) for current validation and the reported build-34 failures.
+Build 36 repairs polling, state stability and read fallback; see [current state repair](STABLE-REMOTE-CONTROLS.md) for current validation. Build 35 preserves the initial implementation and updates the regression tests. See [native-test follow-up](BUILD-35-TEST-FOLLOWUP.md) for current validation and the reported build-34 failures.
 
 ## Audit and protocol boundary
 

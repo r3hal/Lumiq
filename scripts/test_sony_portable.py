@@ -10,11 +10,11 @@ p=argparse.ArgumentParser();p.add_argument('--swift',default='swift');args=p.par
 work=Path(tempfile.mkdtemp(prefix='focal-sony-'));app=work/'Sources/Focal';tests=work/'Tests/FocalTests'
 app.mkdir(parents=True);tests.mkdir(parents=True)
 (work/'Package.swift').write_text('// swift-tools-version: 5.9\nimport PackageDescription\nlet package = Package(name:"FocalSony",products:[.library(name:"Focal",targets:["Focal"])],targets:[.target(name:"Focal"),.testTarget(name:"FocalTests",dependencies:["Focal"])])\n')
-for name in ['SonyProtocol','SonyAPIClient','SonyControlPolicy','SonyRemoteSettings','SonyFocusWorkflow','SonyDiagnostics']:
+for name in ['SonyProtocol','SonyAPIClient','SonyControlPolicy','SonyRemoteSettings','SonyFocusWorkflow','SonyDiagnostics','SonyRemoteSnapshot']:
  text=(ROOT/f'Focal/Sony/{name}.swift').read_text().replace('import ImageIO','import FoundationXML')
  (app/f'{name}.swift').write_text(text)
 (app/'CameraTelemetry.swift').write_text((ROOT/'Focal/Camera/CameraTelemetry.swift').read_text())
-for name in ['SonyControlPolicyTests','SonyRemoteSettingsTests']:
+for name in ['SonyControlPolicyTests','SonyRemoteSettingsTests','SonyRemoteSnapshotTests']:
  (tests/f'{name}.swift').write_text((ROOT/f'FocalTests/{name}.swift').read_text())
 env=os.environ.copy();env['SWIFTPM_MODULECACHE_OVERRIDE']=str(work/'module-cache')
 print(f'Sony production protocol tests with scripted camera feedback: {work}',flush=True)

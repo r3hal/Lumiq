@@ -43,11 +43,21 @@ actor SonyAPIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject:["method":method,"params":params,"id":id,"version":"1.0"])
         do {
             let (data,response) = try await session.data(for:request)
-            guard let response = response as? HTTPURLResponse,(200..<300).contains(response.statusCode),data.count <= 2*1024*1024 else { throw SonyRemoteError(message:"Sony control request failed.") }
-            let object = try JSONSerialization.jsonObject(with:data) as? [String:Any]
+            guard let response = response as? HTTPURLResponse else { throw SonyRemoteError(message:"Sony returned no HTTP response.") }
+            diagnostics?.record("command.http",["method":method,"id":String(id),"status":String(response.statusCode),"bytes":String(data.count)])
+            guard (200..<300).contains(response.statusCode),data.count <= 2*1024*1024 else { throw SonyRemoteError(message:"Sony control HTTP request failed (\(response.statusCode)).") }
+            let object:[String:Any]?
+            do { object = try JSONSerialization.jsonObject(with:data) as? [String:Any] }
+            catch {
+                diagnostics?.record("response.parse.failed",["method":method,"expected":"JSON-RPC object"])
+                throw error
+            }
             if let object, let error = SonyAPIError.parse(object, method: method) { throw error }
             if object?["error"] != nil { throw SonyRemoteError(message: "Sony returned an unreadable error for \(method).") }
-            guard object?["result"] != nil || (method == "getMethodTypes" && object?["results"] != nil) else { throw SonyRemoteError(message:"Sony returned no result.") }
+            guard object?["result"] is [Any] || (method == "getMethodTypes" && object?["results"] is [Any]) else {
+                diagnostics?.record("response.parse.failed",["method":method,"expected":"result array"])
+                throw SonyRemoteError(message:"Sony returned no readable result array for \(method).")
+            }
             var fields = ["method":method,"id":String(id),"http":String(response.statusCode),"milliseconds":String(Int(Date().timeIntervalSince(started)*1000))]
             // Settings/capability feedback is useful; never export photo transfer URLs.
             let safe = Set(SonyRemoteSetting.allCases.flatMap { [$0.getter,$0.available,$0.setter] } + ["getMethodTypes","getAvailableApiList","getExposureMode","getFocusMode","actHalfPressShutter","cancelHalfPressShutter"])

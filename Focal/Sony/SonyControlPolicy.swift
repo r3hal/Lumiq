@@ -24,7 +24,7 @@ struct SonyAPIError: LocalizedError {
     }
 }
 
-struct SonyControlState {
+struct SonyControlState: Equatable {
     var cameraStatus: String?
     var focusStatus: String?
     var availableMethods: Set<String>?

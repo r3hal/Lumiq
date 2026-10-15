@@ -15,7 +15,7 @@ struct SonyRemoteControlsView: View {
                     Text(camera.model).font(.headline)
                     Label(camera.hasFrame ? "Connected · Live view" : camera.isConnected ? "Connected · Remote controls" : "Disconnected",
                           systemImage:"circle.fill").font(.caption).foregroundStyle(camera.isConnected ? Palette.mint : Palette.muted)
-                    Text("Mode: \(camera.telemetry.mode ?? "Not reported") · \(camera.controlState.cameraStatus ?? "Status not reported")")
+                    Text("Mode: \(camera.telemetry.mode ?? "Unknown") · \(camera.controlState.cameraStatus ?? "Status pending")")
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(.vertical,4)
                 if camera.hasFrame {
@@ -57,7 +57,7 @@ struct SonyRemoteControlsView: View {
             }.listRowBackground(Palette.panel)
             Section {
                 Button(camera.isRefreshingSettings ? "Reading camera…" : "Refresh camera values",systemImage:"arrow.clockwise") { camera.refreshSettings() }
-                    .disabled(!camera.isConnected || camera.controlsBusy)
+                    .disabled(!camera.isConnected || camera.isRefreshingSettings)
                 Button("Export connection diagnostics",systemImage:"doc.text") {
                     do { diagnosticURL = try camera.diagnostics.export() }
                     catch { captureFeedback = error.localizedDescription }
@@ -100,14 +100,17 @@ private struct SonySettingRow: View {
                 HStack {
                     Text(setting.title)
                     Spacer()
-                    Text(camera.remoteSettings[setting]?.current?.label ?? "Not reported")
+                    Text(camera.remoteSettings[setting]?.displayValue ?? "Loading…")
                         .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-                    if camera.pendingSetting == setting { ProgressView() }
+                    if camera.pendingSettings.contains(setting) { ProgressView() }
                 }
             }.disabled(reason != nil)
-            if camera.pendingSetting == setting {
+            if camera.pendingSettings.contains(setting) {
                 Text("Waiting for camera confirmation…").font(.caption).foregroundStyle(Palette.yellow)
             } else if let reason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+            if let value = camera.remoteSettings[setting], let issue = value.issue, value.current != nil {
+                Text("Last confirmed value · \(issue)").font(.caption).foregroundStyle(.secondary)
+            }
         }.padding(.vertical,3)
     }
 }
@@ -125,7 +128,7 @@ private struct SonySettingChoicesView: View {
             if let reason = camera.settingDisabledReason(setting) { Text(reason).font(.caption).foregroundStyle(.secondary) }
             ForEach(choices) { value in
                 Button {
-                    camera.change(setting,to:value); dismiss()
+                    if camera.change(setting,to:value) { dismiss() }
                 } label: {
                     HStack {
                         Text(value.label).foregroundStyle(.white)

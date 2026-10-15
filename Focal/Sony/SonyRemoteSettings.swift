@@ -60,11 +60,85 @@ enum SonySettingValue: Hashable, Identifiable {
     }
 }
 
-struct SonyRemoteSettingState {
+enum SonySettingReadStatus: Equatable {
+    case unknown, loading, available, unsupported
+    case unavailable(String), connectionError(String), error(String)
+    var label:String {
+        switch self {
+        case .unknown: return "Unknown"
+        case .loading: return "Loading…"
+        case .available: return "Available"
+        case .unsupported: return "Unsupported"
+        case .unavailable: return "Unavailable"
+        case .connectionError: return "Connection error"
+        case .error: return "Read failed"
+        }
+    }
+}
+
+enum SonyRemoteControlStatus: Equatable {
+    case unknown, available, unsupported, commandInProgress
+    case temporarilyUnavailable(String), error(String)
+    var reason:String? {
+        switch self {
+        case .available: return nil
+        case .unknown: return "Waiting for the camera's control information."
+        case .unsupported: return "The camera's supported-method list does not include this setter."
+        case .commandInProgress: return "Waiting for this setting's camera confirmation…"
+        case .temporarilyUnavailable(let reason), .error(let reason): return reason
+        }
+    }
+    var name:String {
+        switch self {
+        case .unknown: return "Unknown"
+        case .available: return "Available"
+        case .unsupported: return "Unsupported"
+        case .commandInProgress: return "CommandInProgress"
+        case .temporarilyUnavailable: return "TemporarilyUnavailable"
+        case .error: return "Error"
+        }
+    }
+}
+
+struct SonyRemoteSettingState: Equatable {
     var current: SonySettingValue?
     var choices: [SonySettingValue] = []
     var issue: String?
     var readAt: Date?
+    var readStatus: SonySettingReadStatus = .unknown
+    var choicesReported = false
+    var temperatureReported = false
+    var sourceMethod:String?
+    var displayValue:String { current?.label ?? readStatus.label }
+    // Reading the same values again must not publish a new SwiftUI snapshot.
+    static func ==(lhs:Self,rhs:Self) -> Bool {
+        lhs.current == rhs.current && lhs.choices == rhs.choices && lhs.issue == rhs.issue && lhs.readStatus == rhs.readStatus && lhs.choicesReported == rhs.choicesReported
+    }
+    func merging(_ update:Self) -> Self {
+        var next = self
+        if let current = update.current {
+            if case .compensation(let index,nil) = current, case .compensation(_,let step) = next.current {
+                next.current = .compensation(index:index,step:step)
+            } else if case .whiteBalance(let mode,nil) = current, !update.temperatureReported,
+                      case .whiteBalance(let oldMode,let temperature) = next.current, mode == oldMode {
+                next.current = .whiteBalance(mode:mode,temperature:temperature)
+            } else { next.current = current }
+            next.readAt = update.readAt
+        }
+        if update.choicesReported { next.choices = update.choices; next.choicesReported = true }
+        if let method = update.sourceMethod { next.sourceMethod = method }
+        // Missing event fields are not explicit read failures.
+        if update.readStatus != .unknown { next.readStatus = update.readStatus; next.issue = update.issue }
+        return next
+    }
+    static func failure(_ error:Error) -> Self {
+        let status:SonySettingReadStatus
+        if error is URLError { status = .connectionError(error.localizedDescription) }
+        else if let api = error as? SonyAPIError, api.code == 12 { status = .unsupported }
+        else if let api = error as? SonyAPIError, [5,403,40401].contains(api.code) { status = .unavailable(error.localizedDescription) }
+        else { status = .error(error.localizedDescription) }
+        return .init(issue:error.localizedDescription,readStatus:status)
+    }
     func disabledReason(setting:SonyRemoteSetting,available:Set<String>,supported:Set<String>) -> String? {
         if !available.contains(setting.setter) {
             return supported.contains(setting.setter) ? "Unavailable in the camera's current shooting mode." : "This camera connection does not advertise this control."
@@ -85,19 +159,22 @@ enum SonySettingParser {
         return n.intValue
     }
     static func parse(_ setting:SonyRemoteSetting,result:[Any],available:Bool) -> SonyRemoteSettingState {
-        var s = SonyRemoteSettingState(readAt:Date())
+        var s = SonyRemoteSettingState(readAt:Date(),sourceMethod:available ? setting.available : setting.getter)
         switch setting {
         case .iso,.aperture,.shutter:
             if let text = result.first as? String, !text.isEmpty { s.current = .text(text) }
             if available, result.count > 1, let list = result[1] as? [String] {
+                s.choicesReported = true
                 s.choices = Array(list.prefix(1024)).filter { !$0.isEmpty }.map(SonySettingValue.text)
             }
         case .whiteBalance:
             if let value = result.first as? [String:Any], let mode = value["whiteBalanceMode"] as? String {
                 let t = integer(value["colorTemperature"])
+                s.temperatureReported = value["colorTemperature"] != nil
                 s.current = .whiteBalance(mode:mode,temperature:t.flatMap { $0 > 0 ? $0 : nil })
             }
             if available, result.count > 1, let modes = result[1] as? [[String:Any]] {
+                s.choicesReported = true
                 for mode in modes.prefix(64) {
                     guard let name = mode["whiteBalanceMode"] as? String, !name.isEmpty,
                           let range = mode["colorTemperatureRange"] as? [Any] else { continue }
@@ -112,10 +189,12 @@ enum SonySettingParser {
             if let index = integer(result.first) { s.current = .compensation(index:index,step:step) }
             if available, result.count >= 4, let max = integer(result[1]), let min = integer(result[2]),
                max >= min, max-min <= 128, step == 1 || step == 2 {
+                s.choicesReported = true
                 s.choices = (min...max).map { .compensation(index:$0,step:step) }
             }
         }
-        if s.current == nil { s.issue = "Camera returned an unrecognized current value." }
+        if s.current == nil { s.issue = "Camera returned an unrecognized current value."; s.readStatus = .error(s.issue!) }
+        else { s.readStatus = .available }
         var seen = Set<SonySettingValue>(); s.choices = s.choices.filter { seen.insert($0).inserted }
         return s
     }
@@ -130,15 +209,20 @@ enum SonySettingParser {
         let result:[Any]
         switch setting {
         case .iso,.aperture,.shutter:
-            result = [item["current"+setting.suffix] ?? NSNull(),item[setting.eventType+"Candidates"] ?? []]
+            result = [item["current"+setting.suffix] ?? NSNull(),item[setting.eventType+"Candidates"] ?? NSNull()]
         case .whiteBalance:
             result = [["whiteBalanceMode":item["currentWhiteBalanceMode"] ?? NSNull(),"colorTemperature":item["currentColorTemperature"] ?? -1],
-                      item["whiteBalanceCandidates"] ?? []]
+                      item["whiteBalanceCandidates"] ?? NSNull()]
         case .compensation:
             result = [item["currentExposureCompensation"] ?? NSNull(),item["maxExposureCompensation"] ?? NSNull(),
                 item["minExposureCompensation"] ?? NSNull(),item["stepIndexOfExposureCompensation"] ?? NSNull()]
         }
-        return parse(setting,result:result,available:true)
+        var parsed = parse(setting,result:result,available:true)
+        parsed.sourceMethod = "getEvent"
+        if setting == .whiteBalance { parsed.temperatureReported = item["currentColorTemperature"] != nil }
+        let currentKey = setting == .whiteBalance ? "currentWhiteBalanceMode" : "current"+setting.suffix
+        if item[currentKey] == nil { parsed.issue = nil; parsed.readStatus = .unknown }
+        return parsed
     }
 }
 
@@ -151,15 +235,34 @@ enum SonySettingWorkflow {
         }
         return Set(list)
     }
-    static func read(_ setting:SonyRemoteSetting,methods:Set<String>,call:Call) async throws -> SonyRemoteSettingState {
-        if methods.contains(setting.available) {
-            return SonySettingParser.parse(setting,result:try SonyAPIClient.result(await call(setting.available,[],2)),available:true)
+    static func read(_ setting:SonyRemoteSetting,methods:Set<String>,event:[Any]? = nil,allowEventRequest:Bool = true,
+                     call:Call) async throws -> SonyRemoteSettingState {
+        var failure:Error?
+        var partial = SonyRemoteSettingState()
+        // A refused/malformed availability getter must not hide a working
+        // current-value getter. Direct ISO read is always attempted before events.
+        for method in [setting.available,setting.getter] where methods.contains(method) {
+            do {
+                let parsed = SonySettingParser.parse(setting,result:try SonyAPIClient.result(await call(method,[],3)),available:method == setting.available)
+                partial = partial.merging(parsed)
+                if partial.current != nil, partial.choicesReported { return partial }
+                if parsed.current == nil { failure = SonyRemoteError(message:parsed.issue ?? "Unrecognized Sony setting response.") }
+            } catch is CancellationError { throw CancellationError() }
+            catch { failure = error }
         }
-        if methods.contains("getEvent"), let s = SonySettingParser.event(setting,values:try SonyAPIClient.result(await call("getEvent",[false],2))), s.current != nil { return s }
-        if methods.contains(setting.getter) {
-            return SonySettingParser.parse(setting,result:try SonyAPIClient.result(await call(setting.getter,[],2)),available:false)
+        var values = event
+        if values == nil, allowEventRequest, methods.contains("getEvent") {
+            do { values = try SonyAPIClient.result(await call("getEvent",[false],3)) }
+            catch is CancellationError { throw CancellationError() }
+            catch { failure = error }
         }
-        return SonyRemoteSettingState(issue:"No readable value is advertised in this camera mode.")
+        if let values, let parsed = SonySettingParser.event(setting,values:values) {
+            if partial.current == nil { partial = partial.merging(parsed) }
+            else if parsed.choicesReported { partial.choices = parsed.choices; partial.choicesReported = true }
+        }
+        if partial.current != nil { return partial }
+        if let failure { throw failure }
+        return .init(issue:"No readable value is currently advertised in this camera mode.",readStatus:.unavailable("No readable value is currently advertised in this camera mode."))
     }
     static func change(_ setting:SonyRemoteSetting,to value:SonySettingValue,call:Call,active:() -> Bool,
                        wait:(TimeInterval) async throws -> Void = { try await Task.sleep(for:.seconds($0)) }) async throws -> SonyRemoteSettingState {

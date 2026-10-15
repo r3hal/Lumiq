@@ -111,7 +111,7 @@ final class SonyDiscoveryModel: ObservableObject {
                 let results = try await SonyDiscovery.discover(previous:previous)
                 guard token == generation, !Task.isCancelled else { return }
                 cameras = results; searching = false
-                diagnostics?.record("discovery.completed",["count":String(results.count),"cameras":results.map { $0.model+" · "+$0.host }.joined(separator:",")])
+                diagnostics?.record("discovery.completed",["count":String(results.count),"models":results.map(\.model).joined(separator:",")])
                 message = results.isEmpty ? "No compatible descriptor found in this bounded search. Check the camera mode and use its address manually if needed." : "Descriptor found. Connect to verify the actual live view."
             } catch {
                 guard token == generation, !Task.isCancelled else { return }

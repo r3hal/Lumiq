@@ -13,18 +13,22 @@ final class SonyRemoteCamera: ObservableObject {
     @Published private(set) var qualityStatus = "Camera default"
     let previewFeed = SonyPreviewFeed()
     @Published private(set) var model = "Sony camera"
-    @Published private(set) var telemetry = CameraTelemetry()
-    @Published private(set) var methods = Set<String>()
-    private(set) var capabilities = Set<String>()
+    @Published private(set) var remote = SonyRemoteSnapshot()
+    var telemetry:CameraTelemetry { remote.telemetry }
+    var methods:Set<String> { remote.methods }
+    var capabilities:Set<String> { remote.supported }
+    var remoteSettings:[SonyRemoteSetting:SonyRemoteSettingState] { remote.settings }
     let diagnostics = SonyDiagnostics()
-    @Published private(set) var remoteSettings: [SonyRemoteSetting:SonyRemoteSettingState] = [:]
-    @Published private(set) var pendingSetting: SonyRemoteSetting?
+    @Published private(set) var pendingSettings = Set<SonyRemoteSetting>()
     @Published private(set) var isRefreshingSettings = false
     @Published private(set) var controlFeedback: String?
-    private var settingTask: Task<Void,Never>?
-    private var refreshTask: Task<Void,Never>?
+    private var settingTasks: [SonyRemoteSetting:Task<Void,Never>] = [:]
+    private var commandTail: Task<Void,Never>?
+    private var pollRevision = 0
+    private var refreshRequested = true
     var isConnected: Bool { state == .connected || state == .streaming }
-    var controlsBusy: Bool { isCapturing || isFocusing || pendingSetting != nil || isRefreshingSettings || controlState.captureBusy }
+    // Background reads do not make the camera or its controls busy.
+    var controlsBusy: Bool { isCapturing || isFocusing || !pendingSettings.isEmpty || controlState.captureBusy }
     var autofocusUnavailableReason: String? {
         guard isConnected else { return "Connect a Sony camera first." }
         guard !controlsBusy else { return "Wait for the current camera operation to finish." }
@@ -36,8 +40,8 @@ final class SonyRemoteCamera: ObservableObject {
     var canTriggerAF: Bool { autofocusUnavailableReason == nil }
     func settingDisabledReason(_ setting:SonyRemoteSetting) -> String? {
         guard isConnected else { return "Connect a Sony camera first." }
-        if controlsBusy { return "Wait for the current camera operation to finish." }
-        return (remoteSettings[setting] ?? SonyRemoteSettingState()).disabledReason(setting:setting,available:methods,supported:capabilities)
+        if isCapturing || controlState.captureBusy { return "The camera is busy taking or saving a photograph." }
+        return remote.status(setting,pending:pendingSettings.contains(setting)).reason
     }
     @Published private(set) var frameCount = 0
     @Published private(set) var streamDiagnostics = "Waiting for camera data"
@@ -63,7 +67,7 @@ final class SonyRemoteCamera: ObservableObject {
     private var focusTask: Task<Void, Never>?
     private var healthySince: TimeInterval?
     private var streamInterruption: String?
-    @Published private(set) var controlState = SonyControlState()
+    var controlState:SonyControlState { remote.control }
     @Published private(set) var isFocusing = false
     var canCapture: Bool { isConnected && methods.contains("actTakePicture") && !controlsBusy }
     var supportsTouchFocus: Bool { state == .streaming && methods.contains("setTouchAFPosition") }
@@ -74,7 +78,7 @@ final class SonyRemoteCamera: ObservableObject {
         if !automatic { recovery.reset() }
         close(preserveRequest:false)
         wantsConnection = true; host = selectedHost
-        diagnostics.record("connection.started",["host":selectedHost,"automatic":String(automatic)])
+        diagnostics.record("connection.started",["automatic":String(automatic)])
         state = automatic ? .reconnecting : .connecting; message = automatic ? "Restoring Sony live view…" : nil; frameCount = 0; deliveredFrames = 0; streamFPS = nil
         qualityStatus = "Camera default"; lastFramePublication = -.infinity; streamDiagnostics = "Waiting for camera data"
         let current = generation
@@ -99,14 +103,14 @@ final class SonyRemoteCamera: ObservableObject {
                         let (data,response) = try await discovery.data(from:url)
                         guard let http = response as? HTTPURLResponse,(200..<300).contains(http.statusCode) else { throw SonyRemoteError(message:"The camera did not return a descriptor.") }
                         descriptor = try SonyDescriptor.parse(data,host:selectedHost)
-                        diagnostics.record("discovery.descriptor",["host":selectedHost,"port":String(url.port ?? 80),"model":descriptor?.model ?? ""]); break
+                        diagnostics.record("discovery.descriptor",["port":String(url.port ?? 80),"service":"camera","model":descriptor?.model ?? ""]); break
                     } catch { lastError = error; diagnostics.record("discovery.descriptor.failed",["port":String(url.port ?? 80),"error":error.localizedDescription]) }
                 }
                 guard current == generation,!Task.isCancelled else { return }
                 guard let descriptor else { throw lastError ?? SonyRemoteError(message:"No advertised Sony wireless service was found.") }
                 UserDefaults.standard.set(selectedHost,forKey:"sony.lastCameraHost")
                 let api = SonyAPIClient(endpoint:descriptor.endpoint,diagnostics:diagnostics); client = api
-                diagnostics.record("connection.endpoint",["url":descriptor.endpoint.absoluteString])
+                diagnostics.record("connection.endpoint",["service":"camera","scheme":descriptor.endpoint.scheme ?? "unknown","port":String(descriptor.endpoint.port ?? 80)])
                 var supported = try await Self.available(api)
                 if supported.contains("startRecMode") && !supported.contains("actTakePicture") {
                     do { _ = try await api.call("startRecMode") }
@@ -118,7 +122,8 @@ final class SonyRemoteCamera: ObservableObject {
                     if let data = try? await api.call("getMethodTypes", params: [""], timeout: 2),
                        let result = try? SonyAPIClient.result(data) {
                         guard current == generation, !Task.isCancelled else { return }
-                        capabilities = SonyMethodCapabilities.names(result)
+                        let names = SonyMethodCapabilities.names(result)
+                        remote.supported = names; remote.supportComplete = !names.isEmpty
                     }
                 }
                 // Negotiate only a size the camera actually advertises. Older
@@ -140,7 +145,10 @@ final class SonyRemoteCamera: ObservableObject {
                     }
                 }
                 guard current == generation,!Task.isCancelled else { return }
-                model = descriptor.model; methods = supported; capabilities.formUnion(supported)
+                model = descriptor.model
+                var initial = remote; initial.applyMethods(supported)
+                for setting in SonyRemoteSetting.allCases { initial.settings[setting] = .init(readStatus:.loading) }
+                publish(initial,cause:"connection.getAvailableApiList")
                 diagnostics.record("connection.controls",["model":model,"available":supported.sorted().joined(separator:","),"supported":capabilities.sorted().joined(separator:",")])
                 var liveURL = descriptor.liveURL
                 if supported.contains("startLiveview") {
@@ -154,69 +162,14 @@ final class SonyRemoteCamera: ObservableObject {
                 }
                 guard current == generation,!Task.isCancelled else { return }
                 state = .connected
+                diagnostics.record("connection.state",["new":"connected","model":model,"cause":"remote API responded"])
                 if let liveURL {
                     do { openStream(try SonyEndpoint.validate(liveURL,host:selectedHost),generation:current) }
                     catch { message = "Remote controls connected, but Sony returned an invalid live-view address." }
                 } else if message == nil { message = "Remote controls connected. This mode does not advertise a live-view stream." }
-                refreshSettings()
-                monitorTask = Task {
-                    var lastEvent: TimeInterval = 0
-                    var lastSettings: TimeInterval = ProcessInfo.processInfo.systemUptime
-                    var controlFailures = 0
-                    while !Task.isCancelled && current == generation {
-                        try? await Task.sleep(for:.seconds(1))
-                        guard !Task.isCancelled,current == generation else { return }
-                        let now = ProcessInfo.processInfo.systemUptime
-                        if streamSession != nil && !isCapturing && now-lastFrame > 8 {
-                            let problem = frameCount == 0 ? "Sony sent no decodable live-view image." : "Sony live view stopped."
-                            fail(problem + " " + streamDiagnostics, generation: current, recoverable: true); return
-                        }
-                        if !isCapturing, !isFocusing, pendingSetting == nil, !isRefreshingSettings, now-lastEvent >= 2 {
-                            lastEvent = now
-                            do {
-                                let available = try await Self.available(api)
-                                guard current == generation else { return }
-                                guard pendingSetting == nil,!isCapturing,!isFocusing,!isRefreshingSettings else { continue }
-                                let changed = methods != available
-                                methods = available
-                                capabilities.formUnion(available)
-                                if changed { remoteSettings = [:] }
-                                var modeChanged = false
-                                if available.contains("getEvent") {
-                                    let result = try SonyAPIClient.result(await api.call("getEvent",params:[false],timeout:2))
-                                    guard current == generation else { return }
-                                    guard pendingSetting == nil,!isCapturing,!isFocusing,!isRefreshingSettings else { continue }
-                                    let reported = SonyEventValues.telemetry(result)
-                                    modeChanged = reported.mode != nil && reported.mode != telemetry.mode
-                                    if modeChanged { remoteSettings = [:] }
-                                    telemetry = reported
-                                    for setting in SonyRemoteSetting.allCases {
-                                        if var value = SonySettingParser.event(setting,values:result) {
-                                            if !changed, !modeChanged, value.choices.isEmpty, available.contains(setting.available), let previous = remoteSettings[setting] {
-                                                value.choices = previous.choices
-                                            }
-                                            remoteSettings[setting] = value
-                                        }
-                                    }
-                                    controlState = SonyControlState.from(result)
-                                    if let available = controlState.availableMethods { methods = available }
-                                    diagnostics.record("camera.feedback",["status":controlState.cameraStatus ?? "not reported","focus":controlState.focusStatus ?? "not reported","mode":telemetry.mode ?? "not reported"])
-                                }
-                                controlFailures = 0
-                                if changed || modeChanged || now-lastSettings >= 10 {
-                                    lastSettings = now; refreshSettings()
-                                }
-                            } catch {
-                                guard current == generation else { return }
-                                controlFailures += 1
-                                diagnostics.record("connection.poll.failed",["error":error.localizedDescription,"count":String(controlFailures)])
-                                // Never leave stale values enabled after failed feedback.
-                                remoteSettings = [:]; methods = []; controlState = SonyControlState()
-                                if controlFailures >= 3 { fail("Sony stopped responding. Camera may be asleep or Wi-Fi disconnected.",generation:current,recoverable:true); return }
-                            }
-                        }
-                    }
-                }
+                refreshRequested = true
+                startMonitor(api:api,generation:current)
+
             } catch {
                 guard current == generation,!Task.isCancelled else { return }
                 fail("Could not establish Sony remote connection. Check DIRECT Wi-Fi, Local Network access and camera remote mode. \(error.localizedDescription)",generation:current, recoverable:error is URLError)
@@ -225,7 +178,7 @@ final class SonyRemoteCamera: ObservableObject {
     }
     private static func available(_ api:SonyAPIClient) async throws -> Set<String> {
         let result = try SonyAPIClient.result(await api.call("getAvailableApiList"))
-        guard let list = result.first as? [String],!list.isEmpty else { throw SonyRemoteError(message:"Sony did not advertise any available controls.") }
+        guard let list = result.first as? [String] else { throw SonyRemoteError(message:"Sony did not advertise any available controls.") }
         return Set(list)
     }
     private func openStream(_ url:URL,generation current:UUID) {
@@ -234,7 +187,10 @@ final class SonyRemoteCamera: ObservableObject {
             // The receiver coalesces its main-thread handoff as well as decode.
             guard let self, current == self.generation else { return }
             self.previewFeed.display(decoded.image)
-            if !self.hasFrame { self.hasFrame = true; self.state = .streaming }
+            if !self.hasFrame {
+                self.hasFrame = true; self.state = .streaming
+                self.diagnostics.record("connection.state",["new":"streaming","model":self.model,"cause":"decoded real live frame"])
+            }
             if abs(self.imageAspect - decoded.aspect) > 0.001 { self.imageAspect = decoded.aspect }
             self.lastFrame = ProcessInfo.processInfo.systemUptime
             if self.healthySince == nil { self.healthySince = self.lastFrame }
@@ -264,6 +220,7 @@ final class SonyRemoteCamera: ObservableObject {
     }
     func focus(at point: UnitPoint2D) {
         guard supportsTouchFocus, !controlsBusy, let api = client else { return }
+        interruptBackgroundRead()
         let current = generation; isFocusing = true
         focusTask = Task {
             defer { if current == generation { isFocusing = false; focusTask = nil } }
@@ -273,6 +230,7 @@ final class SonyRemoteCamera: ObservableObject {
     }
     func capture() async throws -> CameraCapture {
         guard canCapture,let api = client else { throw SonyRemoteError(message:"Sony remote capture is not currently available or the camera is busy.") }
+        interruptBackgroundRead()
         let current = generation,selectedHost = host
         isCapturing = true
         defer {
@@ -313,69 +271,133 @@ final class SonyRemoteCamera: ObservableObject {
         return CameraCapture(processed:data,raw:nil)
     }
     func refreshSettings() {
-        guard isConnected, !controlsBusy, let api = client else { return }
-        let current = generation
-        isRefreshingSettings = true
-        refreshTask = Task {
-            defer { if current == generation { isRefreshingSettings = false; refreshTask = nil } }
-            do {
-                let available = try await Self.available(api)
-                guard current == generation,!Task.isCancelled else { return }
-                methods = available
-                capabilities.formUnion(available)
-                if available.contains("getExposureMode"), let data = try? await api.call("getExposureMode",timeout:2), let mode = try? SonyAPIClient.result(data).first as? String {
-                    guard current == generation,!Task.isCancelled else { return }
-                    telemetry.mode = mode
+        guard isConnected,!isRefreshingSettings else { return }
+        // Coalesced by the existing monitor; never create a second read task.
+        refreshRequested = true
+    }
+    private func interruptBackgroundRead() { pollRevision += 1; refreshRequested = true }
+    private func publish(_ next:SonyRemoteSnapshot,cause:String) {
+        guard next != remote else { return }
+        for setting in SonyRemoteSetting.allCases {
+            let old = remote.status(setting,pending:pendingSettings.contains(setting))
+            let new = next.status(setting,pending:pendingSettings.contains(setting))
+            let priorRead = remote.settings[setting]?.readStatus ?? .unknown
+            let nextRead = next.settings[setting]?.readStatus ?? .unknown
+            if old != new || priorRead != nextRead {
+                diagnostics.record("control.transition",["setting":setting.rawValue,"previous":old.name,"new":new.name,
+                    "previousRead":priorRead.label,"newRead":nextRead.label,"mode":next.telemetry.mode ?? "unknown", "cause":cause,
+                    "reason":new.reason ?? next.settings[setting]?.issue ?? "camera value confirmed",
+                    "valueSource":next.settings[setting]?.sourceMethod ?? "none",
+                    "addedAPI":next.methods.subtracting(remote.methods).sorted().joined(separator:","),
+                    "removedAPI":remote.methods.subtracting(next.methods).sorted().joined(separator:",")])
+            }
+        }
+        remote = next
+    }
+    private func startMonitor(api:SonyAPIClient,generation current:UUID) {
+        guard monitorTask == nil else { return }
+        diagnostics.record("poll.started",["eventInterval":"3","capabilityInterval":"15","eventLongPolling":"false"])
+        monitorTask = Task {
+            var policy = SonyRemotePollPolicy()
+            while current == generation,!Task.isCancelled {
+                let now = ProcessInfo.processInfo.systemUptime
+                if streamSession != nil,!isCapturing,now-lastFrame > 8 {
+                    fail("Sony live view stopped. "+streamDiagnostics,generation:current,recoverable:true); return
                 }
-                for setting in SonyRemoteSetting.allCases {
-                    guard current == generation,!Task.isCancelled else { return }
+                if !isCapturing,!isFocusing,pendingSettings.isEmpty {
+                    let revision = pollRevision
+                    let active = { current == self.generation && revision == self.pollRevision && !Task.isCancelled }
+                    let readingSnapshot = refreshRequested || now >= policy.nextSnapshot
                     do {
-                        let value = try await SonySettingWorkflow.read(setting,methods:available,call:{ method,params,timeout in
-                            guard current == self.generation,!Task.isCancelled else { throw CancellationError() }
-                            return try await api.call(method,params:params,timeout:timeout)
-                        })
+                        if readingSnapshot {
+                            refreshRequested = false; isRefreshingSettings = true
+                            defer { if current == generation { isRefreshingSettings = false } }
+                            let next = try await SonySnapshotWorkflow.read(previous:remote,diagnostics:diagnostics,call:{ method,params,timeout in
+                                guard active() else { throw CancellationError() }
+                                return try await api.call(method,params:params,timeout:timeout)
+                            },active:active)
+                            guard active() else { throw CancellationError() }
+                            publish(next,cause:"snapshot.readback")
+                            policy.snapshotRead(at:ProcessInfo.processInfo.systemUptime); policy.success()
+                        } else if let feedbackMethod = SonyRemotePollPolicy.feedbackMethod(methods),now >= policy.nextEvent {
+                            // Non-long-poll avoids blocking the same command client for 30 seconds.
+                            let result = try SonyAPIClient.result(await api.call(feedbackMethod,params:feedbackMethod == "getEvent" ? [false] : [],timeout:3))
+                            guard active() else { throw CancellationError() }
+                            let observedMode = feedbackMethod == "getEvent" ? SonyEventValues.telemetry(result).mode : result.first as? String
+                            if let observedMode, observedMode != remote.telemetry.mode {
+                                diagnostics.record("mode.changed",["previous":remote.telemetry.mode ?? "unknown","new":observedMode,"cause":feedbackMethod])
+                                refreshRequested = true
+                            } else if feedbackMethod == "getEvent" {
+                                var next = remote; next.applyEvent(result)
+                                let exposureAPIs = Set(SonyRemoteSetting.allCases.flatMap { [$0.setter,$0.getter,$0.available] })
+                                if next.methods.intersection(exposureAPIs) != remote.methods.intersection(exposureAPIs) { refreshRequested = true }
+                                publish(next,cause:"getEvent.delta")
+                            }
+                            policy.eventRead(at:ProcessInfo.processInfo.systemUptime); policy.success()
+                        }
+                    } catch is CancellationError {
                         guard current == generation,!Task.isCancelled else { return }
-                        remoteSettings[setting] = value
+                        refreshRequested = true
+                        diagnostics.record("poll.stale.ignored")
+                    } catch is SonyModeChangedDuringRead {
+                        refreshRequested = true
+                        diagnostics.record("snapshot.mode.changed",["action":"discard candidate; retain confirmed state"])
+                        do { try await Task.sleep(for:.seconds(1)) } catch { return }
                     } catch {
-                        guard current == generation,!Task.isCancelled else { return }
-                        remoteSettings[setting] = SonyRemoteSettingState(issue:error.localizedDescription)
+                        guard active() else { continue }
+                        var next = remote; next.noteFailure(error); publish(next,cause:"poll.failed")
+                        diagnostics.record("poll.failed",["error":error.localizedDescription,"action":"retain confirmed controls"])
+                        // An event timeout/parse failure is not a disconnected camera.
+                        if policy.failed(error,recentLiveFrame:hasFrame && ProcessInfo.processInfo.systemUptime-lastFrame < 5) {
+                            fail("Sony control endpoint is unreachable. Wake the camera and check Wi-Fi.",generation:current,recoverable:true); return
+                        }
+                        // Failed events must not postpone direct value/capability
+                        // reads forever when a camera's event API is unreliable.
+                        policy.backoff(snapshot:readingSnapshot,at:ProcessInfo.processInfo.systemUptime)
                     }
                 }
-                updateExposureTelemetry()
-                diagnostics.record("settings.refreshed",["model":model,"mode":telemetry.mode ?? "not reported"])
-            } catch {
-                guard current == generation,!Task.isCancelled else { return }
-                remoteSettings = [:]; methods = []; controlFeedback = error.localizedDescription
+                do { try await Task.sleep(for:.milliseconds(250)) } catch { return }
             }
         }
     }
-    func change(_ setting:SonyRemoteSetting,to value:SonySettingValue) {
-        guard settingDisabledReason(setting) == nil,let api = client else { return }
-        let current = generation; pendingSetting = setting; controlFeedback = nil
-        diagnostics.record("setting.requested",["setting":setting.rawValue,"requested":value.label,"previous":remoteSettings[setting]?.current?.label ?? "unknown"])
-        settingTask = Task {
-            defer { if current == generation { pendingSetting = nil; settingTask = nil } }
+    @discardableResult
+    func change(_ setting:SonyRemoteSetting,to value:SonySettingValue) -> Bool {
+        guard settingDisabledReason(setting) == nil,let api = client else { return false }
+        let current = generation, previous = commandTail, focusing = focusTask
+        interruptBackgroundRead(); pendingSettings.insert(setting); controlFeedback = nil
+        diagnostics.record("control.transition",["setting":setting.rawValue,"previous":"Available","new":"CommandInProgress","mode":telemetry.mode ?? "unknown","cause":"user.request"])
+        let operation = Task {
+            await previous?.value; await focusing?.value
+            defer {
+                if current == generation {
+                    pendingSettings.remove(setting); settingTasks[setting] = nil; refreshRequested = true
+                    if pendingSettings.isEmpty { commandTail = nil }
+                    diagnostics.record("control.transition",["setting":setting.rawValue,"previous":"CommandInProgress","new":remote.status(setting).name,"mode":telemetry.mode ?? "unknown","cause":"command.finished"])
+                }
+            }
+            guard current == generation,!Task.isCancelled else { return }
             do {
                 let feedback = try await SonySettingWorkflow.change(setting,to:value,call:{ method,params,timeout in
                     guard current == self.generation,!Task.isCancelled else { throw CancellationError() }
                     return try await api.call(method,params:params,timeout:timeout)
                 },active:{ current == self.generation })
                 guard current == generation,!Task.isCancelled else { return }
-                remoteSettings[setting] = feedback; updateExposureTelemetry()
+                var next = remote; next.merge(setting,feedback); publish(next,cause:setting.getter+".writeConfirmed")
                 controlFeedback = "\(setting.title) confirmed by camera: \(feedback.current?.label ?? "—")"
                 diagnostics.record("setting.verified",["setting":setting.rawValue,"value":feedback.current?.label ?? "unknown"])
             } catch {
                 guard current == generation,!Task.isCancelled else { return }
-                // A write timeout is ambiguous. Clear the stale value, then poll;
-                // never display the requested value as a confirmed value.
-                remoteSettings[setting] = SonyRemoteSettingState(issue:"Refresh to read the camera's actual value.")
+                var next = remote; next.writeFailed(setting,error:error); publish(next,cause:setting.setter+".failed")
                 controlFeedback = error.localizedDescription
                 diagnostics.record("setting.unconfirmed",["setting":setting.rawValue,"error":error.localizedDescription])
             }
         }
+        settingTasks[setting] = operation; commandTail = operation
+        return true
     }
     func triggerAutofocus() {
         guard canTriggerAF,let api = client else { return }
+        interruptBackgroundRead()
         let current = generation; isFocusing = true; controlFeedback = nil
         focusTask = Task {
             defer { if current == generation { isFocusing = false; focusTask = nil } }
@@ -394,13 +416,6 @@ final class SonyRemoteCamera: ObservableObject {
                 }
             }
         }
-    }
-    private func updateExposureTelemetry() {
-        telemetry.iso = remoteSettings[.iso]?.current?.label
-        telemetry.aperture = remoteSettings[.aperture]?.current?.label
-        telemetry.shutter = remoteSettings[.shutter]?.current?.label
-        if case .compensation(let index,let step) = remoteSettings[.compensation]?.current { telemetry.ev = SonySettingValue.ev(index:index,step:step) }
-        else { telemetry.ev = nil }
     }
     func pause() { diagnostics.record("lifecycle.background"); close(preserveRequest:true) }
     func resume() { if wantsConnection && (state == .disconnected || state == .failed) { connect() } }
@@ -433,16 +448,19 @@ final class SonyRemoteCamera: ObservableObject {
         }
     }
     private func close(preserveRequest:Bool) {
+        let closingMethods = methods, closingCapabilities = capabilities
         generation = UUID(); connectionTask?.cancel(); monitorTask?.cancel(); recoveryTask?.cancel(); focusTask?.cancel()
-        settingTask?.cancel(); refreshTask?.cancel(); settingTask = nil; refreshTask = nil
-        remoteSettings = [:]; pendingSetting = nil; isRefreshingSettings = false; controlFeedback = nil
+        for task in settingTasks.values { task.cancel() }
+        settingTasks = [:]; commandTail = nil; pendingSettings = []; pollRevision += 1; refreshRequested = true
+        publish(SonyRemoteSnapshot(),cause:"connection.closed")
+        isRefreshingSettings = false; controlFeedback = nil
         model = "Sony camera"; resolution = "—"; streamFPS = nil; imageAspect = 3.0/2
         connectionTask = nil; monitorTask = nil; recoveryTask = nil; focusTask = nil
-        healthySince = nil; streamInterruption = nil; isFocusing = false; controlState = SonyControlState()
+        healthySince = nil; streamInterruption = nil; isFocusing = false
         receiver?.close(); streamSession?.invalidateAndCancel(); streamSession = nil; receiver = nil
         if let api = client {
-            let canStop = methods.contains("stopLiveview")
-            let canRelease = methods.contains("cancelHalfPressShutter") || capabilities.contains("cancelHalfPressShutter")
+            let canStop = closingMethods.contains("stopLiveview")
+            let canRelease = closingMethods.contains("cancelHalfPressShutter") || closingCapabilities.contains("cancelHalfPressShutter")
             cleanupTask = Task {
                 await api.cancelPendingRequests()
                 if canRelease { _ = try? await api.call("cancelHalfPressShutter",timeout:2) }
@@ -452,7 +470,7 @@ final class SonyRemoteCamera: ObservableObject {
         }
         client = nil
         if !preserveRequest { wantsConnection = false }
-        previewFeed.display(nil); hasFrame = false; telemetry = CameraTelemetry(); methods = []; capabilities = []; isCapturing = false; state = .disconnected
+        previewFeed.display(nil); hasFrame = false; isCapturing = false; state = .disconnected
     }
 }
 

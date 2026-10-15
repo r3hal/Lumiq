@@ -35,6 +35,7 @@ for p in (ROOT/'Focal/Resources/Assets.xcassets').rglob('Contents.json'):
 for p in app+tests:
  s=p.read_text();s=re.sub(r'/\*.*?\*/','',s,flags=re.S)
  s=re.sub(r'""".*?"""','""',s,flags=re.S)
+ s=re.sub(r'(#+)"[\s\S]*?"\1','""',s)
  s=re.sub(r'"(?:\\.|[^"\\])*"','""',s,flags=re.S)
  s=re.sub(r'//[^\n]*','',s)
  stack=[];close={')':'(',']':'[','}':'{'}
@@ -56,7 +57,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','HEAD','--name-only','--','Focal/Camera','Focal/Composition','Focal/Precision').strip(),'iPhone camera or AI implementation changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==550,count
+assert count==580,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; iPhone/AI sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
@@ -72,3 +73,11 @@ ready_calls=re.findall(r'ShotReadiness\.permitsReady\((.*?)\), result\.state',co
 assert ready_calls and all('framingInstruction' not in call for call in ready_calls)
 guidance_call=re.search(r'let message = automaticGuidance\.update\((.*?)\n        #if',controller,re.S)
 assert guidance_call and 'framingInstruction:' in guidance_call.group(1)
+
+# One Sony monitor owns background reads; refreshing must not globally disable controls.
+sony=(ROOT/'Focal/Sony/SonyRemoteCamera.swift').read_text()
+assert len(re.findall(r'monitorTask = Task \{',sony))==1
+assert 'guard monitorTask == nil else { return }' in sony
+assert 'refreshTask' not in sony and 'remoteSettings = [:]' not in sony
+busy=re.search(r'var controlsBusy: Bool \{([^\n]+)',sony).group(1)
+assert 'isRefreshingSettings' not in busy
