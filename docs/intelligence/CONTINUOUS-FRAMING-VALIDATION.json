@@ -1,0 +1,65 @@
+{
+  "version": "2.8.0",
+  "build": 32,
+  "references": [
+    {
+      "file": "ScreenRecording_10-15-2026 15-06-58_1.mp4",
+      "durationSeconds": 42.4,
+      "observations": {
+        "manualOverrideMessageSeconds": 2,
+        "shotReadySeconds": 32,
+        "restartInstructionSeconds": 34,
+        "visibleCompletedZoomApproximate": 1.6
+      }
+    },
+    {
+      "file": "ScreenRecording_10-15-2026 15-07-57_1 (2).mp4",
+      "durationSeconds": 10.366667,
+      "observations": {
+        "aimInstructionSeconds": 5,
+        "tighterViewSeconds": 6,
+        "visibleZoomApproximate": 2.2
+      }
+    }
+  ],
+  "portableTests": {
+    "toolchain": "Swift 6.0.3",
+    "platform": "Linux",
+    "command": "python3 scripts/test_framing_portable.py --swift /tmp/focal-swift/usr/bin/swift",
+    "executed": 254,
+    "failures": 0,
+    "newContinuousRecoveryTests": 25,
+    "inputs": "Controlled fixtures, not video-extracted sensor/motor telemetry",
+    "hardwareAdapterExecuted": false
+  },
+  "swiftSyntax": {
+    "files": 123,
+    "passed": true,
+    "appleSDKTypecheck": false
+  },
+  "structure": {
+    "passed": true,
+    "appSources": 91,
+    "testSources": 32,
+    "registeredNativeTests": 494,
+    "sonySourcesChanged": false
+  },
+  "nativeBuild": {
+    "attempted": true,
+    "exitCode": 127,
+    "reason": "xcodebuild unavailable on Linux",
+    "completed": false
+  },
+  "physicalIPhoneVerification": {
+    "performed": false,
+    "modelRequested": "iPhone 16 Pro Max",
+    "remaining": [
+      "actual motor/preview progression and smoothness",
+      "handheld motion thresholds and crop/anatomy safety",
+      "localized reacquisition and sustained multi-scene use",
+      "lens changes and thermal behavior",
+      "manual pinch/AI-off cancellation",
+      "user-only shutter, original-wide/framed pairs and RAW capture"
+    ]
+  }
+}

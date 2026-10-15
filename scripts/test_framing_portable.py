@@ -42,6 +42,7 @@ if not args.baseline:
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
  shutil.copyfile(ROOT/'FocalTests/PhotoCapturePolicyTests.swift',tests/'PhotoCapturePolicyTests.swift')
  shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/ContinuousFramingRecoveryTests.swift',tests/'ContinuousFramingRecoveryTests.swift')
 if not args.baseline:
  # Copy the original model and pure luma implementation verbatim, excluding its
  # CoreVideo/CoreImage/ImageIO adapters (not available on Linux).

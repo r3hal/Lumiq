@@ -43,11 +43,25 @@ struct AutomaticGuidance {
                          compositionPlan: SceneCompositionPlan? = nil, sceneEvidence: SceneCompositionEvidence? = nil,
                          intent: PhotographyIntent = .auto, manualSubject: Bool = false,
                          manualComposition: Bool = false, anatomy: SubjectAnatomy? = nil,
-                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false, requireShotCompletion:Bool = false, currentFrameVerified:Bool = false, framingInstruction:String? = nil) -> GuidanceMessage {
+                         others: [CompositionContextSubject] = [], observedScene: GuidanceSceneSnapshot? = nil, shotVerified:Bool = false, requireShotCompletion:Bool = false, currentFrameVerified:Bool = false, framingInstruction:String? = nil,continuousFraming:Bool = false) -> GuidanceMessage {
         guard timestamp.isFinite else { reset(); return GuidanceMessage() }
         if let observedScene, !observedScene.fresh { reset(); return .init(kind:.searching,text:"") }
+        if continuousFraming, autoEnabled, phase.isRecovering {
+            return .init(kind:.framing,text:framingInstruction ?? "Finding your shot…")
+        }
+        if continuousFraming, autoEnabled, phase.isAutoFraming {
+            return .init(kind:.framing,text:phase == .verifying ? "Checking the final framing…" : "Framing your shot…")
+        }
         if let framingInstruction {
-            return .init(kind:.steady,text:framingInstruction,action:.hold)
+            return .init(kind:continuousFraming ? .framing : .steady,text:framingInstruction)
+        }
+        if continuousFraming, autoEnabled, phase == .aligning,
+           let cue = CompositionCue(reading:reading,previewAspect:previewAspect) {
+            if !cue.aligned {
+                let action:GuidanceAction = cue.direction == "left" ? .panLeft : cue.direction == "right" ? .panRight : cue.direction == "up" ? .panUp : .panDown
+                return .init(kind:.adjustment,text:"Aim your phone \(cue.direction)",action:action)
+            }
+            return .init(kind:.framing,text:"Framing your shot…")
         }
         guard let bounds = reading.guidanceBounds ?? reading.subjectBounds, reading.subjectConfidence >= 0.4,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
@@ -100,9 +114,11 @@ struct AutomaticGuidance {
         }
         if retained.action == .hold { return .init(kind:.steady,text:retained.text,action:.hold) }
         if retained.action == .none {
-            if phase.isPreparing && autoEnabled { return .init(kind:.steady,text:"Hold steady",action:.hold) }
+            if phase.isPreparing && autoEnabled {
+                return continuousFraming ? .init(kind:.framing,text:"Finding your shot…") : .init(kind:.steady,text:"Hold steady",action:.hold)
+            }
             if !ShotReadiness.permitsReady(required:requireShotCompletion,shotVerified:shotVerified,currentFrameVerified:currentFrameVerified) {
-                if phase == .off { return .init(kind:.steady,text:"Automatic framing paused",action:.hold) }
+                if phase == .off { return .init(kind:continuousFraming ? .framing : .steady,text:continuousFraming ? "Frame with the camera controls" : "Automatic framing paused") }
                 return .init(kind:.framing,text:compositionPlan == nil ? "Evaluating the shot…" : "Checking the selected framing…")
             }
             if reading.state != .ready { return .init(kind:.steady,text:"Hold steady",action:.hold) }

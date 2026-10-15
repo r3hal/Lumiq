@@ -22,8 +22,9 @@ struct AutomaticShotPlan {
     private(set) var selectionReason: String = ""
     private(set) var imageGeometry: ShotImageGeometry? = nil
     private(set) var sceneAnchor = false
+    private var selectedZoomRequired: Bool? = nil
     var desiredScale: Double { targetZoom / startingZoom }
-    var requiresZoom: Bool { desiredScale > 1.12 }
+    var requiresZoom: Bool { selectedZoomRequired ?? (desiredScale > 1.12) }
     var desiredPosition: UnitPoint2D { .init(x:desiredBounds.midX,y:desiredBounds.midY) }
     func scaleForCurrentBounds(_ bounds:CGRect) -> Double {
         guard Self.valid(bounds) else { return desiredScale }
@@ -69,15 +70,16 @@ struct AutomaticShotPlan {
     }
     /// Rebase only the execution origin after the user aims. Identity, intended
     /// final bounds, score and rationale remain the same selected photograph.
-    func prepared(bounds:CGRect,zoom:Double,detailLimit:Double,nativeStops:[Double],regions:[CGRect],anatomy:SubjectAnatomy?,aspect:Double) -> Self? {
+    func prepared(bounds:CGRect,zoom:Double,detailLimit:Double,nativeStops:[Double],regions:[CGRect],anatomy:SubjectAnatomy?,aspect:Double,allowSmallCorrection:Bool = false) -> Self? {
         let scale = scaleForCurrentBounds(bounds)
         let final = FramingPlanner.zoomedRect(bounds,scale:scale)
-        guard requiresZoom, scale > 1.12, Self.safe(final),
+        guard requiresZoom, scale > (allowSmallCorrection ? 1.01 : 1.12), Self.safe(final),
               FramingPlanner.availableScales(currentZoom:zoom,maximumZoom:maximumZoom,detailZoomLimit:detailLimit,nativeStops:nativeStops,
                 maximumScale:scale,desiredScale:scale).contains(where:{ abs($0-scale) < 0.001 }),
               hypot(Double(final.midX-desiredBounds.midX),Double(final.midY-desiredBounds.midY)/max(0.1,aspect)) <= 0.05,
               abs(Double(final.width/desiredBounds.width)-1) <= 0.08, abs(Double(final.height/desiredBounds.height)-1) <= 0.08 else { return nil }
         var shot = self
+        shot.selectedZoomRequired = requiresZoom
         shot.initialBounds = bounds; shot.startingZoom = zoom; shot.targetZoom = zoom*scale
         shot.framingRectangle = CGRect(x:(1-1/scale)/2,y:(1-1/scale)/2,width:1/scale,height:1/scale)
         shot.protectedRegions = regions
@@ -141,10 +143,10 @@ struct AutomaticShotPlan {
             previewAspect:projection.previewAspect,mirrored:projection.mirrored)
         return shot
     }
-    func safeRemainingCrop(bounds:CGRect,zoom:Double,observedRegions:[CGRect],projectToTarget:Bool = true) -> Bool {
+    func safeRemainingCrop(bounds:CGRect,zoom:Double,observedRegions:[CGRect],projectToTarget:Bool = true,allowTrackedMovement:Bool = false) -> Bool {
         guard Self.valid(bounds), zoom.isFinite, zoom >= startingZoom*0.98, zoom <= maximumZoom+0.01 else { return false }
         let expected = FramingPlanner.zoomedRect(initialBounds,scale:zoom/startingZoom)
-        guard hypot(Double(bounds.midX-expected.midX),Double(bounds.midY-expected.midY)) <= 0.12 else { return false }
+        guard allowTrackedMovement || hypot(Double(bounds.midX-expected.midX),Double(bounds.midY-expected.midY)) <= 0.12 else { return false }
         let remaining = projectToTarget ? max(1,targetZoom/zoom) : 1
         guard Self.safe(bounds), Self.safe(FramingPlanner.zoomedRect(bounds,scale:remaining)) else { return false }
         // Remember observed context through the ramp even when expensive detections pause.
@@ -162,6 +164,11 @@ struct AutomaticShotPlan {
     func achieved(bounds:CGRect,zoom:Double,previewAspect:Double) -> Bool {
         guard Self.valid(bounds), previewAspect.isFinite, previewAspect > 0, zoom.isFinite else { return false }
         return error(bounds:bounds,zoom:zoom,aspect:previewAspect).complete
+    }
+    func retainsAchieved(bounds:CGRect,zoom:Double,previewAspect:Double) -> Bool {
+        guard Self.valid(bounds), previewAspect.isFinite, previewAspect > 0, zoom.isFinite else { return false }
+        let e = error(bounds:bounds,zoom:zoom,aspect:previewAspect)
+        return e.position <= 0.065 && e.width <= 0.12 && e.height <= 0.12 && e.zoom <= 0.02
     }
     static func valid(_ rect:CGRect) -> Bool {
         !rect.isNull && [rect.minX,rect.minY,rect.width,rect.height].allSatisfy(\.isFinite) && rect.width > 0 && rect.height > 0

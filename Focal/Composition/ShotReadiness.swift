@@ -3,6 +3,7 @@ import Foundation
 enum ShotDirectorState: String {
     case discovering = "DISCOVERING", shotSelected = "SHOT_SELECTED", aiming = "AIMING", aligned = "ALIGNED"
     case autoZooming = "AUTO_ZOOMING", verifyingFraming = "VERIFYING_FRAMING", ready = "READY", paused = "PAUSED", recovering = "RECOVERING", canceled = "CANCELED", failed = "FAILED"
+    case reacquiring = "REACQUIRING", recoveringZoom = "RECOVERING_ZOOM", rediscovering = "REDISCOVERING"
 }
 
 struct CameraZoomObservation {

@@ -19,7 +19,7 @@ enum FramingBlockReason: String {
     var instruction: String {
         switch self {
         case .aiming: return "Aim toward the marked position"
-        case .cameraMotion: return "Brace the phone to finish framing"
+        case .cameraMotion: return "Slow the camera movement to keep the subject tracked"
         case .motionUnavailable: return "Motion measurements unavailable. Frame manually or restart the camera"
         case .subjectMotion: return "Keep following the subject while it settles"
         case .tracking: return "Keep the selected subject in view"
@@ -27,16 +27,16 @@ enum FramingBlockReason: String {
         case .telemetry: return "Waiting for the camera zoom reading"
         case .quality: return "Current light or crop limits automatic framing"
         case .missingPlan: return "No safe tighter composition yet"
-        case .manualControl: return "Manual control active. Tap AI off and on for a new shot"
+        case .manualControl: return "Manual control active. Select a subject to start a new AI shot"
         case .disabled: return "Automatic Zoom is disabled"
         case .thermal: return "Phone is too hot for automatic framing. Let it cool"
         case .inactive: return "Return to the live camera to start framing"
-        case .interrupted: return "Framing interrupted. Tap AI off and on to retry"
-        case .unsafeCrop: return "Subject left the safe crop. Aim again and start a new AI shot"
-        case .configuration: return "Camera zoom could not start. Start a new AI shot to retry"
-        case .zoomNotMoving: return "Camera zoom did not respond. Start a new AI shot to retry"
-        case .deadline: return "Framing timed out. Start a new AI shot to retry"
-        case .recoveryExpired: return "Tracking did not recover. Keep the subject visible and start a new AI shot"
+        case .interrupted: return "Recovering the planned framing…"
+        case .unsafeCrop: return "Rechecking the subject and crop…"
+        case .configuration: return "Camera zoom could not start. Retrying…"
+        case .zoomNotMoving: return "Camera zoom did not respond. Retrying…"
+        case .deadline: return "Rechecking the framing from the current zoom…"
+        case .recoveryExpired: return "Finding a new composition…"
         }
     }
 }
@@ -49,6 +49,9 @@ struct FramingMotionMeasurement {
     let age: TimeInterval
     var usable: Bool { [rotation,acceleration,age].allSatisfy(\.isFinite) && age >= 0 && age < 0.45 }
     var stable: Bool { usable && rotation < 0.22 && acceleration < 0.08 }
+    // Gross-motion filter, not a hold-still requirement. Alignment and actual
+    // tracked crop safety remain independent gates. Tune on physical hardware.
+    var permitsFraming: Bool { usable && rotation < 0.9 && acceleration < 0.35 }
 }
 
 /// A commanded zoom is not proof the device moved. Used by the real camera poll.

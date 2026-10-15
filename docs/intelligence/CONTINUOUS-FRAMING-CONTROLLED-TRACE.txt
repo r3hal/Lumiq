@@ -1,0 +1,6 @@
+Swift 6.0.3 / Linux — production director with controlled test inputs.
+Not an AVFoundation, Vision, or iPhone hardware trace.
+
+CONTROLLED_RECOVERY interrupted -> backoff(0.4s) -> AIMING -> AUTO_ZOOMING; fixture actualZoom=1.5 computed target=2.2 sameShot=true READY=false; no hardware adapter executed
+
+Executed 254 tests, with 0 failures. New continuous-recovery suite: 25 cases.

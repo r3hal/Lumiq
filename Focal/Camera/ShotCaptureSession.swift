@@ -38,11 +38,15 @@ struct FramedCapture {
 struct ShotCaptureSession {
     private var plan: AutomaticShotPlan?
     private var widePreview: WideScenePreview?
+    private var wideStartingZoom: Double?
     private var lastEligible: TimeInterval?
     private var verifiedZoom: Double?
     mutating func select(_ plan:AutomaticShotPlan,preview:WideScenePreview?) {
-        self.plan = plan; widePreview = preview; lastEligible = nil; verifiedZoom = nil
+        // A retry of the same composition keeps the original pre-zoom preview.
+        if self.plan?.id != plan.id { widePreview = preview; wideStartingZoom = plan.startingZoom }
+        self.plan = plan; lastEligible = nil; verifiedZoom = nil
     }
+    mutating func invalidateVerification() { lastEligible = nil; verifiedZoom = nil }
     mutating func cancel() { self = Self() }
     mutating func observe(plan current:AutomaticShotPlan?,verified:Bool,bounds:CGRect?,label:String,
                           confidence:Float,zoom:Double,stable:Bool,timestamp:TimeInterval,aspect:Double) {
@@ -52,8 +56,10 @@ struct ShotCaptureSession {
         guard let bounds, label == plan.subjectLabel, confidence >= 0.65,
               plan.achieved(bounds:bounds,zoom:zoom,previewAspect:aspect),
               plan.safeRemainingCrop(bounds:bounds,zoom:zoom,observedRegions:[],projectToTarget:false) else {
-            // Do not associate an old scene after subject loss/movement.
-            lastEligible = nil; verifiedZoom = nil; widePreview = nil; return
+            // This cannot produce a paired capture without fresh verification.
+            // Retain the timestamped wide preview until this shot is discarded,
+            // so a brief movement/recovery does not silently remove its pair.
+            lastEligible = nil; verifiedZoom = nil; return
         }
         lastEligible = timestamp; verifiedZoom = zoom
     }
@@ -61,7 +67,7 @@ struct ShotCaptureSession {
         guard guidanceEnabled, let plan, let lastEligible, let zoom = verifiedZoom,
               time.isFinite, time >= lastEligible, time-lastEligible <= 1 else { return nil }
         let metadata = FramingCaptureMetadata(sessionID:UUID(),shotPlanID:plan.id,shutterRequestedAt:date,
-            startingZoom:plan.startingZoom,targetZoom:plan.targetZoom,capturedZoom:zoom,
+            startingZoom:wideStartingZoom ?? plan.startingZoom,targetZoom:plan.targetZoom,capturedZoom:zoom,
             widePreviewObservedAt:widePreview?.observedAt,widePreviewWidth:widePreview?.pixelWidth,widePreviewHeight:widePreview?.pixelHeight)
         return .init(metadata:metadata,widePreview:widePreview)
     }

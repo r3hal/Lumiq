@@ -35,6 +35,7 @@ final class SubjectTracker {
     private var lastPoseAttempt: TimeInterval = -.infinity
     private var faceTime: TimeInterval = -.infinity
     private var health = SubjectTrackingHealth()
+    private var retainedLossSince: TimeInterval?
     private var selectedPoint: CGPoint?
     private var lastDetection: TimeInterval = -.infinity
     private var lastScene: TimeInterval = -.infinity
@@ -119,6 +120,7 @@ final class SubjectTracker {
         facesForAssessment = []; posePoints = []; poseHeads = []; poseTime = -.infinity; lastPoseAttempt = -.infinity; faceTime = -.infinity
         lastDetection = -.infinity; lastScene = -.infinity; lastPrinted = -.infinity; scene = nil
         manual = false; label = "Auto subject"; trackingReference = nil; isRecovering = false
+        retainedLossSince = nil
     }
     func select(at imagePoint: UnitPoint2D) {
         let point = CGPoint(x: imagePoint.x, y: 1 - imagePoint.y)
@@ -134,7 +136,7 @@ final class SubjectTracker {
     }
 
     func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval,
-                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, retainSelection: Bool = false, canContinue: () -> Bool = { true }) -> SubjectObservation? {
+                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, retainSelection: Bool = false, reacquisitionGrace:TimeInterval = 0, canContinue: () -> Bool = { true }) -> SubjectObservation? {
         isRecovering = false
         guard canContinue() else { return nil }
         if selector.configuration.intent == .landscape {
@@ -163,6 +165,28 @@ final class SubjectTracker {
                     trackedCandidate?.bounds = result.boundingBox; trackedCandidate?.confidence = Double(result.confidence)
                 }
             } catch { /* Do not display an old rectangle as a new observation. */ }
+            if retained != nil { retainedLossSince = nil }
+            if retained == nil, retainSelection, reacquisitionGrace > 0 {
+                if retainedLossSince == nil { retainedLossSince = timestamp }
+                if timestamp-(retainedLossSince ?? timestamp) < reacquisitionGrace {
+                    isRecovering = true
+                    // A stopped ramp can reacquire the same localized identity.
+                    // Never promote an arbitrary same-named person elsewhere.
+                    if !trackingOnly, timestamp-lastDetection >= 0.35, let previous = trackedCandidate {
+                        lastDetection = timestamp
+                        let found = detect(in:buffer,detailBuffer:detailBuffer ?? buffer,timestamp:timestamp,visibleRegion:visibleRegion,canContinue:canContinue)
+                        guard canContinue() else { return nil }
+                        let matches = found.filter { $0.candidate.confidence >= 0.65 && $0.candidate.continuesIdentity(previous) }
+                        if matches.count == 1, let match = matches.first {
+                            let reference = trackingReference
+                            start(match); trackingReference = reference
+                            isRecovering = false
+                            return SubjectObservation(candidate:match.candidate)
+                        }
+                    }
+                    return nil
+                }
+            }
             if health.lost(reliable: retained != nil, timestamp: timestamp) {
                 self.tracking = nil; trackedCandidate = nil; sequence = VNSequenceRequestHandler()
                 selector.reset(); candidates = []; trackingReference = nil; label = manual ? "Your subject" : "Auto subject"
@@ -442,6 +466,7 @@ final class SubjectTracker {
         !detections.contains { $0.candidate.score(configuration: selector.configuration) != nil }
     }
     private func start(_ detection: Detection) {
+        retainedLossSince = nil
         let sameSubject = trackedCandidate.map { detection.candidate.continuesIdentity($0) } ?? false
         if trackingReference == nil || !sameSubject { trackingReference = UUID().uuidString }
         sequence = VNSequenceRequestHandler(); health.reset()

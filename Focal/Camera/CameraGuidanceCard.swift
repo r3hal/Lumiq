@@ -13,6 +13,7 @@ enum CameraGuideState: Equatable {
     case off, searching, scene, recovering, detected, guiding, holding, zooming, ready
     static func resolve(enabled: Bool, reading: CompositionReading, phase: FramingPhase, message: GuidanceMessage) -> Self {
         guard enabled else { return .off }
+        if phase.isRecovering { return .recovering }
         let validBounds = reading.subjectBounds.map { !$0.isNull && $0.width > 0 && $0.height > 0 && [$0.minX, $0.minY, $0.width, $0.height].allSatisfy(\.isFinite) } ?? false
         let confirmed = validBounds && reading.subjectConfidence >= 0.4
         guard confirmed else { return message.kind == .steady ? .recovering : message.kind == .scene ? .scene : .searching }
@@ -76,13 +77,13 @@ struct CameraGuidanceCard: View {
     private var title: String {
         switch state {
         case .off: return ""
-        case .searching: return "Scene scan"
+        case .searching: return "Finding your shot"
         case .scene: return "Scene assessment"
-        case .recovering: return "Keep the subject in view"
+        case .recovering: return "Finding your shot"
         case .detected: return "Subject acquired"
         case .guiding: return instruction
-        case .holding: return "Stability check"
-        case .zooming: return "Crop adjustment"
+        case .holding: return "Capture guidance"
+        case .zooming: return "Framing your shot"
         case .ready: return instruction == "Shot ready" ? "Shot ready" : "Ready to shoot"
         }
     }

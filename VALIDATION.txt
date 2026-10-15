@@ -1,11 +1,12 @@
-Focal 2.7.3 / build 31 — selected-shot automatic framing progression
-REFERENCE: inspected supplied 32.700s seated-person comparison recording. At 11s/17s Focal retains a planned-frame overlay while saying no safe tighter composition, at unchanged 1.1x. Video contains no sensor/motor telemetry.
-REPRODUCED BEFORE FIX: 217 portable XCTest cases, 6 failures in new retained-plan/admission/velocity/telemetry regressions. Existing tests unchanged.
-PASS AFTER FIX: 229 portable XCTest cases on Swift 6.0.3/Linux, including 18 new person/trace cases. Controlled complete replay issues 1.1->2.2x geometry command, requires supplied actual zoom/geometry/motor/hold before READY and preserves manual shutter payload. Camera/sensor values in replay are fixtures, not iPhone measurements.
-PARSE: all 122 app/test Swift sources pass frontend syntax parsing; no Apple API type checking/linking here.
-STRUCTURE PASS: deterministic project; 91 app/31 test sources; 469 registered tests; resources/YAML/build script syntax; frozen baselines; Sony sources unchanged; user-only shutter wiring; whitespace.
-FIXED: retained selected ShotPlan authorizes zoom independently of transient candidate; brief alignment confirmation versus final capture hold; unknown optional velocity handled only with reliable track; observation-time velocity; paired-frame versus fresh live-camera telemetry; retained crop context; bounded preparation timeout.
-DIAGNOSTICS: exportable bounded developer text trace with state durations, real measurements/gates, actual lock/ramp/motor/verification and cancellation events. Missing readings unknown; no images or automatic upload.
-NATIVE ATTEMPT: xcodebuild command unavailable, exit 127. Full updated iOS suite and archive require Codemagic rerun.
-DEVICE: actual iPhone 16 Pro Max motor/preview, tracking, quality, final geometry and still/paired saving acceptance remain unverified after this change.
-REPORT: docs/intelligence/PERSON-FRAMING-REGRESSION.md; controlled evidence: docs/intelligence/PERSON-FRAMING-CONTROLLED-TRACE.txt
+Focal 2.8.0 / build 32 — continuous automatic framing recovery
+REFERENCE: inspected both new videos before modifying code: Focal 42.400s and Framed 10.367s. Focal shows manual control at 2s, actual visible zoom to about 1.6x / READY at 32s, then unsafe-crop restart instruction at 34s. Recordings contain no sensor/motor telemetry.
+PASS: 254 portable XCTest cases on Swift 6.0.3/Linux, including 25 new continuous-recovery cases. Production Foundation director/geometry/capture-payload code; controlled measurements are fixtures, not iPhone or replayed Vision results. Existing 229 portable tests remain unchanged and pass.
+PARSE: all 123 app/test Swift files pass frontend syntax parsing. This does not type-check Apple APIs or link an iOS app.
+STRUCTURE PASS: deterministic project; 91 app/32 test sources; 494 registered native XCTest functions; resource/YAML/build script syntax; baseline hashes; Sony source unchanged; user-only shutter; whitespace.
+FIXED: phone admission has no prezoom stability dwell; gross motion/crop/tracking/device checks remain. Ordinary interruptions and watchdogs recover with retained shot/actual-zoom retry; bounded 0.4/0.9/1.8s backoff, 1.5s tracking grace, 4s unresolved-motion exit and 2s rediscovery cooldown. Successful framing no longer disarms AI. Position-only READY invalidation reaims at the same zoom. Manual control and AI off remain latched until explicit new AI shot.
+PRESERVED: actual AVFoundation ramp/rate stages/observed-motor verification; capture-level READY checks; original wide preview retained across retry; manual shutter; RAW capture policy; pro controls/layout; Sony integration.
+DIAGNOSTICS: existing bounded export now includes retry count/deadline, recovery transitions, actual zoom/motor events and gross-motion permission. Missing readings are unknown; no camera images or uploads.
+NATIVE ATTEMPT: xcodebuild unavailable, exit 127. Full 494-test iOS run and unsigned archive require Codemagic.
+DEVICE: no physical iPhone tested after changes. Real motor/preview, tracking/reacquisition, quality, crop safety, thermal/lens behavior, cancellation and paired/RAW saving remain acceptance checks.
+REPORT: docs/intelligence/CONTINUOUS-FRAMING-RECOVERY.md
+EVIDENCE: docs/intelligence/CONTINUOUS-FRAMING-VALIDATION.json and CONTINUOUS-FRAMING-CONTROLLED-TRACE.txt
