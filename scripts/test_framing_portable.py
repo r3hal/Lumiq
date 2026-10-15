@@ -45,6 +45,7 @@ if not args.baseline:
  shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ContinuousFramingRecoveryTests.swift',tests/'ContinuousFramingRecoveryTests.swift')
  shutil.copyfile(ROOT/'FocalTests/SubjectAutofocusTests.swift',tests/'SubjectAutofocusTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/ShotCaptureSessionTests.swift',tests/'ShotCaptureSessionTests.swift')
 if not args.baseline:
  # Copy the original model and pure luma implementation verbatim, excluding its
  # CoreVideo/CoreImage/ImageIO adapters (not available on Linux).

@@ -1,9 +1,13 @@
 import XCTest
+#if canImport(UIKit)
 import UIKit
 import CoreImage
+#endif
 @testable import Focal
 
+#if canImport(UIKit)
 @MainActor
+#endif
 final class ShotCaptureSessionTests: XCTestCase {
     private let subject = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
     private func plan() throws -> AutomaticShotPlan {
@@ -13,14 +17,22 @@ final class ShotCaptureSessionTests: XCTestCase {
         return try XCTUnwrap(AutomaticShotPlan.make(bounds:subject,label:"Cat",composition:composition,currentZoom:1,
             maximumZoom:4,detailLimit:4,nativeStops:[1],regions:[],anatomy:nil,previewAspect:0.75))
     }
+    #if canImport(UIKit)
     private func jpeg(_ color:UIColor = .red) -> Data {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
         return UIGraphicsImageRenderer(size:CGSize(width:120,height:160),format:format).image { _ in
             color.setFill(); UIRectFill(CGRect(x:0,y:0,width:120,height:160))
         }.jpegData(compressionQuality:0.95)!
     }
+    #endif
     private func preview() -> WideScenePreview {
-        .init(data:jpeg(),pixelWidth:120,pixelHeight:160,observedAt:Date(timeIntervalSince1970:100))
+        #if canImport(UIKit)
+        let bytes = jpeg()
+        #else
+        // The session retains opaque bytes; image encoding is tested on iOS.
+        let bytes = Data([1,2,3])
+        #endif
+        return .init(data:bytes,pixelWidth:120,pixelHeight:160,observedAt:Date(timeIntervalSince1970:100))
     }
     private func readySession(wide:Bool = true) throws -> (ShotCaptureSession,AutomaticShotPlan) {
         let shot = try plan(); var session = ShotCaptureSession()
@@ -60,15 +72,34 @@ final class ShotCaptureSessionTests: XCTestCase {
         XCTAssertFalse(capture.matchesCamera(zoom:2,enabled:true,ramping:true))
         XCTAssertFalse(capture.matchesCamera(zoom:1,enabled:true,ramping:false))
     }
-    func testMovedOrUncertainSubjectCannotPairOldScene() throws {
+    func testMovedOrUncertainSubjectRequiresFreshVerificationBeforePairing() throws {
         for confidence in [Float(0.3),Float(0.95)] {
             var (session,shot) = try readySession()
+            let original = try XCTUnwrap(session.userCapture(at:1.05,guidanceEnabled:true)?.widePreview)
             session.observe(plan:shot,verified:true,bounds:CGRect(x:0.1,y:0.1,width:0.2,height:0.2),label:"Cat",confidence:confidence,
                 zoom:2,stable:true,timestamp:1.1,aspect:0.75)
             XCTAssertNil(session.userCapture(at:1.2,guidanceEnabled:true))
+            // Recovery must not treat stable but unverified observations as READY.
+            session.observe(plan:shot,verified:false,bounds:shot.desiredBounds,label:"Cat",confidence:0.95,zoom:2,stable:true,timestamp:1.25,aspect:0.75)
+            XCTAssertNil(session.userCapture(at:1.26,guidanceEnabled:true))
             session.observe(plan:shot,verified:true,bounds:shot.desiredBounds,label:"Cat",confidence:0.95,zoom:2,stable:true,timestamp:1.3,aspect:0.75)
-            XCTAssertNil(session.userCapture(at:1.4,guidanceEnabled:true)?.widePreview)
+            let recovered = try XCTUnwrap(session.userCapture(at:1.4,guidanceEnabled:true))
+            XCTAssertEqual(recovered.widePreview?.data,original.data)
+            XCTAssertEqual(recovered.widePreview?.observedAt,original.observedAt)
         }
+    }
+    func testLostShotDiscardsWidePreviewBeforeRediscovery() throws {
+        var (session,shot) = try readySession()
+        session.observe(plan:nil,verified:false,bounds:nil,label:"",confidence:0,zoom:2,stable:true,timestamp:1.1,aspect:0.75)
+        XCTAssertNil(session.userCapture(at:1.2,guidanceEnabled:true))
+        // A stale verification cannot resurrect a discarded shot or its pixels.
+        session.observe(plan:shot,verified:true,bounds:shot.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,timestamp:1.3,aspect:0.75)
+        XCTAssertNil(session.userCapture(at:1.4,guidanceEnabled:true))
+        let next = try plan()
+        session.select(next,preview:nil)
+        session.observe(plan:next,verified:true,bounds:next.desiredBounds,label:"Cat",confidence:1,zoom:2,stable:true,timestamp:1.5,aspect:0.75)
+        let capture = try XCTUnwrap(session.userCapture(at:1.6,guidanceEnabled:true))
+        XCTAssertNil(capture.widePreview); XCTAssertFalse(capture.metadata.hasWidePreview)
     }
     func testBriefCameraMotionWaitsWithoutDiscardingSameScene() throws {
         var (session,shot) = try readySession()
@@ -111,6 +142,7 @@ final class ShotCaptureSessionTests: XCTestCase {
         planner.revalidateCompletedShot(bounds:nil,label:"Cat",confidence:0,zoom:2,aspect:0.75)
         XCTAssertFalse(planner.shotVerified); XCTAssertEqual(planner.phase,.off)
     }
+    #if canImport(UIKit)
     func testWidePreviewRendererPreservesAspectAndNeverUpscales() throws {
         let image = try XCTUnwrap(CIImage(data:jpeg()))
         let context = CIContext()
@@ -170,4 +202,5 @@ final class ShotCaptureSessionTests: XCTestCase {
         let sony = try await library.add(data:jpeg(),mode:"Sony",cameraOrigin:CameraSource.sony.rawValue,framedCapture:try payload())
         XCTAssertNil(sony.framingSession); XCTAssertNil(sony.widePreviewFilename)
     }
+    #endif
 }

@@ -1,10 +1,11 @@
-Focal 2.10.0 / build 34 — Sony Wi-Fi Remote Controls
-PASS: 44 portable Sony XCTest cases: 33 new setting parser/workflow/wire-client/AF/diagnostic tests plus 11 existing capture-policy regressions. Production Foundation code, scripted camera responses and URLProtocol HTTP fixtures; no physical Sony commands executed.
-PASS: 275 existing portable framing/subject-autofocus regression tests. No changes to iPhone/AI/autozoom/autofocus implementation files.
-PARSE: all 130 Swift sources pass frontend syntax parsing. This does not establish Apple SDK type checking.
-STRUCTURE PASS: deterministic project; 96 app/34 test sources; 548 registered native XCTest functions; resources/YAML/build scripts/baseline hashes; no duplicate module-level types; user-only shutter; whitespace.
-IMPLEMENTED: Scalar JSON-RPC capability-driven ISO/aperture/shutter/WB/EV controls, actual camera values/ranges, acknowledged-and-read-back writes, releasable optional AF trigger, existing single-shot capture/live view, native remote panel, structured exportable diagnostics, stale-session/mode/lens handling and existing lifecycle reconnect.
-UNAVAILABLE: controls absent from the actual camera's current command/value advertisements; no fabricated model support. No remote zoom, new Sony SDK/PTP-IP adapter or RAW download.
-NATIVE BUILD ATTEMPT: xcodebuild unavailable, exit 127. No successful native build, simulator test, native UI verification or IPA archive claimed. Codemagic full iOS build/tests required.
-DEVICE: neither Sony A7 III nor iPhone was physically tested. Verify both bodies/lenses separately, camera mode restrictions, actual setting acknowledgment/readback, focus, capture/save, live view, sleep/Wi-Fi and lifecycle recovery.
-REPORT: docs/sony/REMOTE-CONTROLS.md
+Focal 2.10.1 / build 35 — native-test compatibility follow-up
+PASS: 287 portable framing/session/subject-autofocus XCTest cases, including 12 pure ShotCaptureSession cases now covered on Linux. Same-shot recovery retains the original preview only after fresh verification; discarded shots reject stale verification and old pixels.
+PASS: 45 portable Sony XCTest cases, including production URLSession/JSON-RPC tests and forced data/stream request-body fixtures. No physical Sony commands executed.
+PARSE: all 130 Swift sources pass frontend syntax parsing; not an Apple SDK type check.
+STRUCTURE PASS: deterministic project; 96 app/34 test sources; 550 registered native XCTest functions; resource/YAML/script/baseline/duplicate-type/user-only-shutter/whitespace checks.
+SCOPE: all production application sources unchanged. Only test compatibility, expanded portable coverage, release metadata and documentation changed. No tests removed or native test gate bypassed.
+REPRODUCED: original paired-preview test assertions against unchanged session production logic yield exactly two failures; updated recovery/readiness/loss assertions pass.
+NATIVE EVIDENCE: user's Codemagic build-34 log compiled and ran 548 tests, then reported three failures across two cases. The legacy paired-preview assertions conflict with the intentionally retained same-shot recovery preview; Sony fixture read httpBody only, despite native stream delivery being possible. Full assertion line for the Sony failure was absent from supplied excerpt.
+NATIVE LIMIT: local xcodebuild unavailable; no new native success or IPA archive claimed. Codemagic must run all 550 tests and archive this follow-up.
+DEVICE: neither A7 III nor iPhone physically tested in this environment. Existing Sony/iPhone acceptance checklists remain required.
+REPORT: docs/sony/BUILD-35-TEST-FOLLOWUP.md

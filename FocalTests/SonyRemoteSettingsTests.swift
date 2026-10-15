@@ -28,12 +28,32 @@ private final class SonyWireFixture: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private static var payload = Data()
     private static var captured: URLRequest?
-    static func install(_ data:Data) { lock.lock(); defer { lock.unlock() }; payload = data; captured = nil }
+    private static var capturedBody: Data?
+    static func install(_ data:Data) { lock.lock(); defer { lock.unlock() }; payload = data; captured = nil; capturedBody = nil }
     static func lastRequest() -> URLRequest? { lock.lock(); defer { lock.unlock() }; return captured }
+    static func lastBody() -> Data? { lock.lock(); defer { lock.unlock() }; return capturedBody }
+    static func body(of request:URLRequest) throws -> Data? {
+        if let bytes = request.httpBody { return bytes }
+        guard let stream = request.httpBodyStream else { return nil }
+        // Darwin URLSession can replace httpBody with httpBodyStream before
+        // handing a request to URLProtocol. Consume it once at interception.
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating:0,count:4096)
+        while true {
+            let count = stream.read(&buffer,maxLength:buffer.count)
+            guard count >= 0 else { throw stream.streamError ?? SonyRemoteError(message:"Cannot read fixture request body.") }
+            if count == 0 { return data }
+            guard data.count + count <= 1_048_576 else { throw SonyRemoteError(message:"Unexpectedly large fixture request body.") }
+            data.append(contentsOf:buffer.prefix(count))
+        }
+    }
     override class func canInit(with request:URLRequest) -> Bool { true }
     override class func canonicalRequest(for request:URLRequest) -> URLRequest { request }
     override func startLoading() {
-        Self.lock.lock(); let data = Self.payload; Self.captured = request; Self.lock.unlock()
+        let body:Data?
+        do { body = try Self.body(of:request) }
+        catch { client?.urlProtocol(self,didFailWithError:error); return }
+        Self.lock.lock(); let data = Self.payload; Self.captured = request; Self.capturedBody = body; Self.lock.unlock()
         let response = HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:"HTTP/1.1",headerFields:["Content-Type":"application/json"])!
         client?.urlProtocol(self,didReceive:response,cacheStoragePolicy:.notAllowed)
         client?.urlProtocol(self,didLoad:data); client?.urlProtocolDidFinishLoading(self)
@@ -234,9 +254,17 @@ final class SonyRemoteSettingsTests: XCTestCase {
         let data = try await api.call("getMethodTypes",params:[""])
         XCTAssertEqual(SonyMethodCapabilities.names(try SonyAPIClient.result(data)),["setFNumber"])
         let request = try XCTUnwrap(SonyWireFixture.lastRequest())
-        let body = try XCTUnwrap(JSONSerialization.jsonObject(with:XCTUnwrap(request.httpBody)) as? [String:Any])
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with:XCTUnwrap(SonyWireFixture.lastBody(),"URLProtocol must capture the real JSON-RPC body, including streamed bodies")) as? [String:Any])
         XCTAssertEqual(body["version"] as? String,"1.0"); XCTAssertEqual(body["method"] as? String,"getMethodTypes")
         XCTAssertEqual(request.httpMethod,"POST"); await api.shutdown()
+    }
+    func testWireFixtureCapturesIdenticalDataAndStreamBodies() throws {
+        let bytes = try JSONSerialization.data(withJSONObject:["method":"getMethodTypes","params":[""],"version":"1.0","id":1])
+        for streamed in [false,true] {
+            var request = URLRequest(url:URL(string:"http://192.168.122.1/sony/camera")!)
+            if streamed { request.httpBodyStream = InputStream(data:bytes) } else { request.httpBody = bytes }
+            XCTAssertEqual(try SonyWireFixture.body(of:request),bytes)
+        }
     }
     func testProductionWireClientRejectsCameraErrorsAndRecordsFailure() async throws {
         SonyWireFixture.install(Data("{\"error\":[40401,\"busy\"],\"id\":1}".utf8))

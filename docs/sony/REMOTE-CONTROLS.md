@@ -1,5 +1,7 @@
 # Sony A7 III Wi-Fi Remote Controls — Focal 2.10.0, build 34
 
+Build 35 preserves this implementation and updates the regression tests. See [native-test follow-up](BUILD-35-TEST-FOLLOWUP.md) for current validation and the reported build-34 failures.
+
 ## Audit and protocol boundary
 
 The existing service discovers Sony Scalar Camera Remote API descriptors at the selected private camera address (ports 64321/61000, DmsRmtDesc.xml). The existing bounded discovery searches the iPhone's actual Wi-Fi subnet, up to 64 hosts/four concurrent probes. Control URLs come from the descriptor's camera service; live-view URLs come from its advertisement or startLiveview. Same-camera private-host checks and redirect refusal remain in place.
