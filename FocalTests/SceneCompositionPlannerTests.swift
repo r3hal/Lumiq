@@ -206,6 +206,41 @@ final class SceneCompositionPlannerTests: XCTestCase {
         XCTAssertEqual(manual.target,UnitPoint2D(x:0.5,y:0.5))
         XCTAssertEqual(manual.state,.adjusting)
     }
+    func testVerifiedCurrentFrameChoiceRefreshesWithoutCropReassessment() throws {
+        var planner = SceneCompositionPlanner()
+        let initial = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:0))
+        XCTAssertTrue(initial.selected.isCurrentFrame)
+        for time in [0.8,1.6,2.4,3.2] {
+            let retained = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(at:time),timestamp:time,maximumScale:3,freeze:true))
+            XCTAssertTrue(retained.selected.isCurrentFrame)
+            XCTAssertFalse(retained.permitsZoom)
+            XCTAssertEqual(retained.timestamp,time)
+        }
+    }
+    func testExplicitAlternativeCanLeaveVerifiedCurrentFrameChoice() throws {
+        var planner = SceneCompositionPlanner()
+        let first = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:0))
+        XCTAssertTrue(first.selected.isCurrentFrame)
+        planner.requestAlternative()
+        let different = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(at:0.5),timestamp:0.5,freeze:true))
+        XCTAssertNotEqual(different.selected.technique,first.selected.technique)
+    }
+    func testExplicitAlternativeIsNotBlockedByFrozenNoncurrentChoice() throws {
+        var planner = SceneCompositionPlanner()
+        _ = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:0))
+        planner.requestAlternative()
+        let selected = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(at:0.2),timestamp:0.2))
+        XCTAssertFalse(selected.selected.isCurrentFrame)
+        planner.requestAlternative()
+        let alternative = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(at:0.4),timestamp:0.4,freeze:true))
+        XCTAssertNotEqual(alternative.selected.technique,selected.selected.technique)
+    }
+    func testVerifiedChoiceDoesNotHideCurrentSubjectLossOrStaleEvidence() throws {
+        var planner = SceneCompositionPlanner()
+        _ = try XCTUnwrap(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:0))
+        XCTAssertNil(planner.update(subject:subject,confidence:0.2,label:"Desk",evidence:try evidence(at:0.5),timestamp:0.5,freeze:true))
+        XCTAssertNil(planner.update(subject:subject,confidence:1,label:"Desk",evidence:try evidence(),timestamp:3,freeze:true))
+    }
     func testHorizonAdviceRequiresLandscapeAndObservedHorizontalBoundary() throws {
         let pixels = try evidence { _,y in y < 24 ? 0.2 : 0.8 }
         XCTAssertNotNil(pixels.horizontalBoundary())

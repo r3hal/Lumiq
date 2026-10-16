@@ -1,5 +1,8 @@
 import XCTest
 @testable import Focal
+#if canImport(Vision)
+import Vision
+#endif
 
 /// Exercises the actual focus policy and existing framing/geometry models.
 /// No simulated lens is used; optical focus and Apple coordinate conversion
@@ -186,4 +189,66 @@ final class SubjectAutofocusTests: XCTestCase {
         XCTAssertFalse(gate.accepts(old)); XCTAssertTrue(gate.accepts(current))
         gate.invalidate(); XCTAssertFalse(gate.accepts(current))
     }
+
+    #if canImport(Vision)
+    // Exercise the real request admission seam without running image inference.
+    // Native Vision cancellation/latency itself still requires an iOS run.
+    func testManualCancellationRejectsFallbackAndSubsequentOptionalStages() throws {
+        let tracker = SubjectTracker()
+        let admission = tracker.acquisitionAdmission()
+        var completedStages = [String]()
+        try tracker.performRequests([VNDetectFaceRectanglesRequest()],admission:admission) {
+            completedStages.append("semantic")
+            tracker.cancelInference(includeTracking:false)
+        }
+        for stage in ["fallback", "crop", "scene"] {
+            XCTAssertThrowsError(try tracker.performRequests([VNClassifyImageRequest()],admission:admission) {
+                completedStages.append(stage)
+            }) { XCTAssertTrue($0 is CancellationError) }
+        }
+        XCTAssertEqual(completedStages,["semantic"],"Cancellation retains completed evidence without starting retries")
+        try tracker.performRequests([VNClassifyImageRequest()],admission:tracker.acquisitionAdmission()) {
+            completedStages.append("new frame")
+        }
+        XCTAssertEqual(completedStages,["semantic","new frame"])
+    }
+
+    func testManualAcquisitionCancellationDoesNotBlockTrackingAdmission() throws {
+        let tracker = SubjectTracker()
+        let optional = tracker.acquisitionAdmission()
+        let tracking = VNTrackObjectRequest(detectedObjectObservation:VNDetectedObjectObservation(boundingBox:body))
+        var tracked = false
+        try tracker.performRequests([tracking]) {
+            tracker.cancelInference(includeTracking:false)
+            tracked = true
+        }
+        XCTAssertTrue(tracked)
+        XCTAssertThrowsError(try tracker.performRequests([VNClassifyImageRequest()],admission:optional) {
+            XCTFail("The old optional pass must not resume after the tracking request")
+        })
+        // A healthy tracking pass is not governed by an optional acquisition epoch.
+        try tracker.performRequests([tracking]) { tracked = true }
+    }
+
+    func testExpiredAndInvalidSourceDeadlinesNeverStartVisionWork() {
+        let tracker = SubjectTracker()
+        let now = ProcessInfo.processInfo.systemUptime
+        for deadline in [now-1,TimeInterval.nan,TimeInterval.infinity] {
+            let admission = tracker.acquisitionAdmission(deadline:deadline)
+            XCTAssertThrowsError(try tracker.performRequests([VNClassifyImageRequest()],admission:admission) {
+                XCTFail("Expired or invalid source-frame budget must reject work before Vision starts")
+            }) { XCTAssertTrue($0 is CancellationError) }
+        }
+    }
+
+    func testOptionalDeadlineIsAbsoluteAcrossStages() {
+        let admission = SubjectInferenceAdmission(revision:7,deadline:10.9)
+        XCTAssertTrue(admission.permits(revision:7,at:10.1))
+        XCTAssertTrue(admission.permits(revision:7,at:10.89))
+        XCTAssertFalse(admission.permits(revision:7,at:10.9))
+        XCTAssertFalse(admission.permits(revision:7,at:11.0))
+        XCTAssertFalse(admission.permits(revision:8,at:10.2))
+        XCTAssertFalse(admission.permits(revision:7,at:.nan))
+    }
+    #endif
 }

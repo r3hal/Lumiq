@@ -1,0 +1,54 @@
+[
+  {
+    "id": "framed_01",
+    "app": "Framed",
+    "bytes": 30332891,
+    "sha256": "28a63d98d4c881d614d53b93bb02074068591cfbdea44e4bff10d97b7390fff1",
+    "frame_sampling": "FFmpeg fps=1:start_time=0; nearest source frame per output-second bin; transition bounds require finer extraction",
+    "frames": 42,
+    "filename": "ScreenRecording_10-16-2026 01-41-30_1.mp4",
+    "duration_seconds": 42.233333,
+    "width": 512,
+    "height": 1112,
+    "sampling_fps": 1
+  },
+  {
+    "id": "framed_02",
+    "app": "Framed",
+    "bytes": 23633738,
+    "sha256": "af590b2fd7dd35f7199bab77bdf1de8a6fe08705e5bdcb5c9c4e2180b0a7a622",
+    "frame_sampling": "FFmpeg fps=1:start_time=0; nearest source frame per output-second bin; transition bounds require finer extraction",
+    "frames": 33,
+    "filename": "ScreenRecording_10-16-2026 01-42-19_1.mp4",
+    "duration_seconds": 32.953333,
+    "width": 512,
+    "height": 1112,
+    "sampling_fps": 1
+  },
+  {
+    "id": "focal_01",
+    "app": "Focal",
+    "bytes": 23337761,
+    "sha256": "a952508bbf871b44e988749dff9ce4ff77a9a315700ecd3b652ac6fdd7411a57",
+    "frame_sampling": "FFmpeg fps=1:start_time=0; nearest source frame per output-second bin; transition bounds require finer extraction",
+    "frames": 33,
+    "filename": "ScreenRecording_10-15-2026 14-25-49_1(1).mp4",
+    "duration_seconds": 32.7,
+    "width": 512,
+    "height": 1112,
+    "sampling_fps": 1
+  },
+  {
+    "id": "focal_02",
+    "app": "Focal",
+    "bytes": 30443695,
+    "sha256": "7c158e7a132270df50e7aa5c358547fb340ca13a150e7154e3607093e5736134",
+    "frame_sampling": "FFmpeg fps=1:start_time=0; nearest source frame per output-second bin; transition bounds require finer extraction",
+    "frames": 42,
+    "filename": "ScreenRecording_10-15-2026 15-06-58_1(1).mp4",
+    "duration_seconds": 42.4,
+    "width": 512,
+    "height": 1112,
+    "sampling_fps": 1
+  }
+]

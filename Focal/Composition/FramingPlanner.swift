@@ -17,6 +17,8 @@ struct FramingPlanner {
     private(set) var shotVerified = false
     private(set) var currentFrameVerified = false
     private var currentFrameSince: TimeInterval?
+    private var currentFrameObservationAt: TimeInterval?
+    private var currentFrameIdentity: String?
     private var completionSince: TimeInterval?
     private var lastVerification: TimeInterval?
     private(set) var blockReason: FramingBlockReason?
@@ -201,6 +203,7 @@ struct FramingPlanner {
     mutating func reset(enabled: Bool) {
         phase = enabled ? .searching : .off
         shotPlan = nil; shotVerified = false; currentFrameVerified = false; currentFrameSince = nil; completionSince = nil; lastVerification = nil
+        currentFrameObservationAt = nil; currentFrameIdentity = nil
         stableSince = nil
         blockReason = nil; blockedSince = nil; recovering = false; recoverySince = nil; recoveryGoodSince = nil
         recoveryAttempts = 0; recoveredSeconds = 0; eligibleHold = 0; lastHoldTime = nil; lastHoldEligible = false
@@ -220,13 +223,29 @@ struct FramingPlanner {
             stop(reason:.unsafeCrop); return
         }
     }
-    mutating func confirmCurrentFrame(eligible:Bool,timestamp:TimeInterval,holdDuration:Double) {
+    mutating func confirmCurrentFrame(eligible:Bool,timestamp:TimeInterval,holdDuration:Double,identity:String? = nil) {
         guard !phase.isAutoFraming, !phase.isRecovering, !shotVerified, phase != .off, shotPlan?.requiresZoom != true else { return }
-        guard eligible, timestamp.isFinite else {
+        guard eligible, timestamp.isFinite, holdDuration.isFinite else {
             if currentFrameVerified { reset(enabled:true) }
             currentFrameSince = nil; currentFrameVerified = false
+            currentFrameObservationAt = nil; currentFrameIdentity = nil
             return
         }
+        if let previous = currentFrameObservationAt {
+            // A duplicate/backward timestamp supplies no new evidence. A long
+            // gap or a new subject starts its own hold at the current sample.
+            guard timestamp > previous else {
+                if currentFrameVerified { reset(enabled:true) }
+                currentFrameSince = nil; currentFrameVerified = false
+                currentFrameObservationAt = nil; currentFrameIdentity = nil
+                return
+            }
+            if timestamp-previous > 1.25 || identity != currentFrameIdentity {
+                if currentFrameVerified || identity != currentFrameIdentity { reset(enabled:true) }
+                currentFrameSince = nil; currentFrameVerified = false
+            }
+        }
+        currentFrameObservationAt = timestamp; currentFrameIdentity = identity
         if currentFrameSince == nil { currentFrameSince = timestamp }
         if timestamp-(currentFrameSince ?? timestamp) >= max(0.5,min(3,holdDuration)) {
             currentFrameVerified = true; finish()

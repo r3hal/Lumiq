@@ -81,7 +81,7 @@ struct SceneCompositionPlanner {
         }
         if plan?.subjectLabel != label || previousBounds.map({ hypot(Double($0.midX-subject.midX),Double($0.midY-subject.midY)) > 0.3 }) == true { reset() }
         previousBounds = subject; lastSeen = timestamp
-        if freeze, let retained = plan, !retained.selected.isCurrentFrame { return retained }
+        if freeze, !alternativeRequested, let retained = plan, !retained.selected.isCurrentFrame { return retained }
         guard let evidence, evidence.isFresh(at:timestamp) else {
             if var retained = plan, timestamp >= retained.timestamp, timestamp-retained.timestamp < 2.5 {
                 retained.selected.target = Self.safeTarget(retained.target,subject:subject)
@@ -107,7 +107,13 @@ struct SceneCompositionPlanner {
         }
         guard let best = options.first else { reset(); return nil }
         let chosen: CompositionOption
-        if alternativeRequested, let old = plan, let index = options.firstIndex(where:{$0.technique == old.selected.technique}), options.count > 1 {
+        if freeze, !alternativeRequested, plan?.selected.isCurrentFrame == true,
+           let current = options.first(where: { $0.isCurrentFrame }) {
+            // A verified photograph remains a useful choice even if a fresh
+            // ranking finds a tighter alternative. Safety is rechecked from
+            // current pixels by the director; explicit alternatives still win.
+            chosen = current; pending = nil
+        } else if alternativeRequested, let old = plan, let index = options.firstIndex(where:{$0.technique == old.selected.technique}), options.count > 1 {
             // Ranked object crops can contain several versions of one rule.
             // Prefer a genuinely different supported layout on explicit request.
             chosen = options.dropFirst(index+1).first{$0.technique != old.selected.technique}

@@ -29,6 +29,26 @@ struct CameraZoomObservation {
 }
 
 enum ShotReadiness {
+    /// A manual layout can be verified without a motor plan. Its explicit target
+    /// and current pixels still need the same confidence, crop and light checks.
+    static func measuredManualLayout(bounds:CGRect?,target:UnitPoint2D,assessment:CompositionAssessment,
+                                     observedAt:TimeInterval,timestamp:TimeInterval,stable:Bool,previewAspect:Double) -> Bool {
+        guard GuidanceObservationPolicy.fresh(capturedAt:observedAt,evaluatedAt:timestamp),
+              stable, !assessment.cameraMoving, assessment.permitsAutomaticCrop, assessment.confidence <= 1,
+              previewAspect.isFinite, previewAspect > 0,
+              [target.x,target.y].allSatisfy(\.isFinite), (0...1).contains(target.x), (0...1).contains(target.y),
+              let bounds, AutomaticShotPlan.safe(bounds),
+              let area = assessment.subjectArea, let visible = assessment.visibleFraction, let margin = assessment.minimumMargin,
+              [area,visible,margin,assessment.sizePenalty,assessment.positionPenalty].allSatisfy(\.isFinite),
+              area > 0, area <= 1, visible >= 0.98, visible <= 1.0001, margin >= 0.012,
+              assessment.sizePenalty >= 0, assessment.sizePenalty <= 0.15,
+              assessment.positionPenalty >= 0, assessment.positionPenalty <= 0.05 else { return false }
+        if let headroom = assessment.headroom, !headroom.isFinite || headroom < 0.012 { return false }
+        if let light = assessment.exposure,
+           ![light.brightness,light.shadowFraction,light.highlightFraction].allSatisfy({ (0...1).contains($0) }) { return false }
+        let distance = hypot(Double(bounds.midX)-target.x,(Double(bounds.midY)-target.y)/max(0.1,previewAspect))
+        return distance <= 0.065
+    }
     static func measuredCurrentFrame(plan:SceneCompositionPlan?,assessment:CompositionAssessment,
                                      label:String,timestamp:TimeInterval,stable:Bool) -> Bool {
         guard let plan, plan.subjectLabel == label, plan.selected.isCurrentFrame, abs(plan.selected.zoomScale-1) < 0.001,

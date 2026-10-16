@@ -247,4 +247,135 @@ final class AutomaticShotFramingTests: XCTestCase {
         XCTAssertNotEqual(message.reasoningState,.readyToShoot)
     }
 
+    private func manualFacts(_ bounds:CGRect,confidence:Double = 0.95) -> CompositionAssessment {
+        CompositionAssessment.evaluate(bounds:bounds,confidence:confidence,label:"Person",intent:.portrait,
+            stable:true,exposure:nil,evidence:nil)
+    }
+    private func manualLayout(_ bounds:CGRect?,target:UnitPoint2D = .init(x:1.0/3,y:1.0/3),
+                              facts:CompositionAssessment? = nil,observedAt:Double = 1,timestamp:Double = 1.1,
+                              stable:Bool = true,aspect:Double = 0.75) -> Bool {
+        ShotReadiness.measuredManualLayout(bounds:bounds,target:target,assessment:facts ?? manualFacts(bounds ?? .zero),
+            observedAt:observedAt,timestamp:timestamp,stable:stable,previewAspect:aspect)
+    }
+    private var thirdsSubject:CGRect { CGRect(x:1.0/3-0.16,y:1.0/3-0.16,width:0.32,height:0.32) }
+
+    func testMeasuredThirdsLayoutCanCompleteWithoutMotorPlan() {
+        var planner = FramingPlanner(continuousRecovery:true)
+        let eligible = manualLayout(thirdsSubject)
+        XCTAssertTrue(eligible)
+        planner.confirmCurrentFrame(eligible:eligible,timestamp:1.1,holdDuration:0.5,identity:"person-A")
+        planner.confirmCurrentFrame(eligible:eligible,timestamp:1.7,holdDuration:0.5,identity:"person-A")
+        XCTAssertTrue(planner.currentFrameVerified); XCTAssertFalse(planner.shotVerified)
+        XCTAssertNil(planner.shotPlan); XCTAssertEqual(planner.phase,.framed)
+        XCTAssertNil(planner.update(bounds:thirdsSubject,confidence:0.95,roll:0,timestamp:2,currentZoom:1,maximumZoom:4))
+    }
+    func testManualLayoutChecksAspectAdjustedRawTargetError() {
+        let bounds = thirdsSubject.offsetBy(dx:0,dy:0.04)
+        XCTAssertTrue(manualLayout(bounds,aspect:1))
+        XCTAssertFalse(manualLayout(bounds,aspect:0.5))
+        XCTAssertFalse(manualLayout(thirdsSubject.offsetBy(dx:0.08,dy:0)))
+    }
+    func testManualLayoutRejectsStaleMovingAndWeakObservations() {
+        XCTAssertFalse(manualLayout(thirdsSubject,observedAt:0,timestamp:1))
+        XCTAssertFalse(manualLayout(thirdsSubject,observedAt:2,timestamp:1))
+        XCTAssertFalse(manualLayout(thirdsSubject,stable:false))
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:manualFacts(thirdsSubject,confidence:0.64)))
+        var facts = manualFacts(thirdsSubject); facts.cameraMoving = true
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+    }
+    func testManualLayoutRejectsUnsafeOrUnmeasuredGeometry() {
+        XCTAssertFalse(manualLayout(nil))
+        XCTAssertFalse(manualLayout(CGRect(x:-0.02,y:0.2,width:0.4,height:0.4)))
+        let tiny = CGRect(x:1.0/3-0.02,y:1.0/3-0.02,width:0.04,height:0.04)
+        XCTAssertFalse(manualLayout(tiny))
+        var facts = manualFacts(thirdsSubject); facts.subjectArea = nil
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        facts = manualFacts(thirdsSubject); facts.minimumMargin = nil
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        facts = manualFacts(thirdsSubject); facts.edgeJointCount = 1
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        facts = manualFacts(thirdsSubject); facts.assessmentReliable = false
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+    }
+    func testManualLayoutRejectsPoorAndInvalidExposure() {
+        for (brightness,shadows,highlights) in [(0.5,0.1,0.19),(0.1,0.8,0.0),(Double.nan,0.1,0.0),(0.5,Double.infinity,0.0),(0.5,0.1,-0.1)] {
+            var facts = manualFacts(thirdsSubject)
+            facts.exposure = .init(brightness:brightness,shadowFraction:shadows,highlightFraction:highlights,detail:0.1,backgroundEdges:nil)
+            XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        }
+        var facts = manualFacts(thirdsSubject)
+        facts.exposure = .init(brightness:0.5,shadowFraction:0.1,highlightFraction:0.02,detail:0.1,backgroundEdges:nil)
+        XCTAssertTrue(manualLayout(thirdsSubject,facts:facts))
+    }
+    func testManualLayoutRejectsNonfiniteTargetsAndMeasurements() {
+        XCTAssertFalse(manualLayout(thirdsSubject,target:.init(x:.nan,y:1.0/3)))
+        XCTAssertFalse(manualLayout(thirdsSubject,target:.init(x:1.1,y:1.0/3)))
+        XCTAssertFalse(manualLayout(thirdsSubject,aspect:0))
+        XCTAssertFalse(manualLayout(thirdsSubject,aspect:.infinity))
+        var facts = manualFacts(thirdsSubject); facts.sizePenalty = .nan
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        facts = manualFacts(thirdsSubject); facts.subjectArea = .infinity
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        facts = manualFacts(thirdsSubject); facts.confidence = 1.5
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+        facts = manualFacts(thirdsSubject); facts.headroom = .nan
+        XCTAssertFalse(manualLayout(thirdsSubject,facts:facts))
+    }
+    func testManualLayoutCannotBypassAnUnfinishedZoomShot() throws {
+        var planner = FramingPlanner(continuousRecovery:true)
+        let selected = try XCTUnwrap(AutomaticShotPlan.propose(bounds:subject,label:"Cat",confidence:0.95,trackingReference:"cat-A",
+            composition:composition(),currentZoom:1,maximumZoom:4,detailLimit:4,nativeStops:[1],regions:[],anatomy:nil,
+            projection:.init(imageAspect:1,previewAspect:1)))
+        XCTAssertTrue(planner.selectShot(selected)); XCTAssertTrue(selected.requiresZoom)
+        for time in [0.0,0.6,1.2] {
+            planner.confirmCurrentFrame(eligible:true,timestamp:time,holdDuration:0.5,identity:"cat-A")
+        }
+        XCTAssertFalse(planner.currentFrameVerified); XCTAssertFalse(planner.shotVerified)
+        XCTAssertEqual(planner.shotPlan?.id,selected.id)
+    }
+    func testCurrentFrameHoldRestartsAfterLongSampleGap() {
+        var planner = FramingPlanner(continuousRecovery:true)
+        planner.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5,identity:"person-A")
+        planner.confirmCurrentFrame(eligible:true,timestamp:5,holdDuration:0.5,identity:"person-A")
+        XCTAssertFalse(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:true,timestamp:5.6,holdDuration:0.5,identity:"person-A")
+        XCTAssertTrue(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:true,timestamp:8,holdDuration:0.5,identity:"person-A")
+        XCTAssertFalse(planner.currentFrameVerified)
+    }
+    func testRepeatedAndBackwardCurrentFrameSamplesBreakHold() {
+        for repeatedOrBackward in [0.4,0.3] {
+            var planner = FramingPlanner(continuousRecovery:true)
+            planner.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5,identity:"person-A")
+            planner.confirmCurrentFrame(eligible:true,timestamp:0.4,holdDuration:0.5,identity:"person-A")
+            planner.confirmCurrentFrame(eligible:true,timestamp:repeatedOrBackward,holdDuration:0.5,identity:"person-A")
+            planner.confirmCurrentFrame(eligible:true,timestamp:0.7,holdDuration:0.5,identity:"person-A")
+            XCTAssertFalse(planner.currentFrameVerified)
+            planner.confirmCurrentFrame(eligible:true,timestamp:1.3,holdDuration:0.5,identity:"person-A")
+            XCTAssertTrue(planner.currentFrameVerified)
+        }
+    }
+    func testCurrentFrameHoldCannotCrossSubjectIdentity() {
+        var planner = FramingPlanner(continuousRecovery:true)
+        planner.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5,identity:"person-A")
+        planner.confirmCurrentFrame(eligible:true,timestamp:0.4,holdDuration:0.5,identity:"person-A")
+        planner.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5,identity:"person-B")
+        XCTAssertFalse(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:true,timestamp:1.2,holdDuration:0.5,identity:"person-B")
+        XCTAssertTrue(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:true,timestamp:1.3,holdDuration:0.5)
+        XCTAssertFalse(planner.currentFrameVerified)
+    }
+    func testCurrentFrameHoldRejectsNonfiniteDurationAndUnsafeSample() {
+        var planner = FramingPlanner(continuousRecovery:true)
+        planner.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5,identity:"person-A")
+        planner.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:.nan,identity:"person-A")
+        XCTAssertFalse(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:true,timestamp:0.7,holdDuration:0.5,identity:"person-A")
+        planner.confirmCurrentFrame(eligible:true,timestamp:1.3,holdDuration:0.5,identity:"person-A")
+        XCTAssertTrue(planner.currentFrameVerified)
+        planner.confirmCurrentFrame(eligible:false,timestamp:1.4,holdDuration:0.5,identity:"person-A")
+        XCTAssertFalse(planner.currentFrameVerified); XCTAssertEqual(planner.phase,.searching)
+    }
+
 }

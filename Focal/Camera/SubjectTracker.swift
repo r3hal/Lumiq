@@ -3,6 +3,18 @@ import CoreVideo
 import CoreImage
 import Foundation
 
+/// Admission for optional inference, not a promise that a synchronous Vision
+/// request can finish before its deadline. Tracking does not consume this token.
+struct SubjectInferenceAdmission {
+    let revision: Int
+    let deadline: TimeInterval?
+    func permits(revision: Int, at time: TimeInterval) -> Bool {
+        guard self.revision == revision, time.isFinite else { return false }
+        guard let deadline else { return true }
+        return deadline.isFinite && time < deadline
+    }
+}
+
 struct SubjectObservation {
     let boundingBox: CGRect
     /// Tracking confidence, or measured proposal support after selection dwell.
@@ -21,6 +33,8 @@ final class SubjectTracker {
     private struct Detection { var observation: VNDetectedObjectObservation; var candidate: SubjectCandidate }
     private let requestLock = NSLock()
     private var activeRequests: [VNRequest] = []
+    private var acquisitionRevision = 0 // Protected by requestLock, including cancellation from UI.
+    private var observationAdmission: SubjectInferenceAdmission? // Analysis queue; shared with head refinement of this frame.
     private var sequence = VNSequenceRequestHandler()
     private var tracking: VNTrackObjectRequest?
     private var candidates: [Detection] = []
@@ -87,13 +101,17 @@ final class SubjectTracker {
     func focusRegion(in buffer:CVPixelBuffer,subject:CGRect,identity:String,projection:PreviewProjection,
                      observedAt:TimeInterval,allowInference:Bool,canContinue:() -> Bool) -> (region:CGRect,observedAt:TimeInterval)? {
         guard trackingReference == identity, SubjectAutofocus.validVisible(subject) else { return nil }
+        let frameAdmission = observationAdmission ?? acquisitionAdmission()
+        let admission = SubjectInferenceAdmission(revision:frameAdmission.revision,
+            deadline:min(frameAdmission.deadline ?? .infinity,observedAt + GuidanceObservationPolicy.maximumAge))
         if focusHead?.identity != identity { focusHead = nil; lastFocusHeadAttempt = -.infinity }
         let category = SubjectCategory.classified(label)
         guard category == .person || category == .face || category == .pet else { return nil }
-        if allowInference, observedAt-lastFocusHeadAttempt >= 0.9,
+        if allowInference, permitsAcquisition(admission), observedAt-lastFocusHeadAttempt >= 0.9,
            ProcessInfo.processInfo.thermalState != .serious, ProcessInfo.processInfo.thermalState != .critical {
             lastFocusHeadAttempt = observedAt
             var heads = [CGRect]()
+            var cancelledRefresh = false
             // Reuse anatomy from this image before requesting a targeted refresh.
             if category != .pet, observedAt >= faceTime, observedAt-faceTime <= 0.3 {
                 heads = facesForAssessment.filter { $0.confidence >= 0.65 && SubjectAutofocus.contains(subject,$0.box) }.map(\.box)
@@ -104,26 +122,26 @@ final class SubjectTracker {
                 do {
                     if category == .person || category == .face {
                         let faces = VNDetectFaceRectanglesRequest(); faces.regionOfInterest = roi
-                        try performRequests([faces],canContinue:canContinue) {
+                        try performRequests([faces],admission:admission,canContinue:canContinue) {
                             try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([faces])
                         }
                         heads = (faces.results ?? []).filter { $0.confidence >= 0.65 && SubjectAutofocus.contains(subject,$0.boundingBox) }.map(\.boundingBox)
                     } else {
                         #if !targetEnvironment(simulator)
                         let pose = VNDetectAnimalBodyPoseRequest(); pose.regionOfInterest = roi
-                        try performRequests([pose],canContinue:canContinue) {
+                        try performRequests([pose],admission:admission,canContinue:canContinue) {
                             try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([pose])
                         }
                         heads = (pose.results ?? []).compactMap { animalHeadBounds($0) }.filter { SubjectAutofocus.contains(subject,$0) }
                         #endif
                     }
-                } catch { heads = [] }
+                } catch { heads = []; cancelledRefresh = !permitsAcquisition(admission) }
             }
             guard canContinue() else { return nil }
             // Ambiguous/absent head detection falls back to the tracked body.
             if heads.count == 1, let head = heads.first {
                 focusHead = TrackedFocusRegion(identity:identity,subject:subject,region:head,observedAt:observedAt)
-            } else { focusHead = nil }
+            } else if !cancelledRefresh { focusHead = nil }
         }
         guard let head = focusHead, let region = head.projected(in:subject,identity:identity,at:observedAt) else { return nil }
         return (projection.visibleVisionRect(region),head.observedAt)
@@ -135,14 +153,34 @@ final class SubjectTracker {
     }
 
     func cancelInference(includeTracking: Bool = true) {
-        requestLock.lock(); let requests = activeRequests; requestLock.unlock()
+        requestLock.lock()
+        acquisitionRevision += 1
+        let requests = activeRequests
+        requestLock.unlock()
         requests.filter { includeTracking || !($0 is VNTrackObjectRequest) }.forEach { $0.cancel() }
     }
-    func performRequests(_ requests: [VNRequest], canContinue: () -> Bool = { true }, work: () throws -> Void) throws {
+    func acquisitionAdmission(deadline: TimeInterval? = nil) -> SubjectInferenceAdmission {
+        requestLock.lock(); defer { requestLock.unlock() }
+        return SubjectInferenceAdmission(revision:acquisitionRevision,deadline:deadline)
+    }
+    private func permitsAcquisition(_ admission: SubjectInferenceAdmission) -> Bool {
+        requestLock.lock(); defer { requestLock.unlock() }
+        return admission.permits(revision:acquisitionRevision,at:ProcessInfo.processInfo.systemUptime)
+    }
+    private func acquisitionIsCurrent(_ admission: SubjectInferenceAdmission) -> Bool {
+        requestLock.lock(); defer { requestLock.unlock() }
+        return admission.revision == acquisitionRevision
+    }
+    func performRequests(_ requests: [VNRequest], admission: SubjectInferenceAdmission? = nil,
+                         canContinue: () -> Bool = { true }, work: () throws -> Void) throws {
         requests.forEach { $0.preferBackgroundProcessing = false }
-        requestLock.lock(); activeRequests = requests; requestLock.unlock()
+        requestLock.lock()
+        let admitted = admission.map { $0.permits(revision:acquisitionRevision,at:ProcessInfo.processInfo.systemUptime) } ?? true
+        if admitted { activeRequests = requests }
+        requestLock.unlock()
+        guard admitted else { throw CancellationError() }
         defer { requestLock.lock(); activeRequests = []; requestLock.unlock() }
-        guard canContinue() else { throw CancellationError() }
+        guard canContinue(), admission.map({ permitsAcquisition($0) }) ?? true else { throw CancellationError() }
         try work()
     }
 
@@ -158,11 +196,12 @@ final class SubjectTracker {
     func inspectStillImage(_ buffer:CVPixelBuffer,intent:PhotographyIntent,selectedOnly:Bool = true) -> [SubjectCandidate] {
         selector.configuration.intent = intent
         let observed = detect(in:buffer,detailBuffer:buffer,timestamp:ProcessInfo.processInfo.systemUptime,
-            visibleRegion:CGRect(x:0,y:0,width:1,height:1),canContinue:{ !Task.isCancelled })
+            visibleRegion:CGRect(x:0,y:0,width:1,height:1),admission:acquisitionAdmission(),canContinue:{ !Task.isCancelled })
         let candidates = observed.map(\.candidate)
         return selectedOnly ? candidates.filter { ($0.score(configuration:selector.configuration) ?? 0) >= selector.configuration.threshold } : candidates
     }
     func reset() {
+        observationAdmission = nil
         sequence = VNSequenceRequestHandler(); tracking = nil; trackedCandidate = nil
         candidates = []; enclosingRectangles = []; selectedPoint = nil; selector.reset(); health.reset()
         cropSchedule.reset(); cropIdentities.reset()
@@ -186,16 +225,18 @@ final class SubjectTracker {
     }
 
     func observation(in buffer: CVPixelBuffer, timestamp: TimeInterval,
-                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, retainSelection: Bool = false, reacquisitionGrace:TimeInterval = 0, canContinue: () -> Bool = { true }) -> SubjectObservation? {
+                     visibleRegion: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), detailBuffer: CVPixelBuffer? = nil, trackingOnly: Bool = false, retainSelection: Bool = false, reacquisitionGrace:TimeInterval = 0, deadline:TimeInterval? = nil, canContinue: () -> Bool = { true }) -> SubjectObservation? {
+        let admission = acquisitionAdmission(deadline:deadline)
+        observationAdmission = admission
         isRecovering = false
         guard canContinue() else { return nil }
         if selector.configuration.intent == .landscape {
             tracking = nil; trackedCandidate = nil; candidates = []; enclosingRectangles = []
-            if !trackingOnly, timestamp-lastScene >= 3 {
+            if !trackingOnly, permitsAcquisition(admission), timestamp-lastScene >= 3 {
                 lastScene = timestamp
                 let request = VNClassifyImageRequest()
                 do {
-                    try performRequests([request],canContinue:canContinue) { try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([request]) }
+                    try performRequests([request],admission:admission,canContinue:canContinue) { try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([request]) }
                     guard canContinue() else { return nil }
                     if let result = request.results?.first, result.confidence >= 0.65 { scene = .init(label:result.identifier,confidence:result.confidence,timestamp:timestamp) }
                     else { scene = nil }
@@ -222,10 +263,11 @@ final class SubjectTracker {
                     isRecovering = true
                     // A stopped ramp can reacquire the same localized identity.
                     // Never promote an arbitrary same-named person elsewhere.
-                    if !trackingOnly, timestamp-lastDetection >= 0.35, let previous = trackedCandidate {
+                    if !trackingOnly, permitsAcquisition(admission), timestamp-lastDetection >= 0.35, let previous = trackedCandidate {
                         lastDetection = timestamp
-                        let found = detect(in:buffer,detailBuffer:detailBuffer ?? buffer,timestamp:timestamp,visibleRegion:visibleRegion,canContinue:canContinue)
+                        let found = detect(in:buffer,detailBuffer:detailBuffer ?? buffer,timestamp:timestamp,visibleRegion:visibleRegion,admission:admission,canContinue:canContinue)
                         guard canContinue() else { return nil }
+                        guard acquisitionIsCurrent(admission) else { return nil }
                         let matches = found.filter { $0.candidate.confidence >= 0.65 && $0.candidate.continuesIdentity(previous) }
                         if matches.count == 1, let match = matches.first {
                             let reference = trackingReference
@@ -248,12 +290,16 @@ final class SubjectTracker {
         if retainSelection, let retained { return SubjectObservation(retained) }
         // Manual tap remains available when automatic selection is disabled.
         guard features.allowsAcquisition(manual: manual) else { return retained.map { SubjectObservation($0) } }
+        guard permitsAcquisition(admission) else { return retained.map { SubjectObservation($0) } }
         let interval: TimeInterval = !trackingEnabled ? 0 : retained == nil ? 0.65 : 1.1
         guard timestamp - lastDetection >= interval, !manual || retained == nil else { return retained.map { SubjectObservation($0) } }
         lastDetection = timestamp
-        let detected = detect(in: buffer, detailBuffer: detailBuffer ?? buffer, timestamp: timestamp, visibleRegion: visibleRegion, canContinue: canContinue)
+        let detected = detect(in: buffer, detailBuffer: detailBuffer ?? buffer, timestamp: timestamp, visibleRegion: visibleRegion, admission:admission, canContinue: canContinue)
         guard canContinue() else { return nil }
         candidates = detected
+        // A gesture cancellation may arrive after useful detectors completed.
+        // Keep that evidence, but never select a new identity from the old pass.
+        guard acquisitionIsCurrent(admission) else { return retained.map { SubjectObservation($0) } }
         if let index = selector.select(detected.map(\.candidate), timestamp: timestamp,
                                        current: retained == nil ? nil : trackedCandidate, manualPoint: manual ? selectedPoint : nil) {
             start(detected[index])
@@ -271,7 +317,9 @@ final class SubjectTracker {
         return retained.map { SubjectObservation($0) }
     }
 
-    private func detect(in buffer: CVPixelBuffer, detailBuffer: CVPixelBuffer, timestamp: TimeInterval, visibleRegion: CGRect, canContinue: () -> Bool) -> [Detection] {
+    private func detect(in buffer: CVPixelBuffer, detailBuffer: CVPixelBuffer, timestamp: TimeInterval, visibleRegion: CGRect,
+                        admission:SubjectInferenceAdmission, canContinue: () -> Bool) -> [Detection] {
+        guard permitsAcquisition(admission), canContinue() else { return [] }
         guard let evidence = SubjectImageEvidence.sample(buffer) else { return [] }
         let faces = VNDetectFaceRectanglesRequest()
         let people = VNDetectHumanRectanglesRequest(); people.upperBodyOnly = false
@@ -281,9 +329,10 @@ final class SubjectTracker {
         let rectangles = VNDetectRectanglesRequest()
         rectangles.maximumObservations = 2; rectangles.minimumConfidence = 0.7
         rectangles.minimumSize = 0.12; rectangles.minimumAspectRatio = 0.2; rectangles.quadratureTolerance = 30
+        func mayInfer() -> Bool { canContinue() && permitsAcquisition(admission) }
         func run(_ requests: [VNRequest]) -> Bool {
             do {
-                try performRequests(requests, canContinue: canContinue) {
+                try performRequests(requests, admission:admission, canContinue: canContinue) {
                     try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform(requests)
                 }
                 return canContinue()
@@ -292,15 +341,15 @@ final class SubjectTracker {
         // An unsupported/failed request must not discard other detector stages.
         var semanticRequests: [VNRequest] = [faces, people]
         if petDetection { semanticRequests.append(animals) }
-        if !run(semanticRequests), canContinue() {
-            for request in semanticRequests where canContinue() { _ = run([request]) }
+        if !run(semanticRequests), mayInfer() {
+            for request in semanticRequests where mayInfer() { _ = run([request]) }
         }
         guard canContinue() else { return [] }
         faceTime = timestamp
         facesForAssessment = (faces.results ?? []).map { ($0.boundingBox,$0.yaw?.doubleValue,$0.confidence) }
         // Pose provides only confidently visible joints, never an assumption
         // that missing joints are clipped. Unsupported requests remain optional.
-        if ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical, timestamp-lastPoseAttempt >= 2.5 {
+        if mayInfer(), ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical, timestamp-lastPoseAttempt >= 2.5 {
             lastPoseAttempt = timestamp
             #if !targetEnvironment(simulator)
             if petDetection && (animals.results ?? []).contains(where: { $0.confidence >= 0.6 }) {
@@ -325,8 +374,8 @@ final class SubjectTracker {
             }
             #endif
         }
-        if !run([objectness, attention, rectangles]), canContinue() {
-            _ = run([objectness]); _ = run([attention]); _ = run([rectangles])
+        if !run([objectness, attention, rectangles]), mayInfer() {
+            for request in [objectness, attention, rectangles] as [VNRequest] where mayInfer() { _ = run([request]) }
         }
         guard canContinue() else { return [] }
         enclosingRectangles = (rectangles.results ?? []).filter { $0.confidence >= 0.75 }.map(\.boundingBox)
@@ -387,9 +436,8 @@ final class SubjectTracker {
                 return candidate.category.semantic && !overlap.isNull && area > 0 && overlap.width * overlap.height / area > 0.6
             }
         }.prefix(4))
-        // The crop budget begins after proposal detection, so a slower device
-        // always gets a chance to classify its first actual object boundary.
-        let deadline = ProcessInfo.processInfo.systemUptime + 1.3
+        // All optional stages share the source-frame deadline. Keep completed
+        // detector results when it expires; do not begin another crop or retry.
         var identities = [Int: (name: String, confidence: Double)]()
         for (index, object) in eligible.enumerated() {
             identities[index] = cropIdentities.identity(for:object.boundingBox,at:timestamp)
@@ -397,14 +445,14 @@ final class SubjectTracker {
         for index in cropSchedule.indices(count:eligible.count) {
             let object = eligible[index]
             guard canContinue() else { return [] }
-            if ProcessInfo.processInfo.systemUptime > deadline { break }
+            if !mayInfer() { break }
             let native = object.boundingBox.insetBy(dx: -0.025, dy: -0.025).intersection(visibleRegion)
             let rect = CGRect(x: native.minX * full.extent.width, y: native.minY * full.extent.height,
                               width: native.width * full.extent.width, height: native.height * full.extent.height).integral.intersection(full.extent)
             guard rect.width > 8, rect.height > 8 else { continue }
             let crop = full.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
             let request = VNClassifyImageRequest()
-            guard (try? performRequests([request], canContinue: canContinue) {
+            guard (try? performRequests([request], admission:admission, canContinue: canContinue) {
                 try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request])
             }) != nil else { continue }
             guard let identity = SubjectIdentity.recognized((request.results ?? []).prefix(24).map { ($0.identifier, Double($0.confidence)) }, localized: true) else {
@@ -422,14 +470,14 @@ final class SubjectTracker {
         }
         let hasObject = detections.contains { !$0.candidate.category.semantic && $0.candidate.score(configuration: selector.configuration) != nil }
         let printedInterval: TimeInterval = tracking == nil ? 1.5 : 4
-        if canContinue(), !hasObject, timestamp - lastPrinted >= printedInterval {
+        if mayInfer(), !hasObject, timestamp - lastPrinted >= printedInterval {
             lastPrinted = timestamp
-            detections += printedDetections(in: detailBuffer, proposals: eligible, evidence: evidence, visibleRegion: visibleRegion, canContinue: canContinue)
+            detections += printedDetections(in: detailBuffer, proposals: eligible, evidence: evidence, visibleRegion: visibleRegion, admission:admission, canContinue: canContinue)
         }
-        if canContinue(), timestamp - lastScene >= (retainedSceneNeeded(detections) ? 3 : 6), ProcessInfo.processInfo.systemUptime <= deadline {
+        if mayInfer(), timestamp - lastScene >= (retainedSceneNeeded(detections) ? 3 : 6) {
             lastScene = timestamp
             let request = VNClassifyImageRequest()
-            if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request]) }) != nil,
+            if (try? performRequests([request], admission:admission, canContinue: canContinue) { try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request]) }) != nil,
                let result = request.results?.first, result.confidence >= 0.65 {
                 scene = SubjectScene(label: result.identifier, confidence: result.confidence, timestamp: timestamp)
             } else { scene = nil }
@@ -450,7 +498,7 @@ final class SubjectTracker {
         return CGRect(x:minX,y:minY,width:maxX-minX,height:maxY-minY)
     }
     private func printedDetections(in buffer: CVPixelBuffer, proposals: [VNDetectedObjectObservation], evidence: SubjectImageEvidence,
-                                   visibleRegion: CGRect, canContinue: () -> Bool) -> [Detection] {
+                                   visibleRegion: CGRect, admission:SubjectInferenceAdmission, canContinue: () -> Bool) -> [Detection] {
         let rectangles = VNDetectRectanglesRequest()
         rectangles.maximumObservations = 4; rectangles.minimumConfidence = 0.6
         rectangles.minimumSize = 0.08; rectangles.minimumAspectRatio = 0.15; rectangles.quadratureTolerance = 30
@@ -458,11 +506,10 @@ final class SubjectTracker {
         text.recognitionLevel = .fast; text.usesLanguageCorrection = false
         text.automaticallyDetectsLanguage = true; text.minimumTextHeight = 0.015
         do {
-            try performRequests([rectangles, text], canContinue: canContinue) {
+            try performRequests([rectangles, text], admission:admission, canContinue: canContinue) {
                 try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([rectangles, text])
             }
             guard canContinue() else { return [] }
-            let deadline = ProcessInfo.processInfo.systemUptime + 0.7
             let lines: [PrintedTextLine] = (text.results ?? []).compactMap { observation in
                 guard let top = observation.topCandidates(1).first else { return nil }
                 return PrintedTextLine(text: top.string, confidence: Double(top.confidence), bounds: observation.boundingBox)
@@ -484,14 +531,14 @@ final class SubjectTracker {
                 var name = printed?.name, confidence = printed?.confidence ?? 0
                 // A useful geometric candidate need not have drawn saliency.
                 // Read its real high-resolution crop before giving up on it.
-                if (printed == nil || (printed?.confidence ?? 0) < 0.65) && ProcessInfo.processInfo.systemUptime <= deadline {
+                if (printed == nil || (printed?.confidence ?? 0) < 0.65) && permitsAcquisition(admission) {
                     let roi = box.intersection(visibleRegion)
                     let rect = CGRect(x: roi.minX * full.extent.width, y: roi.minY * full.extent.height,
                                       width: roi.width * full.extent.width, height: roi.height * full.extent.height).integral.intersection(full.extent)
                     if rect.width > 12, rect.height > 12 {
                         let crop = full.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
                         let request = VNClassifyImageRequest()
-                        if (try? performRequests([request], canContinue: canContinue) { try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request]) }) != nil,
+                        if (try? performRequests([request], admission:admission, canContinue: canContinue) { try VNImageRequestHandler(ciImage: crop, orientation: .up).perform([request]) }) != nil,
                            let identity = SubjectIdentity.recognized((request.results ?? []).prefix(12).map { ($0.identifier, Double($0.confidence)) }, localized: true),
                            !SubjectCategory.classified(identity.name).semantic {
                             name = identity.name; confidence = identity.confidence

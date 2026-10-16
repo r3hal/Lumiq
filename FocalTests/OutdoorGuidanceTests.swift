@@ -21,6 +21,15 @@ final class OutdoorGuidanceTests: XCTestCase {
         pixels.lines = []; pixels.symmetry = 1; pixels.repetition = 0
         return pixels
     }
+    private func competingEvidence(at time:Double, leading:Bool = false) throws -> SceneCompositionEvidence {
+        var pixels = try evidence(at:time)
+        pixels.symmetry = 0.8; pixels.repetition = 0
+        pixels.lines = leading ? [
+            .init(start:.init(x:0,y:1),end:.init(x:0.5,y:0.4),support:0.9),
+            .init(start:.init(x:1,y:1),end:.init(x:0.5,y:0.4),support:0.9)
+        ] : []
+        return pixels
+    }
     func testMotorRemainsSuspendedForEntirePinchAndGraceStartsAtEnd() {
         var policy = ManualZoomGrace()
         policy.begin(at:1)
@@ -256,5 +265,158 @@ final class OutdoorGuidanceTests: XCTestCase {
         XCTAssertEqual(next.subjectLabel,first.subjectLabel)
         XCTAssertNotEqual(next.selected.technique,first.selected.technique)
         XCTAssertTrue(SceneCompositionEvidence.full.contains(next.selected.crop))
+    }
+    func testDiagonalSceneErrorOutsideToleranceAlwaysHasCorrection() throws {
+        var plan = try scenePlan(evidence())
+        plan.selected.target = .init(x:0.5,y:0.5)
+        for dx in [-0.11,-0.08,-0.06,0,0.06,0.08,0.11] {
+            for dy in [-0.11,-0.08,-0.06,0,0.06,0.08,0.11] {
+                plan.selected.sceneAnchor = .init(x:0.5+dx,y:0.5+dy)
+                let aligned = OutdoorCompositionPlanner.aligned(plan)
+                let action = OutdoorCompositionPlanner.instruction(plan).1
+                XCTAssertEqual(action == nil,aligned,"offset=\(dx),\(dy)")
+                if let action { XCTAssertTrue([GuidanceAction.panLeft,.panRight,.panUp,.panDown].contains(action)) }
+            }
+        }
+        plan.selected.sceneAnchor = .init(x:0.58,y:0.58)
+        XCTAssertFalse(OutdoorCompositionPlanner.aligned(plan))
+        XCTAssertNotNil(OutdoorCompositionPlanner.instruction(plan).1)
+    }
+    func testSceneAlignmentToleranceIncludesBoundary() throws {
+        let pixels = try evidence()
+        var plan = try scenePlan(pixels)
+        // A zero target keeps the exact 0.10 boundary free of subtraction error.
+        plan.selected.target = .init(x:0,y:0)
+        for offset in [0.099,0.10,0.101] {
+            plan.selected.sceneAnchor = .init(x:offset,y:0)
+            XCTAssertEqual(OutdoorCompositionPlanner.aligned(plan),offset <= 0.10)
+            XCTAssertEqual(OutdoorCompositionPlanner.instruction(plan).1 == nil,offset <= 0.10)
+            XCTAssertEqual(OutdoorCompositionPlanner.permitsReady(plan:plan,evidence:pixels,at:0,motionPermitted:true),offset <= 0.10)
+        }
+    }
+    func testSceneCorrectionMirrorsHorizontalButNotVerticalNearTolerance() throws {
+        var plan = try scenePlan(evidence())
+        plan.selected.target = .init(x:0.5,y:0.5)
+        for sign in [-1.0,1.0] {
+            plan.selected.sceneAnchor = .init(x:0.5+sign*0.09,y:0.56)
+            XCTAssertEqual(OutdoorCompositionPlanner.instruction(plan).1,sign > 0 ? .panRight : .panLeft)
+            XCTAssertEqual(OutdoorCompositionPlanner.instruction(plan,mirrored:true).1,sign > 0 ? .panLeft : .panRight)
+            plan.selected.sceneAnchor = .init(x:0.56,y:0.5+sign*0.09)
+            XCTAssertEqual(OutdoorCompositionPlanner.instruction(plan).1,sign > 0 ? .panDown : .panUp)
+            XCTAssertEqual(OutdoorCompositionPlanner.instruction(plan,mirrored:true).1,sign > 0 ? .panDown : .panUp)
+        }
+    }
+    func testSceneGuidanceReachesVerifiedReadyAfterDiagonalCorrection() throws {
+        let pixels = try evidence()
+        var plan = try scenePlan(pixels), guidance = AutomaticGuidance()
+        plan.selected.target = .init(x:0.5,y:0.5)
+        plan.selected.sceneAnchor = .init(x:0.58,y:0.58)
+        var framing = FramingPlanner(continuousRecovery:true)
+        XCTAssertTrue(framing.selectShot(.scene(label:"Scene",evidence:pixels,zoom:1,projection:.init(imageAspect:1,previewAspect:1))))
+        framing.confirmCurrentFrame(eligible:OutdoorCompositionPlanner.permitsReady(plan:plan,evidence:pixels,at:0,motionPermitted:true),timestamp:0,holdDuration:0.7)
+        let correction = guidance.update(reading:.init(),phase:framing.phase,stable:true,rollReliable:true,
+            autoEnabled:true,zoomAvailable:false,timestamp:0,compositionPlan:plan,sceneEvidence:pixels,
+            requireShotCompletion:true,currentFrameVerified:framing.currentFrameVerified,continuousFraming:true)
+        XCTAssertEqual(correction.kind,.scene); XCTAssertTrue(correction.showsDirection)
+        XCTAssertFalse(framing.currentFrameVerified)
+        for time in [0.2,0.45,0.7,0.95] {
+            plan.timestamp = time; plan.selected.sceneAnchor = .init(x:0.56,y:0.56)
+            let current = try evidence(at:time)
+            framing.confirmCurrentFrame(eligible:OutdoorCompositionPlanner.permitsReady(plan:plan,evidence:current,at:time,motionPermitted:true),timestamp:time,holdDuration:0.7)
+        }
+        XCTAssertEqual(framing.phase,.framed); XCTAssertTrue(framing.currentFrameVerified)
+        let ready = guidance.update(reading:.init(),phase:framing.phase,stable:true,rollReliable:true,
+            autoEnabled:true,zoomAvailable:false,timestamp:0.95,compositionPlan:plan,sceneEvidence:try evidence(at:0.95),
+            requireShotCompletion:true,currentFrameVerified:framing.currentFrameVerified,continuousFraming:true)
+        XCTAssertEqual(ready.kind,.ready); XCTAssertFalse(ready.showsDirection)
+    }
+    func testChallengerRequiresUninterruptedSupportedEvidence() throws {
+        var planner = OutdoorCompositionPlanner()
+        let first = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:0),at:0))
+        XCTAssertEqual(first.selected.technique,.symmetry)
+        for time in [0.8,1.6] {
+            let retained = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:time,leading:true),at:time))
+            XCTAssertEqual(retained.selected.technique,.symmetry); XCTAssertEqual(retained.id,first.id)
+        }
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.4,leading:true),at:2.4)?.selected.technique,.leadingLines)
+    }
+    func testMissingEvidenceRestartsChallengerDwell() throws {
+        var planner = OutdoorCompositionPlanner()
+        let first = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:0),at:0))
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:0.8,leading:true),at:0.8)?.selected.technique,.symmetry)
+        XCTAssertNil(planner.update(evidence:nil,at:1.2))
+        let resumed = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:2,leading:true),at:2.3))
+        XCTAssertEqual(resumed.selected.technique,.symmetry); XCTAssertEqual(resumed.id,first.id)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:3.1,leading:true),at:3.1)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:3.9,leading:true),at:3.9)?.selected.technique,.leadingLines)
+    }
+    func testStaleEvidenceRestartsChallengerDwell() throws {
+        var planner = OutdoorCompositionPlanner()
+        _ = planner.update(evidence:try competingEvidence(at:0),at:0)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:0.8,leading:true),at:0.8)?.selected.technique,.symmetry)
+        XCTAssertNil(planner.update(evidence:try competingEvidence(at:0,leading:true),at:1.4))
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2,leading:true),at:2.3)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:3.1,leading:true),at:3.1)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:3.9,leading:true),at:3.9)?.selected.technique,.leadingLines)
+    }
+    func testEmptyEvidenceReleasesPlanAndRecovers() throws {
+        var planner = OutdoorCompositionPlanner()
+        let first = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:0),at:0))
+        _ = planner.update(evidence:try competingEvidence(at:0.8,leading:true),at:0.8)
+        let flat = SubjectImageEvidence(pixels:Array(repeating:.init(red:0.5,green:0.5,blue:0.5),count:48*48),width:48,height:48)
+        let empty = try XCTUnwrap(SceneCompositionEvidence(image:flat,projection:.init(imageAspect:1,previewAspect:1),timestamp:1))
+        XCTAssertNil(planner.update(evidence:empty,at:1)); XCTAssertNil(planner.plan)
+        let restored = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:1.2),at:1.2))
+        XCTAssertEqual(restored.selected.technique,.symmetry); XCTAssertNotEqual(restored.id,first.id)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:1.3,leading:true),at:1.3)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.3,leading:true),at:2.3)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.9,leading:true),at:2.9)?.selected.technique,.leadingLines)
+    }
+    func testLongUpdateGapRestartsChallengerDwell() throws {
+        var planner = OutdoorCompositionPlanner()
+        _ = planner.update(evidence:try competingEvidence(at:0),at:0)
+        _ = planner.update(evidence:try competingEvidence(at:0.8,leading:true),at:0.8)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.4,leading:true),at:2.4)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:3.2,leading:true),at:3.2)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:4,leading:true),at:4)?.selected.technique,.leadingLines)
+    }
+    func testPollingCannotBridgeLongEvidenceGap() throws {
+        var planner = OutdoorCompositionPlanner()
+        _ = planner.update(evidence:try competingEvidence(at:0),at:0)
+        let challenging = try competingEvidence(at:0.8,leading:true)
+        _ = planner.update(evidence:challenging,at:0.8)
+        _ = planner.update(evidence:challenging,at:1.4)
+        _ = planner.update(evidence:challenging,at:2)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.4,leading:true),at:2.4)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:3.2,leading:true),at:3.2)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:4,leading:true),at:4)?.selected.technique,.leadingLines)
+    }
+    func testReversedEvidenceRestartsChallengerDwell() throws {
+        var planner = OutdoorCompositionPlanner()
+        _ = planner.update(evidence:try competingEvidence(at:0),at:0)
+        _ = planner.update(evidence:try competingEvidence(at:0.8,leading:true),at:0.8)
+        _ = planner.update(evidence:try competingEvidence(at:0.7,leading:true),at:1)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:1.8,leading:true),at:1.8)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.3,leading:true),at:2.3)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:2.5,leading:true),at:2.5)?.selected.technique,.leadingLines)
+    }
+    func testReversedUpdateTimeRestartsChallengerDwell() throws {
+        var planner = OutdoorCompositionPlanner()
+        _ = planner.update(evidence:try competingEvidence(at:10),at:10)
+        _ = planner.update(evidence:try competingEvidence(at:10.8,leading:true),at:10.8)
+        _ = planner.update(evidence:try competingEvidence(at:10.4,leading:true),at:10.4)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:11.2,leading:true),at:11.2)?.selected.technique,.symmetry)
+        XCTAssertEqual(planner.update(evidence:try competingEvidence(at:11.9,leading:true),at:11.9)?.selected.technique,.leadingLines)
+    }
+    func testSupportedExplicitAlternativeSurvivesMissingEvidence() throws {
+        var planner = OutdoorCompositionPlanner()
+        let first = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:0),at:0))
+        planner.requestAlternative()
+        let alternative = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:0.2),at:0.2))
+        XCTAssertNotEqual(alternative.selected.technique,first.selected.technique)
+        XCTAssertNil(planner.update(evidence:nil,at:0.4))
+        let resumed = try XCTUnwrap(planner.update(evidence:try competingEvidence(at:0.8,leading:true),at:0.8))
+        XCTAssertEqual(resumed.selected.technique,alternative.selected.technique)
+        XCTAssertEqual(resumed.id,alternative.id)
     }
 }
