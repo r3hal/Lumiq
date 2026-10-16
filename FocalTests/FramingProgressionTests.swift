@@ -142,6 +142,7 @@ final class FramingProgressionTests: XCTestCase {
         var p = FramingPlanner()
         p.noteBlock(.quality,at:0) // A prior planning gate must not mask a later measured good frame.
         p.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.75)
+        p.confirmCurrentFrame(eligible:true,timestamp:0.5,holdDuration:0.75)
         p.confirmCurrentFrame(eligible:true,timestamp:1,holdDuration:0.75)
         XCTAssertTrue(p.currentFrameVerified); XCTAssertEqual(p.directorState(hasPlan:true),.ready)
         XCTAssertNil(step(&p,2)); XCTAssertNil(p.progressInstruction)

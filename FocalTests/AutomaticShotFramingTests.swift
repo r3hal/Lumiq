@@ -207,6 +207,8 @@ final class AutomaticShotFramingTests: XCTestCase {
         var planner = FramingPlanner()
         planner.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:1)
         XCTAssertFalse(planner.currentFrameVerified)
+        // Positive dwell requires observations between the endpoints.
+        planner.confirmCurrentFrame(eligible:true,timestamp:0.5,holdDuration:1)
         planner.confirmCurrentFrame(eligible:true,timestamp:1,holdDuration:1)
         XCTAssertTrue(planner.currentFrameVerified); XCTAssertEqual(planner.directorState(hasPlan:true),.ready)
         planner.confirmCurrentFrame(eligible:false,timestamp:1.1,holdDuration:1)

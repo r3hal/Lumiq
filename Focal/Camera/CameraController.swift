@@ -520,7 +520,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setCompositionPlanning(_ enabled: Bool) {
-        invalidateGuidanceResults()
+        let snapshot = invalidateGuidanceResults()
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
@@ -528,7 +528,7 @@ final class CameraController: NSObject, ObservableObject {
                 self.compositionEvidence = nil; self.lastCompositionEvidence = -.infinity
                 self.framing.reset(enabled:self.automaticShotArmed && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
-                if !enabled { DispatchQueue.main.async { self.compositionPlan = nil } }
+                if !enabled { self.publishAnalysis(snapshot) { self.compositionPlan = nil } }
             }
         }
     }
@@ -2010,6 +2010,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         else if !zoomMotionAllowed { zoomBlock = .subjectMotion }
         else if !allowPlannedZoom { zoomBlock = .quality }
         else { zoomBlock = nil }
+        // Manual layouts and disabled Auto Zoom use measured verification alone.
         if analysisSource == .iPhone, automaticShotArmed, framingSettingsAllow, framing.phase.isPreparing, !zooming, selectedShot == nil {
             framing.noteBlock(.missingPlan,at:evaluatedAt)
         }

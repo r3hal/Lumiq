@@ -199,6 +199,7 @@ final class SceneCompositionPlannerTests: XCTestCase {
         let target = UnitPoint2D(x:1.0/3,y:0.5)
         var engine = CompositionEngine()
         _ = engine.update(subject:target,rollDegrees:0,mode:.automatic,timestamp:0,preferredTarget:target)
+        _ = engine.update(subject:target,rollDegrees:0,mode:.automatic,timestamp:0.5,preferredTarget:target)
         let automatic = engine.update(subject:target,rollDegrees:0,mode:.automatic,timestamp:1,preferredTarget:target)
         XCTAssertEqual(automatic.target,target)
         XCTAssertEqual(automatic.state,.ready)
