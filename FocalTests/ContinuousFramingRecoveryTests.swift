@@ -321,7 +321,7 @@ extension ContinuousFramingRecoveryTests {
     }
     func testManualThirdsCompletesAtEverySelectedCornerWithoutZoomPlan() {
         for target in CompositionEngine.thirdsTargets {
-            let b = CGRect(x:target.x-0.1,y:target.y-0.1,width:0.2,height:0.2)
+            let b = CGRect(x:target.x-0.15,y:target.y-0.15,width:0.3,height:0.3)
             let a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
             let eligible = ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b,target:target,roll:0,aspect:0.75,assessment:a,stable:true)
             XCTAssertTrue(eligible)
@@ -332,13 +332,13 @@ extension ContinuousFramingRecoveryTests {
         }
     }
     func testManualCenterVerifiesWithoutAutomaticZoomPermission() {
-        let b = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
+        let b = CGRect(x:0.35,y:0.35,width:0.3,height:0.3)
         let a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
         XCTAssertTrue(ShotReadiness.measuredManualFrame(mode:.centered,bounds:b,target:.init(x:0.5,y:0.5),roll:0,aspect:0.75,assessment:a,stable:true))
         XCTAssertFalse(ShotReadiness.measuredManualFrame(mode:.automatic,bounds:b,target:.init(x:0.5,y:0.5),roll:0,aspect:0.75,assessment:a,stable:true))
     }
     func testManualCompletionRejectsLossWeakEvidenceMotionAndWrongTarget() {
-        let b = CGRect(x:0.4,y:0.4,width:0.2,height:0.2)
+        let b = CGRect(x:0.35,y:0.35,width:0.3,height:0.3)
         var a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
         func eligible(_ bounds:CGRect?,_ target:UnitPoint2D,_ stable:Bool) -> Bool {
             ShotReadiness.measuredManualFrame(mode:.thirds,bounds:bounds,target:target,roll:0,aspect:0.75,assessment:a,stable:stable)
@@ -352,7 +352,7 @@ extension ContinuousFramingRecoveryTests {
         XCTAssertFalse(eligible(b,.init(x:0.5,y:0.5),true))
     }
     func testManualReadyRetainsOnlyWithinExitTolerance() {
-        let b = CGRect(x:0.472,y:0.4,width:0.2,height:0.2)
+        let b = CGRect(x:0.422,y:0.35,width:0.3,height:0.3)
         let a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
         XCTAssertFalse(ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b,target:.init(x:0.5,y:0.5),roll:4.5,aspect:0.75,assessment:a,stable:true))
         XCTAssertTrue(ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b,target:.init(x:0.5,y:0.5),roll:4.5,aspect:0.75,assessment:a,stable:true,retaining:true))
@@ -416,9 +416,7 @@ extension ContinuousFramingRecoveryTests {
         XCTAssertTrue(grace.permitsAutomaticZoom(at:13.1))
     }
     func testSubjectFocusCapabilityIsIndependentOfZoomAndHonorsManualFocus() {
-        for _ in [false,true] { // Both Auto Zoom preference values use the same capability.
-            XCTAssertTrue(SubjectAutofocus.permitted(guidance:true,tracking:true,iPhone:true,manualFocus:false))
-        }
+        XCTAssertTrue(SubjectAutofocus.permitted(guidance:true,tracking:true,iPhone:true,manualFocus:false))
         XCTAssertFalse(SubjectAutofocus.permitted(guidance:false,tracking:true,iPhone:true,manualFocus:false))
         XCTAssertFalse(SubjectAutofocus.permitted(guidance:true,tracking:false,iPhone:true,manualFocus:false))
         XCTAssertFalse(SubjectAutofocus.permitted(guidance:true,tracking:true,iPhone:false,manualFocus:false))
@@ -430,6 +428,36 @@ extension ContinuousFramingRecoveryTests {
         guard case .target? = af.update(enabled:true,selectedIdentity:"A",observedIdentity:"A",bounds:b,confidence:0.95,observedAt:0,now:0) else { return XCTFail("Initial target") }
         for t in [0.1,0.25,0.5,0.75] {
             guard case .maintain? = af.update(enabled:true,selectedIdentity:"A",observedIdentity:"A",bounds:b,confidence:0.95,observedAt:t,now:t) else { return XCTFail("Stationary target must not hunt") }
+        }
+    }
+
+    func testDelayedExpiryCannotInvalidateNewerReadyEvidence() {
+        var p = FramingPlanner(continuousRecovery:true)
+        p.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:1.2,holdDuration:0.5)
+        XCTAssertFalse(p.expireReadiness(at:1.51))
+        XCTAssertTrue(p.currentFrameVerified)
+        XCTAssertTrue(p.expireReadiness(at:2.11))
+        XCTAssertFalse(p.currentFrameVerified)
+    }
+    func testManualThirdsPipelinePublishesReadyWithEitherZoomPreference() {
+        let target = UnitPoint2D(x:1.0/3,y:1.0/3)
+        let bounds = CGRect(x:target.x-0.15,y:target.y-0.15,width:0.3,height:0.3)
+        let assessment = CompositionAssessment.evaluate(bounds:bounds,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        for autoZoom in [false,true] {
+            var director = FramingPlanner(continuousRecovery:true), engine = CompositionEngine(), guide = AutomaticGuidance()
+            var message = GuidanceMessage()
+            for time in [0.0,0.3,0.6,0.9] {
+                director.confirmCurrentFrame(eligible:ShotReadiness.measuredManualFrame(mode:.thirds,bounds:bounds,target:target,roll:0,aspect:0.75,assessment:assessment,stable:true),timestamp:time,holdDuration:0.5)
+                var reading = engine.update(subject:target,rollDegrees:0,mode:.thirds,timestamp:time,preferredTarget:target)
+                reading.subjectBounds = bounds; reading.guidanceBounds = bounds; reading.subjectConfidence = 0.95
+                message = guide.update(reading:reading,phase:director.phase,stable:true,rollReliable:true,autoEnabled:autoZoom,zoomAvailable:false,timestamp:time,subjectLabel:"Person",intent:.portrait,manualComposition:true,requireShotCompletion:true,currentFrameVerified:director.currentFrameVerified,framingInstruction:director.progressInstruction,continuousFraming:true)
+                XCTAssertEqual(reading.target,target)
+                XCTAssertNil(director.shotPlan)
+            }
+            XCTAssertTrue(director.currentFrameVerified)
+            XCTAssertEqual(message.kind,.ready,"Auto Zoom preference: \(autoZoom)")
         }
     }
 }

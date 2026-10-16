@@ -359,8 +359,9 @@ final class CameraController: NSObject, ObservableObject {
             self.guidance = .init(kind:.framing,text:FramingBlockReason.staleFrame.instruction)
             self.analysisQueue.async {
                 guard self.guidanceSnapshot() == snapshot else { return }
-                self.framing.expireReadiness(at:ProcessInfo.processInfo.systemUptime)
-                self.shotCapture.invalidateVerification()
+                if self.framing.expireReadiness(at:ProcessInfo.processInfo.systemUptime) {
+                    self.shotCapture.invalidateVerification()
+                }
             }
         }
     }
@@ -1786,7 +1787,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         if analysisSubjectReference != tracker.trackingReference {
             analysisSubjectReference = tracker.trackingReference
             framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
-            engine.reset(); automaticGuidance.reset(); autofocusRequests.invalidate()
+            engine.reset(); automaticGuidance.reset(); autofocusRequests.invalidate(); boxSmoother.reset()
+            subjectMeasurements = nil; subjectMeasurementLabel = nil; lastSubjectMeasurement = -.infinity; previousMotionSubject = nil
         }
         let evaluatedAt = ProcessInfo.processInfo.systemUptime
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:evaluatedAt) else {
@@ -2008,13 +2010,13 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         else if !zoomMotionAllowed { zoomBlock = .subjectMotion }
         else if !allowPlannedZoom { zoomBlock = .quality }
         else { zoomBlock = nil }
-        if analysisSource == .iPhone, framing.phase.isPreparing, !zooming, selectedShot == nil {
+        if analysisSource == .iPhone, automaticShotArmed, framingSettingsAllow, framing.phase.isPreparing, !zooming, selectedShot == nil {
             framing.noteBlock(.missingPlan,at:evaluatedAt)
         }
         // Whole-scene plans have no object bounds: do not send them into the
         // object-loss recovery gate while their measured wide-frame hold runs.
         // Manual zoom suspends this motor path, never the analysis/UI pipeline.
-        if analysisSource == .iPhone, evaluatedAt >= analysisManualZoomUntil,
+        if analysisSource == .iPhone, automaticShotArmed, framingSettingsAllow, evaluatedAt >= analysisManualZoomUntil,
            plan?.selected.sceneAnchor == nil, framing.shotPlan?.sceneAnchor != true,
            let targetZoom = framing.update(bounds: bounds, confidence: confidence, roll: roll, timestamp: evaluatedAt,
                                             currentZoom: analysisZoom, maximumZoom: automaticZoomLimit,

@@ -49,7 +49,15 @@ for path,expected in manifest['originalSourceSHA256'].items():
  original=subprocess.check_output(['git','show',baselineRef+':'+path],cwd=ROOT)
  assert hashlib.sha256(original).hexdigest()==expected,path
 manifest30=json.loads((ROOT/'docs/intelligence/BASELINE-30-SOURCES.json').read_text())
-ref30=manifest30['localSnapshotCommit']
+# Historical local snapshots may exist without these paths in a clean clone.
+# Select only a ref containing every exact source hash recorded in the manifest.
+def matches_manifest(ref, hashes):
+ for path,expected in hashes.items():
+  result=subprocess.run(['git','show',ref+':'+path],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+  if result.returncode or hashlib.sha256(result.stdout).hexdigest()!=expected:return False
+ return True
+ref30=next((ref for ref in [manifest30['localSnapshotCommit'],manifest30['commit']] if matches_manifest(ref,manifest30['sha256'])),None)
+assert ref30 is not None,'No available commit matches the original baseline-30 source hashes'
 for path,expected in manifest30['sha256'].items():
  original=subprocess.check_output(['git','show',ref30+':'+path],cwd=ROOT)
  assert hashlib.sha256(original).hexdigest()==expected,path
@@ -57,7 +65,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','HEAD','--name-only','--','Focal/Sony').strip(),'Sony integration changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==631,count
+assert count==633,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 

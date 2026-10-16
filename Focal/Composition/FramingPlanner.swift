@@ -76,7 +76,7 @@ struct FramingPlanner {
         guard continuousRecovery, time.isFinite, phase != .off else { return }
         guard reason != .manualControl && reason != .disabled else { stop(reason:reason); return }
         guard !phase.isRecovering else { return } // Do not restart grace/backoff on each frame.
-        shotVerified = false; currentFrameVerified = false; completionSince = nil; lastVerification = nil
+        shotVerified = false; currentFrameVerified = false; currentFrameContinuity.reset(); readyObservedAt = nil; completionSince = nil; lastVerification = nil
         eligibleHold = 0; lastHoldEligible = false; alignedPreparationSince = nil
         retryCount += 1; recoveryStartedAt = time; noteBlock(reason,at:time)
         if shotPlan == nil || retryCount > 3 { beginRediscovery(at:time); return }
@@ -86,7 +86,7 @@ struct FramingPlanner {
     }
     private mutating func beginRediscovery(at time:TimeInterval) {
         phase = .rediscovering; shotPlan = nil; shotVerified = false; currentFrameVerified = false
-        retryAt = time+2; recoveryStartedAt = time; completionSince = nil; currentFrameContinuity.reset()
+        retryAt = time+2; recoveryStartedAt = time; completionSince = nil; lastVerification = nil; currentFrameContinuity.reset(); readyObservedAt = nil
         ShotFramingDiagnostics.log("REDISCOVERY_SCHEDULED","reason=\(blockReason?.rawValue ?? "unknown") attempts=\(retryCount) retryAt=\(time+2)")
     }
     mutating func advanceRecovery(bounds:CGRect?,label:String,trackingReference:String?,confidence:Float,zoom:Double,
@@ -246,10 +246,11 @@ struct FramingPlanner {
     mutating func recordReadyEvidence(at time:TimeInterval) {
         if time.isFinite, currentFrameVerified || shotVerified { readyObservedAt = time }
     }
-    mutating func expireReadiness(at time:TimeInterval) {
+    @discardableResult mutating func expireReadiness(at time:TimeInterval) -> Bool {
         guard let readyObservedAt,
-              !GuidanceObservationPolicy.fresh(capturedAt:readyObservedAt,evaluatedAt:time) else { return }
+              !GuidanceObservationPolicy.fresh(capturedAt:readyObservedAt,evaluatedAt:time) else { return false }
         invalidateReadiness(at:time)
+        return true
     }
     func directorState(hasPlan:Bool) -> ShotDirectorState {
         if recovering { return .recovering }
