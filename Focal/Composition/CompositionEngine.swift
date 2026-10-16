@@ -46,6 +46,7 @@ struct CompositionReading {
 
 struct CompositionEngine {
     private var alignedSince: TimeInterval?
+    private var ready = false
     private var smoothedSubject: UnitPoint2D?
     private var lockedTarget: UnitPoint2D?
     private var previousMode: CompositionMode?
@@ -63,7 +64,7 @@ struct CompositionEngine {
     }
 
     mutating func reset() {
-        alignedSince = nil
+        alignedSince = nil; ready = false
         smoothedSubject = nil
         lockedTarget = nil
         previousMode = nil
@@ -74,10 +75,12 @@ struct CompositionEngine {
                          mode: CompositionMode, timestamp: TimeInterval,
                          preferredTarget: UnitPoint2D? = nil, previewAspect: Double = 0.75, alignmentTolerance: Double = 0.065, acceptCurrentFrame: Bool = false) -> CompositionReading {
         if previousMode != mode { reset(); previousMode = mode }
+        guard timestamp.isFinite, rollDegrees.isFinite, previewAspect.isFinite, previewAspect > 0 else { reset(); return CompositionReading() }
+        if let lastSeen, timestamp <= lastSeen || timestamp-lastSeen > GuidanceObservationPolicy.maximumAge { alignedSince = nil; ready = false }
         guard let subject, subject.x.isFinite, subject.y.isFinite,
               (0...1).contains(subject.x), (0...1).contains(subject.y) else {
             // A single missed frame must not choose a new corner or flash a ready check.
-            alignedSince = nil
+            alignedSince = nil; ready = false
             if let lastSeen, timestamp - lastSeen < 0.4, let point = smoothedSubject {
                 return CompositionReading(state: .searching, subject: point,
                                           target: lockedTarget ?? Self.target(for: point, mode: mode),
@@ -96,7 +99,7 @@ struct CompositionEngine {
         if old.distance(to: subject) > 0.3 {
             smoothedSubject = subject
             lockedTarget = nil
-            alignedSince = nil
+            alignedSince = nil; ready = false
         } else {
             smoothedSubject = UnitPoint2D(x: old.x * 0.45 + subject.x * 0.55,
                                          y: old.y * 0.45 + subject.y * 0.55)
@@ -104,7 +107,7 @@ struct CompositionEngine {
         let point = smoothedSubject ?? subject
         let target = mode == .centered ? UnitPoint2D(x: 0.5, y: 0.5)
             : preferredTarget ?? lockedTarget ?? Self.target(for: point, mode: mode)
-        if lockedTarget != target && !acceptCurrentFrame { alignedSince = nil }
+        if lockedTarget != target && !acceptCurrentFrame { alignedSince = nil; ready = false }
         lockedTarget = target
         // Check both the raw observation and filtered position so smoothing cannot fake readiness.
         // Measure actual screen distance for the selected preview aspect ratio.
@@ -113,13 +116,14 @@ struct CompositionEngine {
                            hypot(subject.x - target.x, (subject.y - target.y) * verticalScale))
         var reading = CompositionReading(subject: point, target: target, rollDegrees: rollDegrees)
         reading.alignmentTolerance = alignmentTolerance.isFinite ? max(0.01,min(0.065,alignmentTolerance)) : 0.065
-        if abs(rollDegrees) > 4 {
-            alignedSince = nil
+        let exitTolerance = ready ? reading.alignmentTolerance*1.3 : reading.alignmentTolerance
+        if abs(rollDegrees) > (ready ? 5 : 4) {
+            alignedSince = nil; ready = false
             reading.state = .adjusting
             reading.title = "Level things out"
             reading.detail = "Gently rotate your phone until the line is level."
-        } else if distance > reading.alignmentTolerance {
-            alignedSince = nil
+        } else if distance > exitTolerance {
+            alignedSince = nil; ready = false
             reading.state = .adjusting
             let dx = point.x - target.x
             let dy = point.y - target.y
@@ -128,7 +132,8 @@ struct CompositionEngine {
             reading.detail = "Pan your phone \(direction) until the subject reaches the guide."
         } else {
             if alignedSince == nil { alignedSince = timestamp }
-            if timestamp - (alignedSince ?? timestamp) >= 0.65 {
+            if ready || timestamp - (alignedSince ?? timestamp) >= 0.65 {
+                ready = true
                 reading.state = .ready
                 reading.title = "That’s your frame"
                 reading.detail = "Balanced and ready. Make it yours."

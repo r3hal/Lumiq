@@ -36,6 +36,11 @@ struct SubjectFocusTarget: Equatable {
 /// Focus-only smoothing/rate/loss policy. Identity and rectangles are supplied
 /// by the existing ShotPlan/Vision tracker; this cannot select another subject.
 struct SubjectAutofocus {
+    /// Selected-subject focus follows tracking intent, independently of zoom.
+    static func permitted(guidance:Bool,tracking:Bool,iPhone:Bool,manualFocus:Bool) -> Bool {
+        guidance && tracking && iPhone && !manualFocus
+    }
+
     enum Update: Equatable {
         case target(SubjectFocusTarget)
         case maintain(identity:String,observedAt:TimeInterval)

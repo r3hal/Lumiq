@@ -105,6 +105,11 @@ final class CameraController: NSObject, ObservableObject {
     private var guidanceEnabled = false
     private let guidanceLock = NSLock()
     private var activation = GuidanceActivation()
+    private let resultGate = GuidanceResultGate()
+    private var requestedPreviewAspect = 0.75 // Protected by guidanceLock.
+    private var activeAnalysisTicket: GuidanceResultGate.Ticket? // Analysis queue only.
+    private var activeAnalysisSnapshot: GuidanceActivation.Snapshot? // Analysis queue only.
+    private var analysisSubjectReference: String? // Analysis queue only.
     private var subjectMeasurements: PhotoMeasurements?
     private var subjectMeasurementLabel: String?
     private var lastSubjectMeasurement: TimeInterval = -.infinity
@@ -240,6 +245,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func stop() {
+        invalidateGuidanceResults()
         precisionLock.lock(); precisionContext.generation += 1; precisionLock.unlock()
         DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset() }
         zoomRequestLock.lock(); zoomRequests.clear(); zoomRequestLock.unlock()
@@ -258,6 +264,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func switchCamera() {
         guard !isCapturing, !isSwitchingCamera, isRunning else { return }
+        invalidateGuidanceResults()
         isSwitchingCamera = true
         queue.async {
             defer { DispatchQueue.main.async { self.isSwitchingCamera = false } }
@@ -318,14 +325,48 @@ final class CameraController: NSObject, ObservableObject {
         return activation.snapshot
     }
 
-    private func publishAnalysis(_ snapshot: GuidanceActivation.Snapshot, update: @escaping () -> Void) {
+    /// Invalidate before enqueueing configuration so in-flight work cannot publish
+    /// over a newer user decision. This preserves the enabled AI Guide session.
+    @discardableResult private func invalidateGuidanceResults(source:CameraSource? = nil) -> GuidanceActivation.Snapshot {
+        guidanceLock.lock(); let snapshot = activation.set(activation.snapshot.enabled,source:source); guidanceLock.unlock()
+        resultGate.invalidate(at:ProcessInfo.processInfo.systemUptime); autofocusRequests.invalidate()
+        DispatchQueue.main.async {
+            guard self.guidanceSnapshot() == snapshot else { return }
+            self.reading = CompositionReading(); self.compositionPlan = nil; self.framingHoldProgress = 0
+            self.guidance = snapshot.enabled ? .init(kind:.framing,text:"Updating the composition…") : GuidanceMessage()
+        }
+        return snapshot
+    }
+    private func publishAnalysis(_ snapshot: GuidanceActivation.Snapshot, requiresFresh:Bool = true,
+                                 expires:Bool = false, update: @escaping () -> Void) {
+        let ticket = activeAnalysisTicket
         DispatchQueue.main.async {
             guard snapshot.enabled, self.guidanceSnapshot() == snapshot else { return }
+            if let ticket {
+                guard (requiresFresh ? self.resultGate.accepts(ticket,at:ProcessInfo.processInfo.systemUptime) : self.resultGate.isCurrent(ticket)) else { return }
+                if expires, !self.resultGate.apply(ticket,at:ProcessInfo.processInfo.systemUptime) { return }
+            }
             update()
+            if expires, let ticket { self.scheduleGuidanceExpiry(ticket,snapshot:snapshot) }
+        }
+    }
+    private func scheduleGuidanceExpiry(_ ticket:GuidanceResultGate.Ticket,snapshot:GuidanceActivation.Snapshot) {
+        let delay = max(0.01,ticket.observedAt+GuidanceObservationPolicy.maximumAge-ProcessInfo.processInfo.systemUptime+0.01)
+        DispatchQueue.main.asyncAfter(deadline:.now()+delay) { [weak self] in
+            guard let self, self.guidanceSnapshot() == snapshot,
+                  self.resultGate.expire(ticket,at:ProcessInfo.processInfo.systemUptime) else { return }
+            self.reading = CompositionReading(); self.compositionPlan = nil; self.framingHoldProgress = 0
+            self.guidance = .init(kind:.framing,text:FramingBlockReason.staleFrame.instruction)
+            self.analysisQueue.async {
+                guard self.guidanceSnapshot() == snapshot else { return }
+                self.framing.expireReadiness(at:ProcessInfo.processInfo.systemUptime)
+                self.shotCapture.invalidateVerification()
+            }
         }
     }
 
     func setSubjectThreshold(_ value: Double) {
+        invalidateGuidanceResults()
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
@@ -337,11 +378,12 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setHoldDuration(_ duration: Double) {
+        invalidateGuidanceResults()
         analysisQueue.async { self.holdDuration = max(0.5,min(3,duration)); self.framing.reset(enabled:self.automaticShotArmed && self.guidanceEnabled && self.analysisSource == .iPhone) }
     }
 
     func setSubjectFeatures(pets: Bool, tracking: Bool, smartSelection: Bool) {
-        guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled); guidanceLock.unlock()
+        invalidateGuidanceResults()
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -354,6 +396,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setInterfacePaused(_ paused: Bool) {
+        invalidateGuidanceResults()
         precisionLock.lock(); precisionContext.paused = paused; precisionContext.generation += 1; precisionLock.unlock()
         queue.async {
             self.trackingFocusPaused = paused; self.autofocusRequests.invalidate()
@@ -361,6 +404,7 @@ final class CameraController: NSObject, ObservableObject {
             self.cancelZoomRamp()
             self.analysisQueue.async {
                 self.interfacePaused = paused
+                self.framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
                 self.resetSubjectAutofocus()
                 if !paused {
                     // Preserve a valid shot or pending recovery across sheets.
@@ -374,7 +418,7 @@ final class CameraController: NSObject, ObservableObject {
     func setAnalysisSource(_ source: CameraSource) {
         precisionLock.lock(); precisionContext.source = source; precisionContext.generation += 1; precisionLock.unlock()
         DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset() }
-        guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled, source: source); guidanceLock.unlock()
+        invalidateGuidanceResults(source:source)
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -399,6 +443,8 @@ final class CameraController: NSObject, ObservableObject {
         externalLock.lock()
         guard externalScheduler.admit(at: ProcessInfo.processInfo.systemUptime, enabled: true) else { externalLock.unlock(); return }
         externalLock.unlock()
+        let observedAt = ProcessInfo.processInfo.systemUptime
+        let ticket = resultGate.begin(observedAt:observedAt)
         analysisQueue.async {
             defer { self.externalLock.lock(); self.externalScheduler.finish(); self.externalLock.unlock() }
             guard self.guidanceSnapshot() == snapshot, self.guidanceEnabled, self.analysisSource == .sony else { return }
@@ -414,11 +460,12 @@ final class CameraController: NSObject, ObservableObject {
             }
             guard let buffer = self.externalAnalysisBuffer else { return }
             self.imageContext.render(scaled,to:buffer)
-            self.processFrame(buffer, sourceAspect: Double(image.width) / Double(image.height))
+            self.processFrame(buffer, sourceAspect: Double(image.width) / Double(image.height),observedAt:observedAt,ticket:ticket)
         }
     }
 
     func beginManualZoom(completion: @escaping (Double) -> Void) {
+        invalidateGuidanceResults()
         tracker.cancelInference(includeTracking: false)
         queue.async {
             guard self.captureCompletion == nil else { return }
@@ -460,6 +507,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setMode(_ mode: CompositionMode, userInitiated:Bool = true) {
+        invalidateGuidanceResults()
         queue.async {
             self.cancelZoomRamp(manualOverride:userInitiated)
             self.analysisQueue.async {
@@ -471,6 +519,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setCompositionPlanning(_ enabled: Bool) {
+        invalidateGuidanceResults()
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
@@ -483,6 +532,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
     func setPetFraming(_ style:PetFramingStyle) {
+        invalidateGuidanceResults()
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -492,6 +542,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
     func setIntent(_ intent: PhotographyIntent, userInitiated:Bool = true) {
+        invalidateGuidanceResults()
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp(manualOverride:userInitiated)
@@ -503,6 +554,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func setGuidance(_ enabled: Bool) {
         guidanceLock.lock(); let newSession = enabled && !activation.snapshot.enabled; let snapshot = activation.set(enabled); guidanceLock.unlock()
+        resultGate.invalidate(at:ProcessInfo.processInfo.systemUptime)
         tracker.cancelInference()
         if !enabled {
             DispatchQueue.main.async {
@@ -536,16 +588,14 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setAutoFraming(_ enabled: Bool) {
+        invalidateGuidanceResults()
         queue.async {
             let newSession = enabled && !self.autoZoomPreference
             self.autoZoomPreference = enabled
-            self.autofocusRequests.invalidate()
-            if !enabled { self.restoreNormalSubjectFocus() }
             self.cancelZoomRamp(manualOverride:!enabled,reason:.disabled)
             if newSession { self.beginAutomaticShot() }
             self.analysisQueue.async {
                 self.autoFrameEnabled = self.tracker.features.allowsAutomaticZoom(requested: enabled)
-                self.resetSubjectAutofocus()
                 self.framing.reset(enabled: self.automaticShotArmed && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.ignoreFramesUntil = 0
                 self.publishFraming()
@@ -610,6 +660,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func endManualZoom() {
+        invalidateGuidanceResults()
         queue.async {
             self.manualZoomGrace.end(at:ProcessInfo.processInfo.systemUptime)
             let until = self.manualZoomGrace.resumeAt
@@ -637,7 +688,8 @@ final class CameraController: NSObject, ObservableObject {
     /// Analysis queue. Retain tracker identity/AF; discard only obsolete crop and
     /// verification geometry. A subject outside the new FOV is rediscovered.
     private func replanAfterManualFraming() {
-        shotCapture.cancel(); scenePlanner.reset(); directZoomPlan = nil; manualTargetLock = nil
+        shotCapture.cancel(); scenePlanner.reset(); directZoomPlan = nil
+        if mode != .thirds { manualTargetLock = nil }
         compositionEvidence = nil; engine.reset()
         framing.reset(enabled:automaticShotArmed && guidanceEnabled && analysisSource == .iPhone)
         publishFraming()
@@ -646,10 +698,17 @@ final class CameraController: NSObject, ObservableObject {
     private func publishFraming() {
         let phase = framing.phase
         let progress = framing.holdProgress
-        DispatchQueue.main.async { self.framingPhase = phase; self.framingHoldProgress = progress }
+        let snapshot = activeAnalysisSnapshot ?? guidanceSnapshot()
+        let ticket = activeAnalysisTicket
+        DispatchQueue.main.async {
+            guard self.guidanceSnapshot() == snapshot else { return }
+            if let ticket, !self.resultGate.accepts(ticket,at:ProcessInfo.processInfo.systemUptime) { return }
+            self.framingPhase = phase; self.framingHoldProgress = progress
+        }
     }
 
     func setTarget(_ target: UnitPoint2D?) {
+        invalidateGuidanceResults()
         queue.async {
             self.cancelZoomRamp(manualOverride:true)
             self.analysisQueue.async {
@@ -661,8 +720,16 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setPreviewAspect(_ aspect: Double) {
+        guard aspect.isFinite, aspect > 0 else { return }
+        guidanceLock.lock()
+        let changed = abs(requestedPreviewAspect-aspect) > 0.005
+        if changed { requestedPreviewAspect = aspect }
+        guidanceLock.unlock()
+        guard changed else { return }
+        invalidateGuidanceResults()
         precisionLock.lock(); precisionContext.previewAspect = aspect; precisionContext.generation += 1; precisionLock.unlock()
         analysisQueue.async {
+            self.framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
             if abs(self.previewAspect-aspect) > 0.005 {
                 self.autofocusRequests.invalidate(); self.subjectAutofocus.reset()
             }
@@ -676,6 +743,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func tryAnotherComposition() {
+        invalidateGuidanceResults()
         guard guidanceSnapshot().enabled else { return }
         queue.async {
             self.cancelZoomRamp()
@@ -688,10 +756,8 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func findSubject() {
-        guidanceLock.lock()
-        guard activation.snapshot.enabled else { guidanceLock.unlock(); return }
-        let snapshot = activation.set(true)
-        guidanceLock.unlock()
+        guard guidanceSnapshot().enabled else { return }
+        let snapshot = invalidateGuidanceResults()
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -710,6 +776,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func selectSubject(at previewPoint: UnitPoint2D) {
         guard guidanceSnapshot().enabled else { return }
+        invalidateGuidanceResults()
         tracker.cancelInference()
         queue.async {
             self.autofocusRequests.invalidate()
@@ -728,13 +795,14 @@ final class CameraController: NSObject, ObservableObject {
                 self.framing.reset(enabled: self.automaticShotArmed && self.guidanceEnabled && self.analysisSource == .iPhone)
                 self.publishFraming()
                 self.wantsScan = true
-                DispatchQueue.main.async { self.subjectLabel = "Your subject"; self.reading = CompositionReading(); self.guidance = GuidanceMessage() }
+                self.publishAnalysis(self.guidanceSnapshot()) { self.subjectLabel = "Your subject"; self.reading = CompositionReading(); self.guidance = GuidanceMessage() }
             }
         }
     }
 
     func setZoom(_ displayedZoom: Double) {
         guard !isCapturing else { return }
+        invalidateGuidanceResults()
         zoomRequestLock.lock(); let schedule = zoomRequests.enqueue(displayedZoom); zoomRequestLock.unlock()
         guard schedule else { return }
         tracker.cancelInference(includeTracking: false)
@@ -780,7 +848,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func resetAnalysis(armFraming: Bool = true) {
-        shotCapture.cancel()
+        shotCapture.cancel(); analysisSubjectReference = nil
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics = GuidanceDiagnostics()
         DispatchQueue.main.async { self.guidancePerformance = nil }
@@ -799,7 +867,7 @@ final class CameraController: NSObject, ObservableObject {
         lastCoach = -.infinity; lastScene = -.infinity
         subjectMeasurements = nil; subjectMeasurementLabel = nil; lastSubjectMeasurement = -.infinity
         sceneMeasurements = nil; lastSceneMeasurement = -.infinity; manualInferenceResumeAfter = 0
-        DispatchQueue.main.async {
+        publishAnalysis(guidanceSnapshot()) {
             self.scanData = nil; self.reading = CompositionReading(); self.subjectLabel = "Auto subject"; self.guidance = GuidanceMessage(); self.compositionPlan = nil
             self.coachAdvice = []; self.liveMeasurements = nil; self.sceneLabel = nil; self.levelReliable = false
         }
@@ -1111,6 +1179,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setControlMode(_ mode: CameraControlMode) {
+        invalidateGuidanceResults()
         queue.async {
             guard self.captureCompletion == nil else { return }
             if self.manualState.mode != mode { self.cancelZoomRamp(manualOverride:true) }
@@ -1165,7 +1234,7 @@ final class CameraController: NSObject, ObservableObject {
         if id == nil && controls.usesAutomaticLenses { return }
         if let id, id == controls.lensID && !controls.usesAutomaticLenses { return }
         isSwitchingCamera = true
-        guidanceLock.lock(); _ = activation.set(activation.snapshot.enabled); guidanceLock.unlock()
+        invalidateGuidanceResults()
         tracker.cancelInference()
         queue.async {
             defer { DispatchQueue.main.async { self.isSwitchingCamera = false } }
@@ -1590,6 +1659,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard let native = CMSampleBufferGetImageBuffer(sampleBuffer), let copy = previewAnalysisCopy(native) else {
             previewScheduler.finish(); return
         }
+        let ticket = resultGate.begin(observedAt:now)
         let aspect = Double(CVPixelBufferGetWidth(native)) / Double(CVPixelBufferGetHeight(native))
         queue.async {
             self.recordObservedZoom()
@@ -1597,7 +1667,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             self.analysisQueue.async {
                 defer { self.videoQueue.async { self.previewScheduler.finish() } }
                 guard self.guidanceSnapshot() == snapshot, self.analysisSource == .iPhone else { return }
-                self.processFrame(copy, sourceAspect: aspect, observedAt: now, capturedZoom:frameZoom)
+                self.processFrame(copy, sourceAspect: aspect, observedAt: now, capturedZoom:frameZoom,ticket:ticket)
             }
         }
         // No CMSampleBuffer/native pixel buffer is retained by the async closure.
@@ -1634,12 +1704,15 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         return copy
     }
 
-    private func processFrame(_ fullBuffer: CVPixelBuffer, sourceAspect: Double? = nil, observedAt: TimeInterval? = nil, capturedZoom:CameraZoomObservation? = nil) {
+    private func processFrame(_ fullBuffer: CVPixelBuffer, sourceAspect: Double? = nil, observedAt: TimeInterval? = nil, capturedZoom:CameraZoomObservation? = nil,ticket:GuidanceResultGate.Ticket) {
         guard !analysisPaused, !interfacePaused else { return }
         let now = ProcessInfo.processInfo.systemUptime
         let observationTime = observedAt ?? now
         let snapshot = guidanceSnapshot()
-        guard snapshot.source == analysisSource else { return }
+        guard snapshot.source == analysisSource, resultGate.isCurrent(ticket) else { return }
+        activeAnalysisTicket = ticket; activeAnalysisSnapshot = snapshot
+        defer { activeAnalysisTicket = nil; activeAnalysisSnapshot = nil }
+        if analysisSource == .iPhone { framing.expireReadiness(at:observationTime) }
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:now) else {
             discardStaleGuidance(snapshot,observedAt:observationTime); return
         }
@@ -1692,7 +1765,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let keepFramedSubject = analysisSource == .iPhone && latestNativeBounds != nil
             && ((framing.shotPlan != nil && framing.phase.isPreparing)
                 || framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed
-                || (autoFrameEnabled && subjectAutofocus.identity != nil && subjectAutofocus.identity == tracker.trackingReference))
+                || (subjectAutofocus.identity != nil && subjectAutofocus.identity == tracker.trackingReference))
         let inferenceStarted = ProcessInfo.processInfo.systemUptime
         if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || ProcessInfo.processInfo.thermalState == .critical, retainSelection:keepFramedSubject,
                                             reacquisitionGrace:analysisSource == .iPhone && (framing.shotPlan != nil || subjectAutofocus.identity != nil) ? 1.5 : 0,
@@ -1709,7 +1782,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         // Preserve the last measured seed through a bounded pause, never display it
         // as a fresh observation. The director handles confidence/loss below.
         if imageBounds == nil, !zooming, !tracker.isRecovering { latestNativeBounds = nil }
-        guard guidanceSnapshot() == snapshot else { return }
+        guard guidanceSnapshot() == snapshot, resultGate.isCurrent(ticket) else { return }
+        if analysisSubjectReference != tracker.trackingReference {
+            analysisSubjectReference = tracker.trackingReference
+            framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
+            engine.reset(); automaticGuidance.reset(); autofocusRequests.invalidate()
+        }
         let evaluatedAt = ProcessInfo.processInfo.systemUptime
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:evaluatedAt) else {
             discardStaleGuidance(snapshot,observedAt:observationTime); return
@@ -1896,6 +1974,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         let outdoorReady = OutdoorCompositionPlanner.permitsReady(plan:plan,evidence:compositionEvidence,at:evaluatedAt,motionPermitted:framingMotionPermitted)
         let currentFrameEligible = ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:captureStable)
+            || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:captureStable)
+        let retainCurrentFrame = ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:stable,retaining:true)
+            || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:stable,retaining:true)
         if analysisSource == .iPhone {
             let scene = tracker.scene
             let sceneEligible = outdoorReady || ShotReadiness.measuredSceneFrame(scene:scene,evidence:compositionEvidence,measurements:sceneMeasurements,
@@ -1903,7 +1984,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             if (bounds == nil || plan?.selected.sceneAnchor != nil), let evidence = compositionEvidence, sceneEligible, framing.shotPlan == nil {
                 framing.selectShot(AutomaticShotPlan.scene(label:scene?.label ?? "Scene",evidence:evidence,zoom:analysisZoom,projection:projection))
             }
-            framing.confirmCurrentFrame(eligible:currentFrameEligible || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible),timestamp:evaluatedAt,holdDuration:plan?.selected.sceneAnchor != nil ? min(0.7,holdDuration) : holdDuration)
+            framing.confirmCurrentFrame(eligible:currentFrameEligible || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible),timestamp:observationTime,holdDuration:plan?.selected.sceneAnchor != nil ? min(0.7,holdDuration) : holdDuration,
+                retaining:retainCurrentFrame || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible),
+                identity:"\(snapshot.revision):\(tracker.trackingReference ?? "scene"):\(mode.rawValue)")
         }
         let preparingZoom = automaticShotArmed && autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing && !framing.phase.isRecovering && !zooming && execution.requiresZoom
         let keepUnplannedFrame = mode == .automatic && !planning && plan == nil
@@ -1991,7 +2074,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             result.state = .adjusting
             result.title = "Level unavailable. Frame manually"
         }
-        if !captureStable && !outdoorReady && result.state == .ready { result.state = .settling }
+        if !captureStable && !outdoorReady && (!(framing.currentFrameVerified || framing.shotVerified) || !stable) && result.state == .ready { result.state = .settling }
         if analysisSource == .iPhone && !ShotReadiness.permitsReady(required:true,shotVerified:framing.shotVerified,currentFrameVerified:framing.currentFrameVerified), result.state == .ready {
             result.state = .settling; result.title = "Evaluating the selected shot"
         }
@@ -2116,6 +2199,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         #endif
         let finished = ProcessInfo.processInfo.systemUptime
+        guard guidanceSnapshot() == snapshot, resultGate.isCurrent(ticket) else { return }
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:finished) else { discardStaleGuidance(snapshot,observedAt:observationTime); return }
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics.record(scene:observedScene,plan:plan,message:message,previous:previousGuidance,memoryOutcome:automaticGuidance.memoryOutcome,phase:framing.phase,
@@ -2124,13 +2208,16 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         publishAnalysis(snapshot) { self.guidancePerformance = timingReport }
         #endif
         let label = tracker.label
+        framing.recordReadyEvidence(at:observationTime)
         let phase = framing.phase
         let progress = framing.holdProgress
-        publishAnalysis(snapshot) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message; self.compositionPlan = plan }
+        publishAnalysis(snapshot,expires:true) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message; self.compositionPlan = plan }
     }
 
     private func discardStaleGuidance(_ snapshot:GuidanceActivation.Snapshot,observedAt:TimeInterval? = nil) {
         guard snapshot.enabled, guidanceSnapshot() == snapshot, snapshot.source == analysisSource else { return }
+        if let ticket = activeAnalysisTicket, !resultGate.isCurrent(ticket) { return }
+        framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
         let zooming = framing.phase.isAutoFraming
         let armed = automaticShotArmed && framing.phase.isPreparing && !zooming && autoFrameEnabled && analysisSource == .iPhone
         let time = ProcessInfo.processInfo.systemUptime
@@ -2145,7 +2232,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics.rejectStale()
         #endif
-        publishAnalysis(snapshot) {
+        publishAnalysis(snapshot,requiresFresh:false) {
             self.reading = CompositionReading(); self.guidance = .init(kind:snapshot.source == .iPhone ? .framing : .steady,text:FramingBlockReason.staleFrame.instruction)
             self.framingHoldProgress = 0; self.coachAdvice = []
         }
@@ -2188,8 +2275,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     private func updateSubjectAutofocus(buffer:CVPixelBuffer,imageBounds:CGRect?,previewBounds:CGRect?,confidence:Float,
                                        projection:PreviewProjection,observedAt:TimeInterval,snapshot:GuidanceActivation.Snapshot,
                                        allowHeadInference:Bool) {
-        let enabled = snapshot.enabled && guidanceEnabled && autoFrameEnabled && analysisSource == .iPhone
-            && !autofocusRequests.manuallyControlled
+        let enabled = SubjectAutofocus.permitted(guidance:snapshot.enabled && guidanceEnabled,
+            tracking:tracker.features.subjectTracking,iPhone:analysisSource == .iPhone,manualFocus:autofocusRequests.manuallyControlled)
         // Manual zoom disarms zoom, not the existing subject tracker or AF.
         // A retained plan has priority over any transient tracker challenger.
         let expected = framing.phase == .rediscovering ? nil : framing.shotPlan?.trackingReference ?? tracker.trackingReference
@@ -2210,7 +2297,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             queue.async { if self.autofocusRequests.accepts(revision) { self.restoreNormalSubjectFocus() } }
         case .maintain(let identity,let evidence):
             queue.async {
-                guard self.guidanceSnapshot() == snapshot, self.autoZoomPreference, !self.autofocusRequests.manuallyControlled,
+                guard self.guidanceSnapshot() == snapshot, self.wantsToRun, !self.trackingFocusPaused, !self.autofocusRequests.manuallyControlled,
                       self.trackingFocusIdentity == identity else { return }
                 self.lastTrackingFocusEvidence = max(self.lastTrackingFocusEvidence,evidence)
             }
@@ -2235,7 +2322,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     private func applySubjectFocus(_ target:SubjectFocusTarget,point:CGPoint,convertedAtZoom:Double,revision:Int,snapshot:GuidanceActivation.Snapshot) {
         let now = ProcessInfo.processInfo.systemUptime
         guard autofocusRequests.accepts(revision), guidanceSnapshot() == snapshot, snapshot.enabled, snapshot.source == .iPhone,
-              autoZoomPreference, wantsToRun, !trackingFocusPaused, captureCompletion == nil, !autofocusRequests.manuallyControlled,
+              wantsToRun, !trackingFocusPaused, captureCompletion == nil, !autofocusRequests.manuallyControlled,
               manualState.permitsFocus(automatic:true), GuidanceObservationPolicy.fresh(capturedAt:target.observedAt,evaluatedAt:now),
               [point.x,point.y].allSatisfy({ $0.isFinite && (0...1).contains($0) }), let device,
               abs(Double(device.videoZoomFactor/zoomMultiplier)/convertedAtZoom-1) <= 0.06 else { return }
@@ -2271,7 +2358,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     private func observeTrackingFocus(revision:Int) {
         guard revision == trackingFocusWatchdogRevision, trackingFocusWatchdogRunning else { return }
         let snapshot = guidanceSnapshot()
-        guard snapshot.enabled, snapshot.source == .iPhone, autoZoomPreference, wantsToRun, !trackingFocusPaused,
+        guard snapshot.enabled, snapshot.source == .iPhone, wantsToRun, !trackingFocusPaused,
               !autofocusRequests.manuallyControlled, ProcessInfo.processInfo.systemUptime-lastTrackingFocusEvidence <= 1.5 else {
             autofocusRequests.invalidate(); restoreNormalSubjectFocus(); return
         }

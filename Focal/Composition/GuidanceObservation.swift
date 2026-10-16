@@ -32,6 +32,76 @@ enum GuidanceObservationPolicy {
     }
 }
 
+/// Evidence must be consecutive; time without observations never earns dwell.
+/// Retention uses a separate, bounded geometric tolerance, not a loss grace.
+struct ReadyContinuity {
+    private(set) var ready = false
+    private var since: TimeInterval?
+    private(set) var lastObservedAt: TimeInterval?
+    private var identity: String?
+    mutating func reset() { self = Self() }
+    mutating func update(eligible:Bool, retaining:Bool, identity:String, timestamp:TimeInterval, hold:TimeInterval) -> Bool {
+        guard timestamp.isFinite, hold.isFinite else { reset(); return false }
+        if self.identity != identity || lastObservedAt.map({ timestamp <= $0 || timestamp-$0 > GuidanceObservationPolicy.maximumAge }) == true {
+            reset()
+        }
+        self.identity = identity
+        guard eligible || (ready && retaining) else { reset(); return false }
+        lastObservedAt = timestamp
+        if ready { return true }
+        if since == nil { since = timestamp }
+        ready = timestamp-(since ?? timestamp) >= max(0.5,min(3,hold))
+        return ready
+    }
+    func fresh(at time:TimeInterval) -> Bool {
+        lastObservedAt.map { GuidanceObservationPolicy.fresh(capturedAt:$0,evaluatedAt:time) } == true
+    }
+}
+
+/// Admission, publication and expiry share a revision. An old expiry may clear
+/// only its own displayed result, even while a newer frame is still in flight.
+final class GuidanceResultGate: @unchecked Sendable {
+    struct Ticket: Equatable, Sendable {
+        let revision: Int
+        let sequence: Int
+        let observedAt: TimeInterval
+    }
+    private let lock = NSLock()
+    private var revision = 0
+    private var sequence = 0
+    private var applied: Ticket?
+    private var notBefore: TimeInterval = -.infinity
+    func invalidate(at time:TimeInterval? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        revision += 1; applied = nil
+        if let time, time.isFinite { notBefore = max(notBefore,time) }
+    }
+    func begin(observedAt:TimeInterval) -> Ticket {
+        lock.lock(); defer { lock.unlock() }
+        sequence += 1
+        return Ticket(revision:revision,sequence:sequence,observedAt:observedAt)
+    }
+    func isCurrent(_ ticket:Ticket) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return ticket.revision == revision && ticket.sequence == sequence && ticket.observedAt >= notBefore
+    }
+    func accepts(_ ticket:Ticket, at time:TimeInterval) -> Bool {
+        isCurrent(ticket) && GuidanceObservationPolicy.fresh(capturedAt:ticket.observedAt,evaluatedAt:time)
+    }
+    func apply(_ ticket:Ticket, at time:TimeInterval) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard ticket.revision == revision, ticket.sequence == sequence, ticket.observedAt >= notBefore,
+              GuidanceObservationPolicy.fresh(capturedAt:ticket.observedAt,evaluatedAt:time) else { return false }
+        applied = ticket; return true
+    }
+    func expire(_ ticket:Ticket, at time:TimeInterval) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard ticket.revision == revision, applied == ticket, time.isFinite,
+              time > ticket.observedAt+GuidanceObservationPolicy.maximumAge else { return false }
+        applied = nil; return true
+    }
+}
+
 /// Immutable, measured scene state. Coordinates are normalized visible-preview
 /// coordinates (top-left origin); it owns no capture buffer or photographs.
 struct GuidanceSceneSnapshot {
