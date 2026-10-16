@@ -110,6 +110,7 @@ final class CameraController: NSObject, ObservableObject {
     private var activeAnalysisTicket: GuidanceResultGate.Ticket? // Analysis queue only.
     private var activeAnalysisSnapshot: GuidanceActivation.Snapshot? // Analysis queue only.
     private var analysisSubjectReference: String? // Analysis queue only.
+    private var readySceneContinuity = ReadySceneContinuity()
     private var subjectMeasurements: PhotoMeasurements?
     private var subjectMeasurementLabel: String?
     private var lastSubjectMeasurement: TimeInterval = -.infinity
@@ -689,7 +690,7 @@ final class CameraController: NSObject, ObservableObject {
     /// Analysis queue. Retain tracker identity/AF; discard only obsolete crop and
     /// verification geometry. A subject outside the new FOV is rediscovered.
     private func replanAfterManualFraming() {
-        shotCapture.cancel(); scenePlanner.reset(); directZoomPlan = nil
+        shotCapture.cancel(); scenePlanner.reset(); directZoomPlan = nil; readySceneContinuity.reset()
         if mode != .thirds { manualTargetLock = nil }
         compositionEvidence = nil; engine.reset()
         framing.reset(enabled:automaticShotArmed && guidanceEnabled && analysisSource == .iPhone)
@@ -849,7 +850,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func resetAnalysis(armFraming: Bool = true) {
-        shotCapture.cancel(); analysisSubjectReference = nil
+        shotCapture.cancel(); analysisSubjectReference = nil; readySceneContinuity.reset()
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics = GuidanceDiagnostics()
         DispatchQueue.main.async { self.guidancePerformance = nil }
@@ -1789,6 +1790,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
             engine.reset(); automaticGuidance.reset(); autofocusRequests.invalidate(); boxSmoother.reset()
             subjectMeasurements = nil; subjectMeasurementLabel = nil; lastSubjectMeasurement = -.infinity; previousMotionSubject = nil
+            readySceneContinuity.reset()
         }
         let evaluatedAt = ProcessInfo.processInfo.systemUptime
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:evaluatedAt) else {
@@ -1981,6 +1983,13 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:stable,retaining:true)
         if analysisSource == .iPhone {
             let scene = tracker.scene
+            if bounds == nil || plan?.selected.sceneAnchor != nil {
+                let category = scene?.isArchitecture == true ? "architecture" : scene?.isLandscape == true ? "landscape" : "scene"
+                let sceneIdentity = "\(snapshot.revision):\(category):\(plan?.selected.technique.rawValue ?? "unplanned")"
+                if readySceneContinuity.changed(evidence:compositionEvidence,identity:sceneIdentity,at:evaluatedAt) {
+                    framing.invalidateReadiness(at:evaluatedAt); engine.reset(); automaticGuidance.reset()
+                }
+            } else { readySceneContinuity.reset() }
             let sceneEligible = outdoorReady || ShotReadiness.measuredSceneFrame(scene:scene,evidence:compositionEvidence,measurements:sceneMeasurements,
                 stable:captureStable,timestamp:evaluatedAt)
             if (bounds == nil || plan?.selected.sceneAnchor != nil), let evidence = compositionEvidence, sceneEligible, framing.shotPlan == nil {

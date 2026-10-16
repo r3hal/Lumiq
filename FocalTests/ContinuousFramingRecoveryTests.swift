@@ -460,4 +460,43 @@ extension ContinuousFramingRecoveryTests {
             XCTAssertEqual(message.kind,.ready,"Auto Zoom preference: \(autoZoom)")
         }
     }
+
+    private func readyScene(_ brightness:Double,at time:Double) throws -> SceneCompositionEvidence {
+        let pixels = (0..<48*48).map { index -> SubjectImageEvidence.Pixel in
+            let value = min(1,max(0,brightness+(index%7 == 0 ? 0.03 : 0)))
+            return .init(red:value,green:value*0.9,blue:value*0.8)
+        }
+        return try XCTUnwrap(SceneCompositionEvidence(image:.init(pixels:pixels,width:48,height:48),projection:.init(imageAspect:1,previewAspect:1),timestamp:time))
+    }
+    func testWideSceneReadinessIgnoresSmallPixelVariationAndRepeatedEvidence() throws {
+        var scene = ReadySceneContinuity()
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.3,at:0),identity:"landscape",at:0))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.31,at:0.8),identity:"landscape",at:0.8))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.31,at:0.8),identity:"landscape",at:0.9))
+    }
+    func testDifferentWideSceneMustEarnItsOwnReadyHold() throws {
+        var scene = ReadySceneContinuity(), director = FramingPlanner(continuousRecovery:true)
+        _ = scene.changed(evidence:try readyScene(0.2,at:0),identity:"landscape",at:0)
+        director.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        director.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5)
+        XCTAssertTrue(director.currentFrameVerified)
+        XCTAssertTrue(scene.changed(evidence:try readyScene(0.8,at:0.8),identity:"landscape",at:0.8))
+        director.invalidateReadiness(at:0.8)
+        director.confirmCurrentFrame(eligible:true,timestamp:0.8,holdDuration:0.5)
+        XCTAssertFalse(director.currentFrameVerified)
+        director.confirmCurrentFrame(eligible:true,timestamp:1.4,holdDuration:0.5)
+        XCTAssertTrue(director.currentFrameVerified)
+    }
+    func testSlowWideSceneDriftIsComparedWithAcquisitionAnchor() throws {
+        var scene = ReadySceneContinuity()
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.2,at:0),identity:"landscape",at:0))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.3,at:0.8),identity:"landscape",at:0.8))
+        XCTAssertTrue(scene.changed(evidence:try readyScene(0.45,at:1.6),identity:"landscape",at:1.6))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.46,at:2.4),identity:"landscape",at:2.4))
+    }
+    func testWideSceneCategoryChangeResetsEvenWithSimilarPixels() throws {
+        var scene = ReadySceneContinuity()
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.3,at:0),identity:"landscape",at:0))
+        XCTAssertTrue(scene.changed(evidence:try readyScene(0.3,at:0.8),identity:"architecture",at:0.8))
+    }
 }

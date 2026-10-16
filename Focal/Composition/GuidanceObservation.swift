@@ -58,6 +58,38 @@ struct ReadyContinuity {
     }
 }
 
+/// Compare a wide scene with its acquisition anchor, not only the preceding
+/// sample, so a slow pan cannot carry an old hold into a different view.
+/// This is a bounded photometric reset, not semantic scene recognition.
+struct ReadySceneContinuity {
+    private var reference: [Double]?
+    private var identity: String?
+    private var evidenceTime: TimeInterval?
+    mutating func reset() { self = Self() }
+    mutating func changed(evidence:SceneCompositionEvidence?,identity:String,at time:TimeInterval) -> Bool {
+        guard let evidence, evidence.isFresh(at:time) else { reset(); return false }
+        let identityChanged = self.identity != nil && self.identity != identity
+        if self.identity == identity, evidenceTime == evidence.timestamp { return false }
+        self.identity = identity; evidenceTime = evidence.timestamp
+        var signature = [Double](repeating:0,count:8*8*3)
+        var counts = [Double](repeating:0,count:8*8)
+        let image = evidence.image
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let bin = min(7,y*8/image.height)*8+min(7,x*8/image.width)
+                let pixel = image.pixels[y*image.width+x]
+                signature[bin*3] += pixel.red; signature[bin*3+1] += pixel.green; signature[bin*3+2] += pixel.blue
+                counts[bin] += 1
+            }
+        }
+        for i in signature.indices { signature[i] /= max(1,counts[i/3]) }
+        guard let reference, !identityChanged else { let changed = self.reference != nil; self.reference = signature; return changed }
+        let difference = zip(reference,signature).reduce(0) { $0+abs($1.0-$1.1) }/Double(signature.count)
+        if difference > 0.18 { self.reference = signature; return true }
+        return false
+    }
+}
+
 /// Admission, publication and expiry share a revision. An old expiry may clear
 /// only its own displayed result, even while a newer frame is still in flight.
 final class GuidanceResultGate: @unchecked Sendable {
