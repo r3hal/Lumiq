@@ -87,3 +87,40 @@ workflows:
     artifacts:
       - build/Focal-unsigned.ipa
       - build/FocalTests.xcresult
+
+
+  # PERSONAL ONLY: manual start + Enable SSH/VNC access. Never publish this IPA.
+  # GEMINI_API_KEY must be Secret in the app-scoped focal_cloud_personal group.
+  ios-cloud-personal:
+    name: Focal - PRIVATE Debug Cloud Scan (SSH download only)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: "16.4"
+      groups:
+        - focal_cloud_personal
+      vars:
+        GEMINI_MODEL: gemini-3.8-flash
+    # No triggering, cache or publishing section: this workflow is manual-only.
+    scripts:
+      - name: Validate private build tooling without exposing credentials
+        script: |
+          set +x
+          set -euo pipefail
+          env -u GEMINI_API_KEY python3 -m unittest discover -s scripts/tests -p 'test_personal_cloud_ipa.py' -v
+      - name: Run native regressions before creating developer configuration
+        script: |
+          set +x
+          set -euo pipefail
+          test ! -e LocalDeveloper/CloudComposition.local.json
+          SIMULATOR_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          env -u GEMINI_API_KEY xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath build/PersonalCloudTests.xcresult CODE_SIGNING_ALLOWED=NO test
+      - name: Verify live project model, build private Debug IPA and await SSH download
+        script: |
+          set +x
+          set -euo pipefail
+          python3 scripts/build_personal_cloud_ipa.py build
+    # No key-bearing IPA, app, archive, logs or test bundle goes into artifact storage.
+    artifacts: []

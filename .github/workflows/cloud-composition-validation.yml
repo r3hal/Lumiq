@@ -26,6 +26,9 @@ jobs:
           python3 scripts/test_sony_portable.py
       - name: Structure, source integrity and shutter guards
         run: python3 scripts/validate_structure.py
+      - name: Private Codemagic build policy regressions
+        if: ${{ !cancelled() }}
+        run: python3 -m unittest discover -s scripts/tests -p test_personal_cloud_ipa.py -v
       - name: Current production framing regressions
         if: ${{ !cancelled() }}
         run: python3 scripts/test_framing_portable.py
@@ -53,3 +56,6 @@ jobs:
         run: |
           xcodebuild -project Focal.xcodeproj -scheme Focal -configuration Release -destination 'generic/platform=iOS' -archivePath build/Focal.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
           test ! -f build/Focal.xcarchive/Products/Applications/Focal.app/CloudComposition.local.json
+      - name: Personal Debug IPA packaging with fake credentials
+        if: ${{ !cancelled() }}
+        run: env -u GEMINI_API_KEY python3 scripts/test_personal_cloud_native.py

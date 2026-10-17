@@ -137,3 +137,23 @@ assert 'reacquisitionGrace:analysisSource == .iPhone && (cloudCompositionLock !=
 assert 'Cloud AI Scan (Experimental)' in cameraView
 assert 'CloudComposition.local.json' not in (ROOT/'Focal/Resources/Info.plist').read_text()
 print('PASS: explicit experimental scan integration, tracked-secret exclusion, bounded HTTPS service and user-only shutter source guards.')
+
+# Personal cloud builds use temporary SSH delivery, never persistent key-bearing artifacts.
+personal=config['workflows']['ios-cloud-personal']
+assert personal.get('artifacts')==[]
+assert all(key not in personal for key in ('triggering','publishing','cache'))
+assert personal['environment']['groups']==['focal_cloud_personal']
+assert 'GEMINI_API_KEY' not in personal['environment'].get('vars',{})
+assert personal['environment']['vars']['GEMINI_MODEL']=='gemini-3.8-flash'
+personal_scripts='\n'.join(step['script'] for step in personal['scripts'])
+assert 'env -u GEMINI_API_KEY xcodebuild' in personal_scripts
+assert 'python3 scripts/build_personal_cloud_ipa.py build' in personal_scripts
+private_builder=(ROOT/'scripts/build_personal_cloud_ipa.py').read_text()
+assert '"-configuration", "Debug"' in private_builder
+assert 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG' not in private_builder
+assert '"x-goog-api-key": configuration.api_key' in private_builder
+assert 'public_environment()' in private_builder and 'NoRedirect' in private_builder
+assert 'wait_for_download(output, sha)' in private_builder
+assert not re.search(r'(?i)(print|logger)\(.*(api_key|configuration\.json)',private_builder)
+assert all('focal_cloud_personal' not in w.get('environment',{}).get('groups',[]) for n,w in config['workflows'].items() if n!='ios-cloud-personal')
+print('PASS: private manual Debug workflow; app-scoped secret group; sanitized child environment; temporary SSH delivery with no artifact/publishing/cache paths.')
