@@ -161,7 +161,7 @@ Build branch `codex/focal-google-drive-backup`, version **2.12.0 (39)**, using e
 
 Do not add backend secrets/device invitation codes/Google tokens to Codemagic. The backend is configured through Settings and owner SSH. Existing private Gemini Debug-build tooling and its secret group are independent; do not add the backend's credentials to them. Normal Release builds do not embed the optional Gemini local configuration.
 
-The dedicated GitHub Actions **Focal owner photo backup validation** workflow runs portable regressions, backend tests, Docker build, native simulator XCTest and an unsigned Release iPhone archive on this feature branch. Its configuration is not a claim the jobs have passed: check the actual run linked in the implementation report. CI is secret-free and uses only fixture data.
+The dedicated GitHub Actions **Focal owner photo backup validation** workflow runs portable regressions, backend tests, Docker build, native simulator XCTest and an unsigned Release iPhone archive on this feature branch. The final code revision passed [CI run 39034539352](https://github.com/r3hal/focal-private/actions/runs/39034539352), including 712 native tests and the unsigned iPhone archive. This does not validate a deployed backend or physical iPhone background behavior. CI is secret-free and uses only fixture data.
 
 ## 8. Physical-device acceptance checklist
 

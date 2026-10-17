@@ -1,6 +1,6 @@
 # Owner-controlled photo backup implementation
 
-Feature branch: `codex/focal-google-drive-backup`; version 2.12.0 (39). Base: existing Gemini test branch at `178c001fa891614024e609c2fc1d548be6825e9a`. Main and the Gemini branch are not merged or updated by this work. See [setup, maintenance, Windows and device checks](SETUP.md) and [recorded validation](VALIDATION.md).
+Feature branch: `codex/focal-google-drive-backup`; version 2.12.0 (39). Base: existing Gemini test branch at `178c001fa891614024e609c2fc1d548be6825e9a`. Main and the Gemini branch are not merged or updated by this work. See [setup, maintenance, Windows and device checks](SETUP.md) and [recorded validation](VALIDATION.md). Final code passed 712 native XCTest tests and an unsigned Release iPhone archive in [CI run 39034539352](https://github.com/r3hal/focal-private/actions/runs/39034539352); hardware and real-account testing remain outstanding.
 
 ## Architecture and audited integration
 
