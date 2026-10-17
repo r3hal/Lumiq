@@ -26,19 +26,21 @@ Recorded in the active workspace before this report was written:
 
 | Check | Result |
 |---|---|
-| Portable framing/composition Swift package run | 416 tests passed, 0 failures (`/tmp/focal3-framing-third.log`) |
+| Portable framing/composition Swift package run | 416 tests passed, 0 failures (workspace run) |
+| CI portable Swift suites | 75 tests passed, 0 failures, including Sony protocol tests |
+| Native iOS simulator XCTest suite | 736 tests passed, 0 failures (`FocalTests.xctest`) |
+| Unsigned Release archive and Release IPA policy scan | Passed |
+| Non-secret public Debug archive and Debug IPA policy scan | Passed |
+| Private Debug packaging smoke test with mock credential | Passed; no real credential supplied |
 | Public IPA packaging policy tests | 12 tests passed |
-| `scripts/validate_structure.py` | Passed; project generation is deterministic, 112 app and 42 test Swift references, XML/plist/assets/YAML/shell, whitespace and safety guards pass |
-| `scripts/validate_backup.py` | Passed; 70 protected source hashes, 8 reviewed changes, post-commit enrollment and backup security guards pass |
-| `scripts/validate_focal3.py` | Passed; 32 preserved files and integration boundaries pass |
-| Sony portable test script | Not rerun successfully in this workspace: `swift` is not installed or on PATH |
-| Native Xcode simulator tests and unsigned iPhone archives for this branch | Not run in this workspace; Xcode is unavailable |
+| Structural, backup integrity, and Focal 3 source guards | Passed; 112 app/42 test Swift references, 70 protected source hashes, 32 preserved files |
+| Backup backend Docker build and HTTPS configuration validation | Passed |
 | Physical iPhone / Sony / Drive / Gemini service checks | Not tested |
 
-The passing portable framing result was produced by the same portable script before its Swift toolchain disappeared from the current execution environment. It is recorded as that test run, not as a native Xcode build. The GitHub Actions workflow on this branch is intended to provide macOS-native test and archive evidence after publishing the branch; no result is claimed until that workflow actually completes.
+GitHub Actions run [39070275686](https://github.com/r3hal/focal-private/actions/runs/39070275686) completed successfully for commit `ebc2be16a04fd2f32aa927516038e5407fa1fd8a`. This provides native simulator and archive evidence, but not physical-device verification. The local shell environment has no Swift/Xcode toolchain; the portable test scripts ran on GitHub's configured runners.
 
 ## Remaining boundaries
 
 The original real-device READY/framing loop has not been reproduced on the iPhone during this session, so its precise hardware cause is still unproven. AI transition diagnostics now carry stable plan identity and transition reasons, but exposure, autofocus, ramp completion, thermal behavior, lens hand-off, and preview quality need a physical-device pass. The proxy client is an integration seam only; production use requires a deployed HTTPS service with account authentication, enrollment/revocation, narrow Google Drive folder write permission, abuse controls, and secret rotation. No tester photos should be sent until those pieces and consent copy are reviewed. Google Drive automatic retry/background behavior also needs device verification, especially under iOS force-quit and large RAW transfers.
 
-The integration branch is not merged into `main`. Publishing it creates a reviewable branch and triggers CI; it does not release an IPA to users or deploy the cloud proxy.
+The integration branch is published and is not merged into `main`. The CI archives were validated and scanned; they were not published as user-downloadable GitHub artifacts. Codemagic's public Debug IPA workflow is configured in `codemagic.yaml`, but an actual Codemagic run was not available here. Publishing this branch did not release an IPA to users or deploy the cloud proxy.
