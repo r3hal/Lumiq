@@ -51,7 +51,7 @@
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Focal uses your camera to help you compose and capture photos. Frames are analyzed only on your iPhone.</string>
+	<string>Focal uses your camera for local composition and photos. Experimental Cloud Scan sends one camera frame to Google only when you explicitly request it.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Focal checks Sony camera descriptors on your joined Wi-Fi when you request discovery, then connects to the camera you choose for real live view and advertised controls.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

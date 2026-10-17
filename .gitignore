@@ -6,3 +6,7 @@ xcuserdata/
 *.ipa
 *.dSYM/
 __pycache__/
+
+# Developer-only Gemini credentials; never distribute an embedded-key build.
+LocalDeveloper/
+**/CloudComposition.local.json

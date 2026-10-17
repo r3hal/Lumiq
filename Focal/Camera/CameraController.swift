@@ -111,6 +111,12 @@ final class CameraController: NSObject, ObservableObject {
     private var activeAnalysisSnapshot: GuidanceActivation.Snapshot? // Analysis queue only.
     private var analysisSubjectReference: String? // Analysis queue only.
     private var readySceneContinuity = ReadySceneContinuity()
+    private let cloudScanGate = CloudScanRequestGate()
+    private var pendingCloudCapture: (ticket:CloudScanTicket,completion:(Result<CloudScanCapture,Error>) -> Void)?
+    private var cloudCompositionLock: CloudCompositionLock? // Analysis queue only.
+    private var latestCloudEvidence: CloudLocalEvidence?
+    private var cloudRecovering = false
+    @Published private(set) var cloudCompositionStatus = "Local composition guidance"
     private var subjectMeasurements: PhotoMeasurements?
     private var subjectMeasurementLabel: String?
     private var lastSubjectMeasurement: TimeInterval = -.infinity
@@ -328,9 +334,10 @@ final class CameraController: NSObject, ObservableObject {
 
     /// Invalidate before enqueueing configuration so in-flight work cannot publish
     /// over a newer user decision. This preserves the enabled AI Guide session.
-    @discardableResult private func invalidateGuidanceResults(source:CameraSource? = nil) -> GuidanceActivation.Snapshot {
+    @discardableResult private func invalidateGuidanceResults(source:CameraSource? = nil,clearCloud:Bool = false) -> GuidanceActivation.Snapshot {
         guidanceLock.lock(); let snapshot = activation.set(activation.snapshot.enabled,source:source); guidanceLock.unlock()
-        resultGate.invalidate(at:ProcessInfo.processInfo.systemUptime); autofocusRequests.invalidate()
+        resultGate.invalidate(at:ProcessInfo.processInfo.systemUptime); autofocusRequests.invalidate(); cloudScanGate.invalidate()
+        if clearCloud { analysisQueue.async { self.clearCloudCompositionState() } }
         DispatchQueue.main.async {
             guard self.guidanceSnapshot() == snapshot else { return }
             self.reading = CompositionReading(); self.compositionPlan = nil; self.framingHoldProgress = 0
@@ -368,7 +375,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setSubjectThreshold(_ value: Double) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         queue.async {
             self.cancelZoomRamp()
             self.analysisQueue.async {
@@ -385,7 +392,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setSubjectFeatures(pets: Bool, tracking: Bool, smartSelection: Bool) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -420,7 +427,7 @@ final class CameraController: NSObject, ObservableObject {
     func setAnalysisSource(_ source: CameraSource) {
         precisionLock.lock(); precisionContext.source = source; precisionContext.generation += 1; precisionLock.unlock()
         DispatchQueue.main.async { self.precisionReading = nil; self.autoTuneRecommendations = []; self.currentAutoTuneRecommendations = []; self.advicePresentation.reset() }
-        invalidateGuidanceResults(source:source)
+        invalidateGuidanceResults(source:source,clearCloud:true)
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -509,7 +516,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setMode(_ mode: CompositionMode, userInitiated:Bool = true) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         queue.async {
             self.cancelZoomRamp(manualOverride:userInitiated)
             self.analysisQueue.async {
@@ -534,7 +541,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
     func setPetFraming(_ style:PetFramingStyle) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp()
@@ -544,7 +551,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
     func setIntent(_ intent: PhotographyIntent, userInitiated:Bool = true) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         tracker.cancelInference()
         queue.async {
             self.cancelZoomRamp(manualOverride:userInitiated)
@@ -556,7 +563,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func setGuidance(_ enabled: Bool) {
         guidanceLock.lock(); let newSession = enabled && !activation.snapshot.enabled; let snapshot = activation.set(enabled); guidanceLock.unlock()
-        resultGate.invalidate(at:ProcessInfo.processInfo.systemUptime)
+        resultGate.invalidate(at:ProcessInfo.processInfo.systemUptime); cloudScanGate.invalidate()
         tracker.cancelInference()
         if !enabled {
             DispatchQueue.main.async {
@@ -690,6 +697,7 @@ final class CameraController: NSObject, ObservableObject {
     /// Analysis queue. Retain tracker identity/AF; discard only obsolete crop and
     /// verification geometry. A subject outside the new FOV is rediscovered.
     private func replanAfterManualFraming() {
+        cloudCompositionLock?.preserveManualZoom()
         shotCapture.cancel(); scenePlanner.reset(); directZoomPlan = nil; readySceneContinuity.reset()
         if mode != .thirds { manualTargetLock = nil }
         compositionEvidence = nil; engine.reset()
@@ -710,7 +718,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setTarget(_ target: UnitPoint2D?) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         queue.async {
             self.cancelZoomRamp(manualOverride:true)
             self.analysisQueue.async {
@@ -728,7 +736,7 @@ final class CameraController: NSObject, ObservableObject {
         if changed { requestedPreviewAspect = aspect }
         guidanceLock.unlock()
         guard changed else { return }
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         precisionLock.lock(); precisionContext.previewAspect = aspect; precisionContext.generation += 1; precisionLock.unlock()
         analysisQueue.async {
             self.framing.invalidateReadiness(at:ProcessInfo.processInfo.systemUptime)
@@ -745,7 +753,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func tryAnotherComposition() {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         guard guidanceSnapshot().enabled else { return }
         queue.async {
             self.cancelZoomRamp()
@@ -778,7 +786,7 @@ final class CameraController: NSObject, ObservableObject {
 
     func selectSubject(at previewPoint: UnitPoint2D) {
         guard guidanceSnapshot().enabled else { return }
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         tracker.cancelInference()
         queue.async {
             self.autofocusRequests.invalidate()
@@ -850,6 +858,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     private func resetAnalysis(armFraming: Bool = true) {
+        clearCloudCompositionState(resetReadiness:false); latestCloudEvidence = nil
         shotCapture.cancel(); analysisSubjectReference = nil; readySceneContinuity.reset()
         #if DEBUG || FOCAL_EVALUATION
         guidanceDiagnostics = GuidanceDiagnostics()
@@ -1181,7 +1190,7 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     func setControlMode(_ mode: CameraControlMode) {
-        invalidateGuidanceResults()
+        invalidateGuidanceResults(clearCloud:true)
         queue.async {
             guard self.captureCompletion == nil else { return }
             if self.manualState.mode != mode { self.cancelZoomRamp(manualOverride:true) }
@@ -1765,7 +1774,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
         let keepFramedSubject = analysisSource == .iPhone && latestNativeBounds != nil
-            && ((framing.shotPlan != nil && framing.phase.isPreparing)
+            && ((cloudCompositionLock != nil || framing.shotPlan != nil) && framing.phase.isPreparing
                 || framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed
                 || (subjectAutofocus.identity != nil && subjectAutofocus.identity == tracker.trackingReference))
         let inferenceStarted = ProcessInfo.processInfo.systemUptime
@@ -1816,6 +1825,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                 confidence:confidence,zoom:analysisZoom,aspect:previewAspect,fresh:true,motionPermitted:framingMotionPermitted,timestamp:evaluatedAt)
             switch recoveryStep {
             case .rediscovered:
+                clearCloudCompositionState()
                 tracker.reset(); latestNativeBounds = nil; scenePlanner.reset(); directZoomPlan = nil
                 shotCapture.cancel(); automaticGuidance.reset(); boxSmoother.reset(); previousMotionSubject = nil
                 publishFraming()
@@ -1840,9 +1850,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             previousMotionSubject = (bounds,tracker.label,observationTime,analysisZoom)
         } else { previousMotionSubject = nil }
         precisionLock.lock(); precisionContext.relativeSubjectMotion = relativeMotion; precisionContext.subjectMotionTimestamp = relativeMotion == nil ? nil : evaluatedAt; precisionLock.unlock()
-        let planning = compositionPlanning && mode == .automatic
+        let planning = compositionPlanning && mode == .automatic && cloudCompositionLock == nil
         let projection = PreviewProjection(imageAspect:imageAspect,previewAspect:previewAspect,mirrored:analysisFrontCamera)
-        if (planning || autoFrameEnabled || coachEnabled || photographyIntent == .landscape || photographyIntent == .architecture), !zooming, !rapidMovement, evaluatedAt-lastCompositionEvidence >= 0.8 {
+        if (planning || autoFrameEnabled || coachEnabled || pendingCloudCapture != nil || cloudCompositionLock != nil || photographyIntent == .landscape || photographyIntent == .architecture), !zooming, !rapidMovement, evaluatedAt-lastCompositionEvidence >= 0.8 {
             lastCompositionEvidence = evaluatedAt
             compositionEvidence = SubjectImageEvidence.sample(buffer).flatMap {
                 SceneCompositionEvidence(image:$0,projection:projection,timestamp:observationTime)
@@ -1870,12 +1880,15 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let freezeShot = zooming || freezeTighterPlan || (framing.phase == .framed && framing.shotVerified)
         let observedLandscape = tracker.scene.map { $0.isLandscape && evaluatedAt >= $0.timestamp && evaluatedAt-$0.timestamp <= 6 } == true
         let landscapeIntent:PhotographyIntent = photographyIntent == .auto && observedLandscape && ![SubjectCategory.person,.face,.pet].contains(SubjectCategory.classified(tracker.label)) ? .landscape : photographyIntent
-        let plannedScene = planning ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
+        updateCloudCompositionEvidence(bounds:bounds,confidence:Double(confidence),observedAt:observationTime,roll:roll,rollReliable:gravity.map { hypot($0.x,$0.y) > 0.2 } ?? false,snapshot:snapshot,at:evaluatedAt)
+        zooming = framing.phase.isAutoFraming
+        let plannedScene = planning && cloudCompositionLock == nil ? scenePlanner.update(subject:bounds,confidence:confidence,label:tracker.label,evidence:compositionEvidence,
             others:contextSubjects,enclosingFrames:frames,timestamp:evaluatedAt,
             maximumScale:analysisSource == .iPhone && motorEnabledForIntent ? max(1,automaticZoomLimit/max(0.01,analysisZoom)) : 1,
             freeze:freezeShot,intent:landscapeIntent,availableScales:availableScales,anatomy:observedAnatomy) : nil
         let plan: SceneCompositionPlan?
-        if planning { plan = plannedScene }
+        if let locked = cloudCompositionLock { plan = locked.plan(at:evaluatedAt,zoom:analysisZoom) }
+        else if planning { plan = plannedScene }
         else if (framing.phase == .aligning || framing.phase == .settling || framing.phase.isAutoFraming || framing.phase == .framed),
                 directZoomPlan?.subjectLabel == tracker.label { plan = directZoomPlan }
         else if !planning, autoFrameEnabled, mode != .thirds, analysisSource == .iPhone,
@@ -1918,7 +1931,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let zoomFacts = CompositionAssessment.evaluate(bounds:bounds,confidence:Double(confidence),label:tracker.label,intent:photographyIntent,
             stable:stable,exposure:subjectMeasurements,evidence:compositionEvidence,others:contextSubjects,anatomy:zoomAnatomy,timestamp:evaluatedAt,petStyle:appliedPetStyle)
         let execution = FramingExecutionContext(selected:framing.shotPlan,candidate:plan)
-        let framingSettingsAllow = autoFrameEnabled && photographyIntent.permitsZoom && appliedPetStyle.permitsAutomaticZoom && mode != .thirds && evaluatedAt >= analysisManualZoomUntil
+        let framingSettingsAllow = !cloudRecovering && (cloudCompositionLock == nil || (plan?.permitsZoom == true && cloudCompositionLock?.manualZoomOverride != true)) && autoFrameEnabled && photographyIntent.permitsZoom && appliedPetStyle.permitsAutomaticZoom && mode != .thirds && evaluatedAt >= analysisManualZoomUntil
         let allowPlannedZoom = execution.permitsZoom(settingsAllow:framingSettingsAllow,cropPermitted:zoomFacts.permitsAutomaticCrop)
         if analysisSource == .iPhone, automaticShotArmed, autoFrameEnabled, framingSettingsAllow, !zooming, zoomFacts.permitsAutomaticCrop,
            framing.verifyExistingTargetIfAligned(bounds:bounds,label:tracker.label,confidence:confidence,zoom:analysisZoom,aspect:previewAspect,
@@ -1977,10 +1990,11 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                 timestamp:evaluatedAt,trackingReference:tracker.trackingReference)
         }
         let outdoorReady = OutdoorCompositionPlanner.permitsReady(plan:plan,evidence:compositionEvidence,at:evaluatedAt,motionPermitted:framingMotionPermitted)
-        let currentFrameEligible = ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:captureStable)
-            || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:captureStable)
-        let retainCurrentFrame = ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:stable,retaining:true)
-            || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:stable,retaining:true)
+        let cloudObjectTarget = cloudCompositionLock.flatMap { $0.isWholeScene ? nil : $0.target }
+        let currentFrameEligible = cloudObjectTarget.map { ShotReadiness.measuredManualFrame(mode:.thirds,bounds:bounds,target:$0,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:captureStable) } ?? (ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:captureStable)
+            || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:captureStable))
+        let retainCurrentFrame = cloudObjectTarget.map { ShotReadiness.measuredManualFrame(mode:.thirds,bounds:bounds,target:$0,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:stable,retaining:true) } ?? (ShotReadiness.measuredCurrentFrame(plan:plan,assessment:zoomFacts,label:tracker.label,timestamp:evaluatedAt,stable:stable,retaining:true)
+            || ShotReadiness.measuredManualFrame(mode:mode,bounds:bounds,target:manualTarget,roll:roll,aspect:previewAspect,assessment:zoomFacts,stable:stable,retaining:true))
         if analysisSource == .iPhone {
             let scene = tracker.scene
             if bounds == nil || plan?.selected.sceneAnchor != nil {
@@ -2126,7 +2140,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             rollReliable:reliable,autoEnabled:autoFrameEnabled && analysisSource == .iPhone,
             zoomAvailable:allowPlannedZoom && automaticZoomLimit > analysisZoom*1.12,timestamp:evaluatedAt,previewAspect:previewAspect,scene:scene,sceneMeasurements:sceneMeasurements,subjectLabel:tracker.label,subjectMeasurements:subjectMeasurements,recovering:tracker.isRecovering,
             compositionPlan:plan,sceneEvidence:compositionEvidence,intent:photographyIntent,manualSubject:tracker.manual,
-            manualComposition:mode != .automatic,anatomy:observedScene.anatomy,others:contextSubjects,observedScene:observedScene,shotVerified:framing.shotVerified,requireShotCompletion:analysisSource == .iPhone,currentFrameVerified:framing.currentFrameVerified,framingInstruction:analysisSource == .iPhone && evaluatedAt >= analysisManualZoomUntil ? framing.progressInstruction : nil,continuousFraming:analysisSource == .iPhone)
+            manualComposition:mode != .automatic || cloudObjectTarget != nil,anatomy:observedScene.anatomy,others:contextSubjects,observedScene:observedScene,shotVerified:framing.shotVerified,requireShotCompletion:analysisSource == .iPhone,currentFrameVerified:framing.currentFrameVerified,framingInstruction:analysisSource == .iPhone && evaluatedAt >= analysisManualZoomUntil ? framing.progressInstruction : nil,continuousFraming:analysisSource == .iPhone)
         #if DEBUG || FOCAL_EVALUATION
         if analysisSource == .iPhone {
             let state = framing.directorState(hasPlan:framing.shotPlan != nil || plan != nil)
@@ -2220,10 +2234,148 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         publishAnalysis(snapshot) { self.guidancePerformance = timingReport }
         #endif
         let label = tracker.label
+        if cloudRecovering {
+            result.state = .searching; result.subject = nil; result.subjectBounds = nil; result.guidanceBounds = nil
+        }
+        let presentedMessage = cloudRecovering ? GuidanceMessage(kind:.framing,text:"Reacquiring the cloud-selected subject…") : message
+        fulfillCloudCapture(fullBuffer,projection:projection,snapshot:snapshot)
         framing.recordReadyEvidence(at:observationTime)
         let phase = framing.phase
         let progress = framing.holdProgress
-        publishAnalysis(snapshot,expires:true) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = message; self.compositionPlan = plan }
+        publishAnalysis(snapshot,expires:true) { self.reading = result; self.subjectLabel = label; self.framingPhase = phase; self.framingHoldProgress = progress; self.levelReliable = reliable; self.guidance = presentedMessage; self.compositionPlan = plan }
+    }
+
+    // MARK: - Experimental, explicitly requested cloud composition
+    func beginCloudScan() -> CloudScanTicket? {
+        let current = guidanceSnapshot()
+        guard current.enabled, current.source == .iPhone else { return nil }
+        let snapshot = invalidateGuidanceResults()
+        return .init(id:cloudScanGate.begin(),sessionRevision:snapshot.revision)
+    }
+    func captureCloudScan(ticket:CloudScanTicket) async throws -> CloudScanCapture {
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    guard self.cloudScanGate.accepts(ticket.id) else { continuation.resume(throwing:CloudCompositionError.stale); return }
+                    self.cancelZoomRamp()
+                    self.analysisQueue.async {
+                        let snapshot = self.guidanceSnapshot()
+                        guard self.cloudScanGate.accepts(ticket.id), snapshot.revision == ticket.sessionRevision,
+                              snapshot.enabled, self.guidanceEnabled, self.analysisSource == .iPhone, self.mode == .automatic,
+                              !self.analysisPaused, !self.interfacePaused else { continuation.resume(throwing:CloudCompositionError.unsupportedSource); return }
+                        if let old = self.pendingCloudCapture { old.completion(.failure(CloudCompositionError.stale)) }
+                        self.clearCloudCompositionState()
+                        self.pendingCloudCapture = (ticket,{ continuation.resume(with:$0) })
+                        self.analysisQueue.asyncAfter(deadline:.now()+3) {
+                            guard let pending = self.pendingCloudCapture, pending.ticket.id == ticket.id else { return }
+                            self.pendingCloudCapture = nil
+                            let current = self.cloudScanGate.finish(ticket.id)
+                            pending.completion(.failure(current ? CloudCompositionError.unavailableFrame : .stale))
+                        }
+                    }
+                }
+            }
+        },onCancel:{ self.cancelCloudScan(requestID:ticket.id) })
+    }
+    func cancelCloudScan(requestID:UUID) {
+        _ = cloudScanGate.finish(requestID)
+        analysisQueue.async {
+            guard let pending = self.pendingCloudCapture, pending.ticket.id == requestID else { return }
+            self.pendingCloudCapture = nil; pending.completion(.failure(CloudCompositionError.cancelled))
+        }
+    }
+    func unlockCloudComposition() {
+        invalidateGuidanceResults(clearCloud:true)
+    }
+    func applyCloudComposition(_ result:CloudCompositionResult,capture:CloudScanCapture) async throws {
+        try result.validate()
+        try await withCheckedThrowingContinuation { (continuation:CheckedContinuation<Void,Error>) in
+            queue.async {
+                guard self.cloudScanGate.accepts(capture.requestID) else { continuation.resume(throwing:CloudCompositionError.stale); return }
+                self.cancelZoomRamp()
+                let actualZoom = self.device.map { Double($0.videoZoomFactor/self.zoomMultiplier) }
+                self.analysisQueue.async {
+                    do {
+                        guard self.cloudScanGate.accepts(capture.requestID), let live = self.latestCloudEvidence,
+                              self.guidanceSnapshot().revision == capture.evidence.sessionRevision,
+                              let actualZoom, abs(actualZoom/live.zoom-1) <= 0.02 else { throw CloudCompositionError.stale }
+                        let now = ProcessInfo.processInfo.systemUptime
+                        var held = try CloudCompositionMatcher.match(result,capture:capture,live:live,at:now)
+                        if let bounds = live.bounds, let evidence = live.scene, !held.isWholeScene {
+                            // Only measured local gain can admit a motor plan. Cloud
+                            // confidence and zoom advice never become a gain score.
+                            let scales = FramingPlanner.availableScales(currentZoom:live.zoom,maximumZoom:live.maximumZoom,
+                                detailZoomLimit:self.detailZoomLimit,nativeStops:self.nativeZoomStops,maximumScale:live.maximumZoom/live.zoom)
+                            let choices = SceneCompositionPlanner.compare(subject:bounds,evidence:evidence,others:[],enclosingFrames:[],
+                                maximumScale:live.maximumZoom/live.zoom,intent:self.photographyIntent,availableScales:scales,label:live.label)
+                            if let option = choices.first(where:{ $0.technique == result.recommendedCompositionTechnique.local && $0.target.distance(to:held.target) <= 0.04 && $0.zoomScale > 1.12 && $0.measuredImprovement >= IntentCompositionSearch.minimumImprovement && live.zoom*$0.zoomScale >= result.recommendedZoomRange.minimum && live.zoom*$0.zoomScale <= result.recommendedZoomRange.maximum }) {
+                                var candidate = SceneCompositionPlan(selected:option,alternatives:[],subjectLabel:live.label,timestamp:now,id:held.id)
+                                candidate.selected.target = held.target
+                                let projection = PreviewProjection(imageAspect:self.imageAspect,previewAspect:self.previewAspect,mirrored:self.analysisFrontCamera)
+                                if AutomaticShotPlan.propose(bounds:bounds,label:live.label,confidence:Float(live.confidence),trackingReference:live.trackingReference,
+                                    composition:candidate,currentZoom:live.zoom,maximumZoom:live.maximumZoom,detailLimit:self.detailZoomLimit,nativeStops:self.nativeZoomStops,
+                                    regions:self.tracker.compositionSubjects(at:now).map { projection.visibleVisionRect($0.bounds) },anatomy:self.tracker.anatomy(for:self.latestNativeBounds,projection:projection,at:now),projection:projection) != nil {
+                                    held.useMeasuredMotorOption(candidate.selected)
+                                }
+                            }
+                        }
+                        guard self.cloudScanGate.finish(capture.requestID) else { throw CloudCompositionError.stale }
+                        let snapshot = self.invalidateGuidanceResults()
+                        self.framing.reset(enabled:self.automaticShotArmed && self.guidanceEnabled && self.analysisSource == .iPhone)
+                        self.shotCapture.invalidateVerification(); self.engine.reset(); self.automaticGuidance.reset(); self.scenePlanner.reset(); self.directZoomPlan = nil
+                        self.cloudCompositionLock = held; self.cloudRecovering = false
+                        self.publishCloudCompositionStatus("Cloud plan locked: \(held.result.recommendedCompositionTechnique.local.rawValue)",snapshot:snapshot)
+                        continuation.resume()
+                    } catch { continuation.resume(throwing:error) }
+                }
+            }
+        }
+    }
+    private func publishCloudCompositionStatus(_ text:String,snapshot:GuidanceActivation.Snapshot) {
+        DispatchQueue.main.async { guard self.guidanceSnapshot() == snapshot else { return }; if self.cloudCompositionStatus != text { self.cloudCompositionStatus = text } }
+    }
+    private func clearCloudCompositionState(resetReadiness:Bool = true) {
+        let hadLock = cloudCompositionLock != nil
+        cloudCompositionLock = nil; cloudRecovering = false
+        if let pending = pendingCloudCapture, !cloudScanGate.accepts(pending.ticket.id) {
+            pendingCloudCapture = nil; pending.completion(.failure(CloudCompositionError.stale))
+        }
+        guard hadLock else { return }
+        if resetReadiness {
+            framing.reset(enabled:automaticShotArmed && guidanceEnabled && analysisSource == .iPhone)
+            shotCapture.invalidateVerification(); engine.reset(); automaticGuidance.reset(); scenePlanner.reset(); directZoomPlan = nil
+            queue.async { self.cancelZoomRamp() }
+        }
+        publishCloudCompositionStatus("Cloud lock ended; local composition guidance",snapshot:guidanceSnapshot())
+    }
+    private func updateCloudCompositionEvidence(bounds:CGRect?,confidence:Double,observedAt:TimeInterval,roll:Double,rollReliable:Bool,snapshot:GuidanceActivation.Snapshot,at time:TimeInterval) {
+        guard analysisSource == .iPhone else { latestCloudEvidence = nil; return }
+        let local = CloudLocalEvidence(observedAt:observedAt,sessionRevision:snapshot.revision,isIPhone:true,mode:mode,
+            trackingReference:tracker.trackingReference,label:tracker.label,bounds:bounds,confidence:confidence,zoom:analysisZoom,
+            minimumZoom:max(0.5,nativeZoomStops.min() ?? 1),maximumZoom:min(20,min(automaticZoomLimit,detailZoomLimit)),
+            previewAspect:previewAspect,scene:compositionEvidence,rollReliable:rollReliable,rollDegrees:roll,intent:photographyIntent)
+        latestCloudEvidence = local
+        guard var held = cloudCompositionLock else { cloudRecovering = false; return }
+        switch held.observe(local,at:time) {
+        case .invalid: clearCloudCompositionState()
+        case .recovering:
+            cloudCompositionLock = held; cloudRecovering = true; framing.invalidateReadiness(at:time)
+            publishCloudCompositionStatus("Reacquiring the cloud-selected subject; no directional guidance",snapshot:snapshot)
+        case .retained:
+            cloudCompositionLock = held; cloudRecovering = false
+            publishCloudCompositionStatus("Cloud plan locked: \(held.result.recommendedCompositionTechnique.local.rawValue)",snapshot:snapshot)
+        }
+    }
+    private func fulfillCloudCapture(_ buffer:CVPixelBuffer,projection:PreviewProjection,snapshot:GuidanceActivation.Snapshot) {
+        guard let pending = pendingCloudCapture else { return }
+        pendingCloudCapture = nil
+        guard cloudScanGate.accepts(pending.ticket.id), pending.ticket.sessionRevision == snapshot.revision,
+              snapshot.source == .iPhone, let evidence = latestCloudEvidence,
+              let jpeg = CloudFrameEncoder.encode(CIImage(cvPixelBuffer:buffer),projection:projection,context:imageContext),
+              GuidanceObservationPolicy.fresh(capturedAt:evidence.observedAt,evaluatedAt:ProcessInfo.processInfo.systemUptime) else {
+            pending.completion(.failure(CloudCompositionError.unavailableFrame)); return
+        }
+        pending.completion(.success(.init(requestID:pending.ticket.id,jpeg:jpeg,evidence:evidence)))
     }
 
     private func discardStaleGuidance(_ snapshot:GuidanceActivation.Snapshot,observedAt:TimeInterval? = nil) {

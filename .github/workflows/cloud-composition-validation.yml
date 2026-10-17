@@ -1,0 +1,55 @@
+name: Focal experimental cloud composition validation
+on:
+  push:
+    branches: [codex/focal-cloud-composition-scan]
+    paths: ["Focal/**", "FocalTests/**", "Focal.xcodeproj/**", "scripts/**", "codemagic.yaml", ".github/workflows/cloud-composition-validation.yml", "DeveloperExamples/**", ".gitignore"]
+permissions:
+  contents: read
+concurrency:
+  group: focal-cloud-composition-validation
+  cancel-in-progress: true
+jobs:
+  portable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Toolchain
+        run: swift --version
+      - name: Unmodified baseline framing and Sony tests
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/focal-baseline" ef72620b3a4d6876202a936cae6508999f072fea
+          cd "$RUNNER_TEMP/focal-baseline"
+          python3 scripts/test_framing_portable.py
+          python3 scripts/test_sony_portable.py
+      - name: Structure, source integrity and shutter guards
+        run: python3 scripts/validate_structure.py
+      - name: Current production framing regressions
+        if: ${{ !cancelled() }}
+        run: python3 scripts/test_framing_portable.py
+      - name: Sony protocol regressions
+        if: ${{ !cancelled() }}
+        run: python3 scripts/test_sony_portable.py
+  native:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Parse all Swift sources
+        run: |
+          xcodebuild -version
+          find Focal FocalTests -name '*.swift' -print0 | xargs -0 xcrun swiftc -frontend -parse
+      - name: Native simulator tests
+        run: |
+          set -euo pipefail
+          SIMULATOR_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project Focal.xcodeproj -scheme Focal -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -resultBundlePath build/CloudCompositionTests.xcresult CODE_SIGNING_ALLOWED=NO test
+      - name: Unsigned iPhone archive
+        if: ${{ !cancelled() }}
+        run: |
+          xcodebuild -project Focal.xcodeproj -scheme Focal -configuration Release -destination 'generic/platform=iOS' -archivePath build/Focal.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+          test ! -f build/Focal.xcarchive/Products/Applications/Focal.app/CloudComposition.local.json

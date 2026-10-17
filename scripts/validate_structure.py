@@ -65,7 +65,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','HEAD','--name-only','--','Focal/Sony').strip(),'Sony integration changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==637,count
+assert count==674,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
@@ -110,3 +110,19 @@ print('PASS: manual motor grace/gesture-end/capture-resumption/scene-only integr
 assert 'result.sceneFrameVerified = framing.currentFrameVerified && framing.shotPlan?.sceneAnchor == true' in controller
 guide=(ROOT/'Focal/Camera/CameraGuidanceCard.swift').read_text()
 assert 'reading.sceneFrameVerified,message.kind == .ready,reading.state == .ready,phase == .framed' in guide
+
+# Experimental cloud scan must not acquire credentials from tracked files or
+# connect the cloud service to readiness/shutter polling. These are source guards.
+tracked=run('git','ls-files').splitlines()
+assert not any(path.startswith('LocalDeveloper/') or path.endswith('CloudComposition.local.json') for path in tracked)
+example=json.loads((ROOT/'DeveloperExamples/CloudComposition.example.json').read_text())
+assert example['apiKey']=='REPLACE_LOCALLY_DO_NOT_COMMIT'
+cloud_files=list((ROOT/'Focal/Cloud').glob('*.swift'))
+cloud_text='\n'.join(p.read_text() for p in cloud_files)
+assert 'x-goog-api-key' in cloud_text and '?key=' not in cloud_text
+assert 'print(' not in cloud_text and 'Logger(' not in cloud_text
+assert 'capturePhoto(' not in cloud_text and 'shoot(' not in cloud_text
+assert 'streamGenerateContent' not in cloud_text and 'service.scan(capture)' not in controller
+assert 'Cloud AI Scan (Experimental)' in cameraView
+assert 'CloudComposition.local.json' not in (ROOT/'Focal/Resources/Info.plist').read_text()
+print('PASS: explicit experimental scan integration, tracked-secret exclusion, bounded HTTPS service and user-only shutter source guards.')

@@ -38,6 +38,9 @@ for name in whole:
 (app/'ShotCaptureSession.swift').write_text(source('Focal/Camera/ShotCaptureSession.swift'))
 (app/'CameraTelemetry.swift').write_text(source('Focal/Camera/CameraTelemetry.swift'))
 if not args.baseline:
+ for name in ['CloudComposition','GeminiCloudCompositionService']:
+  (app/(name+'.swift')).write_text(source('Focal/Cloud/'+name+'.swift'))
+ shutil.copyfile(ROOT/'FocalTests/CloudCompositionTests.swift',tests/'CloudCompositionTests.swift')
  (app/'CameraControls.swift').write_text(source('Focal/Camera/CameraControls.swift'))
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
  (app/'SubjectAutofocus.swift').write_text(source('Focal/Camera/SubjectAutofocus.swift'))

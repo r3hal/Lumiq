@@ -235,6 +235,46 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "A4DDB49B1C57E418C87447D2";
 		};
+		"221BDA2E7CAA884D6A68BD6B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Cloud/CloudComposition.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"D1BF37655B3A7A256F843A61" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "221BDA2E7CAA884D6A68BD6B";
+		};
+		"90D2CB4B47F43F78FCEC78EC" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Cloud/CloudCompositionScanView.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"09F6ED6F55D6DA9DD041D0F8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "90D2CB4B47F43F78FCEC78EC";
+		};
+		"D932AC2BE1427E9C9F759C46" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Cloud/CloudFrameEncoder.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"F10F39B97B3E2367C83B5647" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D932AC2BE1427E9C9F759C46";
+		};
+		"B72A90BA391BD339C5A43590" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Focal/Cloud/GeminiCloudCompositionService.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"1DD38EAF3497EAA957B08676" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B72A90BA391BD339C5A43590";
+		};
 		"4F0B6A4BA0C036BAC4E6BF81" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -1035,6 +1075,26 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "B35458C920C24D03134C05AB";
 		};
+		"0993C1FA9551311251A22946" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/CloudCompositionTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"40FDF2B685985B3BB537F978" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0993C1FA9551311251A22946";
+		};
+		"3F7104497471DEE09440AC86" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "FocalTests/CloudFrameEncoderTests.swift";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"AC81CEC77D02ACE2FF614BA1" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3F7104497471DEE09440AC86";
+		};
 		"6C59DDF893487355855966AD" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -1450,6 +1510,10 @@
 				"C0ED1B4709F00AAD9D616C12",
 				"DE0C16BC15166366AD430CCF",
 				"A4DDB49B1C57E418C87447D2",
+				"221BDA2E7CAA884D6A68BD6B",
+				"90D2CB4B47F43F78FCEC78EC",
+				"D932AC2BE1427E9C9F759C46",
+				"B72A90BA391BD339C5A43590",
 				"4F0B6A4BA0C036BAC4E6BF81",
 				"660C0A4C6D8B66F8E0F593A0",
 				"54F6C9AD58706899A40CD4CB",
@@ -1549,6 +1613,8 @@
 				"E121B084601ABC4689B3806F",
 				"59D1EF4153AF1127CD4F95C9",
 				"B35458C920C24D03134C05AB",
+				"0993C1FA9551311251A22946",
+				"3F7104497471DEE09440AC86",
 				"6C59DDF893487355855966AD",
 				"FED151EFD659C9EB030F50C2",
 				"EEFCE77D5F23C2EC45C8B7B1",
@@ -1594,6 +1660,21 @@
 				"0A3E27B8CA818264D75C8D81",
 			);
 			"sourceTree" = "<group>";
+		};
+		"8F82FC5CCEBCF868D91824E8" = {
+			"isa" = "PBXShellScriptBuildPhase";
+			"buildActionMask" = "2147483647";
+			"files" = (
+			);
+			"inputPaths" = (
+			);
+			"outputPaths" = (
+			);
+			"runOnlyForDeploymentPostprocessing" = "0";
+			"alwaysOutOfDate" = "1";
+			"name" = "Optional local cloud prototype configuration";
+			"shellPath" = "/bin/sh";
+			"shellScript" = "set -eu\nconfig=\"$SRCROOT/LocalDeveloper/CloudComposition.local.json\"\ndestination=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CloudComposition.local.json\"\nif [ \"$CONFIGURATION\" = \"Debug\" ] && [ -f \"$config\" ]; then\n  mkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n  install -m 600 \"$config\" \"$destination\"\nelse\n  rm -f \"$destination\"\nfi\n";
 		};
 		"2A04C20BF6D5C20A63A1D4CC" = {
 			"isa" = "XCBuildConfiguration";
@@ -1677,6 +1758,10 @@
 				"9D7978040EE5377D55D19302",
 				"4017E17BB623685E306390EB",
 				"AF7CF0039AA6A478054A4F74",
+				"D1BF37655B3A7A256F843A61",
+				"09F6ED6F55D6DA9DD041D0F8",
+				"F10F39B97B3E2367C83B5647",
+				"1DD38EAF3497EAA957B08676",
 				"A8050E43CC47E05A923BDEDF",
 				"84BA122BFCC6EF9BD59823BB",
 				"2C5F82C05B43056A6B87C51A",
@@ -1781,6 +1866,7 @@
 				"AFF87A50730392B6633ACECE",
 				"7A4C2DC8FCA657188648E999",
 				"F9187E824FE171A6F0EFAE28",
+				"8F82FC5CCEBCF868D91824E8",
 			);
 			"buildRules" = (
 			);
@@ -1856,6 +1942,8 @@
 				"E094963061D4D47B7F377545",
 				"3C8A6EB39C9718ABD2B52052",
 				"D7FB134E1FE78787AAAFD824",
+				"40FDF2B685985B3BB537F978",
+				"AC81CEC77D02ACE2FF614BA1",
 				"AD8878812FD5ECECD7F0C16D",
 				"7A7A1CE7F26E12A4806B0911",
 				"787FF8FAE389531F79179B70",
