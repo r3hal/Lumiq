@@ -39,7 +39,7 @@ actor BackupEngine {
     func bootstrap() async {
         guard !loaded else { return };loaded = true
         do {
-            state = try disk.load()
+            state = try disk.load();publish()
             let active = await transfers.activeTags()
             let expected = Set(state.jobs.filter{state.enabled && $0.state == .uploading && $0.destinationID == state.destination?.id && $0.deviceID == state.destination?.deviceID && $0.server == state.destination?.server}.compactMap{job in job.operationID.map{job.id+"|"+$0.uuidString+"|"+String(state.revision)}})
             let unexpected = !active.subtracting(expected).isEmpty
@@ -143,7 +143,7 @@ actor BackupEngine {
         state.problem = nil;try? save();await pump()
     }
     func pump(now:Date = Date()) async {
-        guard loaded,usable,state.enabled,let destination = state.destination else { return }
+        guard loaded,usable,state.enabled,state.problem != .authorization,state.problem != .destinationMismatch,let destination = state.destination else { return }
         if running { runAgain = true;return };running = true
         defer { running = false;if runAgain { runAgain = false;Task{await self.pump()} } }
         // One file transfer at a time. Receipt polling cannot starve new captures.
@@ -234,6 +234,7 @@ actor BackupEngine {
     private func fail(_ id:String,error:Error,now:Date) {
         guard let index = state.jobs.firstIndex(where:{$0.id == id}) else { return }
         let problem = Self.problem(error)
+        if problem == .authorization || problem == .destinationMismatch { state.problem = problem }
         state.jobs[index].operationID = nil;state.jobs[index].problem = problem;state.jobs[index].needsStatusProbe = true
         state.jobs[index].attempts += 1
         let retry = BackupRetry.retryable(problem) && state.jobs[index].attempts < BackupRetry.maximumAttempts

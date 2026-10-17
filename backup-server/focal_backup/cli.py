@@ -64,9 +64,10 @@ def main():
     else:
         with store.transaction() as db:
             counts = dict(db.execute("SELECT state,COUNT(*) FROM resources GROUP BY state"))
+            errors = dict(db.execute("SELECT error,COUNT(*) FROM resources WHERE error IS NOT NULL GROUP BY error"))
             devices = [dict(row) for row in db.execute("SELECT id,label,revoked FROM devices ORDER BY created")]
         print(json.dumps({"drive_connected": OwnerGoogleAuthorization(store).connected,
-                          "resources": counts, "devices": devices}, indent=2))
+                          "resources": counts, "errors": errors, "worker_health": store.get("worker_health") or "not_started", "devices": devices}, indent=2))
 
 
 if __name__ == "__main__":

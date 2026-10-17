@@ -173,6 +173,26 @@ final class PhotoBackupTests:XCTestCase {
         let f = try BackupFixture();try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
         let queue = await f.engine.snapshot();XCTAssertEqual(queue.jobs[0].state,.failed);XCTAssertEqual(queue.jobs[0].problem,.authorization)
     }
+    func testRevokedCredentialPausesWholeQueueAcrossRestart() async throws {
+        let f = try BackupFixture();try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
+        for _ in 0..<10 { await f.engine.pump(now:Date().addingTimeInterval(3600)) }
+        let count = await f.http.count();XCTAssertEqual(count,1)
+        let restarted = BackupEngine(disk:f.disk,api:.init(http:f.http,credentials:f.credentials),transfers:f.transfers)
+        await restarted.bootstrap();await restarted.pump(now:Date().addingTimeInterval(7200))
+        let after = await f.http.count();XCTAssertEqual(after,1)
+        let summary = await restarted.summary();XCTAssertEqual(summary.problem,.authorization)
+    }
+    func testOptOutPersistenceFailureCancelsAndRemovesCredential() async throws {
+        let f = try BackupFixture();try await f.start();try await f.enable(f.capture())
+        let bytes = try Data(contentsOf:f.disk.manifest)
+        try FileManager.default.removeItem(at:f.disk.manifest)
+        try FileManager.default.createDirectory(at:f.disk.manifest,withIntermediateDirectories:false)
+        do { try await f.engine.enable(false);XCTFail("Storage failure must be reported") } catch {}
+        let tags = await f.transfers.activeTags();XCTAssertTrue(tags.isEmpty)
+        do { _ = try await f.credentials.token(for:f.destination);XCTFail("Old enabled manifest must lose upload access") } catch {}
+        try FileManager.default.removeItem(at:f.disk.manifest);try bytes.write(to:f.disk.manifest)
+        let state = await f.engine.snapshot();XCTAssertFalse(state.enabled)
+    }
     func testQuotaResponseHonorsRetryAfter() async throws {
         let f = try BackupFixture();try await f.start();await f.http.setStatus(429);try await f.enable(f.capture())
         let state = await f.engine.snapshot();XCTAssertEqual(state.jobs[0].state,.retry);XCTAssertGreaterThan(state.jobs[0].nextAttempt.timeIntervalSinceNow,110)
