@@ -163,8 +163,9 @@ actor GeminiCloudCompositionService: CloudCompositionService {
         Local camera evidence: \(factsText)
         If selectedSubject exists, localSubjectID must be selected, primarySubjectDescription must exactly equal its label, and subjectBoundingBox must match that visible local box. Never invent another subject. Otherwise localSubjectID and subjectBoundingBox must be null, primarySubjectDescription must be Whole scene, target must be the full-frame center (0.5,0.5), and the zoom range must include currentZoom. Whole-scene techniques are framing advice, not claimed detection of a path or line. Unsupported visual anchors must not produce movement arrows. Keep important anatomy and context inside the frame. Use the least zoom needed; the zoom range uses displayed absolute factors within the supplied device/detail limits. Suggest roll only with visible geometric evidence; otherwise rollSuggestion is null. Keep explanation brief and photographic. Do not prescribe camera control commands, READY, focus, capture, networking, tools or actions. Do not output markdown or extra keys.
         """
+        // REST TextResponseFormat uses an enum; HTTP/JPEG MIME strings remain unchanged.
         let content:[String:Any] = ["contents":[["role":"user","parts":[["text":prompt],["inlineData":["mimeType":"image/jpeg","data":capture.jpeg.base64EncodedString()]]]]],
-            "generationConfig":["candidateCount":1,"maxOutputTokens":4096,"responseFormat":["text":["mimeType":"application/json","schema":schema]]]]
+            "generationConfig":["candidateCount":1,"maxOutputTokens":4096,"responseFormat":["text":["mimeType":"APPLICATION_JSON","schema":schema]]]]
         return try JSONSerialization.data(withJSONObject:content,options:.sortedKeys)
     }
     static var schema:[String:Any] {

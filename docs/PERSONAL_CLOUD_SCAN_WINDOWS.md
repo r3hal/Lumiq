@@ -158,3 +158,33 @@ Reproduce portable checks with `python3 -m unittest discover -s scripts/tests -p
 The runtime project preflight is intentionally **not** bypassed by a green CI result. It must make its real GET/text request with your encrypted Codemagic variable before a key-bearing IPA can be prepared. Account restrictions, quota, network reachability, AltServer compatibility and physical camera behavior remain the first personal run's checks.
 
 Do not confuse these checks with a completed personal installation. This task has no access to your rotated Codemagic secret, Apple Account or iPhone; the real-project model probe, key-bearing IPA, private transfer, AltStore signature and live image scan require your manual Codemagic/phone run. No real key was requested, printed, copied to this workspace or used for a provider call, and no image was sent to Google during preparation.
+
+## Safe Google preflight diagnostics (2026-10-17)
+
+The earlier generic provider error did not identify a root cause. In the build helper, every non-200 HTTP status except 401, 403, 404, 408, 429 and 504 mapped to provider, including HTTP 400, redirects and most server errors. Oversized or malformed HTTP-200 JSON also mapped to provider. The Swift service maps every status except 200, 401, 403, 404, 408, 429 and 504 to serviceUnavailable. Its user-facing error mapping is unchanged by this fix.
+
+Build failures now include only an allowlisted stage (model metadata GET or structured text POST), the numeric HTTP status actually received, and a fixed category. For example:
+
+    ERROR: Google verification failed [stage=structured text POST; HTTP 400; category=invalid request]. Google rejected the request. Check the API request contract and project configuration privately.
+
+| Status | Safe preflight category |
+| --- | --- |
+| 401 / 403 | permission |
+| 404 / 410 | unavailable model |
+| 429 | quota |
+| 408 / 504 | network or timeout |
+| Other 4xx, including 400 / 402 / 422 | invalid request |
+| 3xx | redirect rejected; redirect is not followed |
+| Other 5xx | service failure |
+| Unexpected non-200 1xx / 2xx | unexpected HTTP status |
+| No HTTP response | network or timeout; HTTP not received |
+| 200 with invalid/oversized JSON | invalid response |
+| 200 with incompatible metadata or failed text probe | unavailable model or invalid structured output, with the corresponding stage |
+
+Categories are broad HTTP classifications, not a claim about Google's private reason. For example, HTTP 400 alone cannot distinguish a request-format error from certain key/project problems. Inspect project settings privately; do not disable key restrictions to obtain a passing build. API keys, Authorization/header values, URLs, provider response bodies, request payloads and configuration are never included. Error bodies are not read for diagnostics. No new logging of successful responses is added.
+
+The request correction applies to both the Python preflight and GeminiCloudCompositionService.swift: generationConfig.responseFormat.text.mimeType is APPLICATION_JSON. HTTP Content-Type remains application/json and inlineData.mimeType remains image/jpeg. No deprecated/mixed responseSchema or responseJsonSchema fields are introduced. The [REST TextResponseFormat reference](https://ai.google.dev/api/generate-content#TextResponseFormat) and [public v1beta discovery schema](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta) define that field as an enum. Discovery revision checked: 20261015, SHA-256 c030bbdeeb23e920b0717f8266647fdf28cfb3f76298230bdb4d4713cb57b7c0. The [structured-output guide](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) currently shows application/json in that enum field; this fix follows the machine-readable wire contract and API reference instead. That mismatch is a concrete defect; the old generic error alone cannot prove it caused the observed run.
+
+The configured model remains gemini-3.8-flash. Its [official model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) lists text/image input and structured output, with a 65,536-token output limit. The existing candidate count of one and 1,024/4,096 output budgets are within documented limits. Endpoint/API version stays v1beta/models/{model}:generateContent; no migration to the distinct interactions API is performed. Matching model metadata and generateContent capability are still mandatory. Only the next manual Codemagic run can verify this project's current key permissions, restrictions, model availability and quota. Fixture-based CI cannot establish live API compatibility or useful image reasoning.
+
+Regression coverage now checks the exact structured-output enum in both languages, unchanged HTTP/JPEG MIME types, GET versus POST failures, status/category output, absence of credential/provider content, unread error bodies, invalid HTTP-200 responses, missing HTTP status, and no retries or model substitution. Private SSH/SCP delivery, cleanup/expiry, credential creation, Debug-only policy, artifact omission and camera/READY/zoom/Sony/shutter behavior are preserved. No real provider call or Codemagic personal build is started by these tests.

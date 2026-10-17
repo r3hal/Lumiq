@@ -36,7 +36,11 @@ MESSAGES = {
     "quota": "Google returned quota/rate limit 429. No retry or fallback model was used.",
     "model": "The explicitly configured model is unavailable or lacks generateContent. No replacement was selected.",
     "network": "Google verification timed out or failed HTTPS/network validation. No IPA was produced.",
-    "provider": "Google verification failed. Its raw response is deliberately not logged.",
+    "provider": "Google service failure. Its raw response is deliberately not logged.",
+    "request": "Google rejected the request. Check the API request contract and project configuration privately.",
+    "response": "Google returned an invalid or oversized response. Its contents are deliberately not logged.",
+    "redirect": "Google returned a redirect, which this private workflow refuses to follow.",
+    "http": "Google returned an unexpected HTTP status. No IPA was produced.",
     "probe": "The configured model did not complete the structured text probe. No IPA was produced.",
     "debug": "Build settings are not Debug with DEBUG enabled and the expected executable layout.",
     "build": "Xcode or packaging failed. Raw build output is not published by this sensitive workflow.",
@@ -46,10 +50,28 @@ MESSAGES = {
     "cancelled": "Private build cancelled; owned sensitive files are being removed.",
 }
 
+# Diagnostic labels are application constants, never provider strings or configuration.
+GOOGLE_STAGES = {"metadata": "model metadata GET", "probe": "structured text POST"}
+GOOGLE_CATEGORIES = {
+    "authorization": "permission", "quota": "quota", "model": "unavailable model",
+    "request": "invalid request", "network": "network or timeout",
+    "provider": "service failure", "response": "invalid response",
+    "redirect": "redirect rejected", "http": "unexpected HTTP status",
+    "probe": "invalid structured output",
+}
+
 class SafeFailure(Exception):
-    def __init__(self, code):
+    def __init__(self, code, *, stage=None, status=None):
         self.code = code
-        super().__init__(MESSAGES[code])
+        self.stage = stage if stage in GOOGLE_STAGES else None
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+        self.category = GOOGLE_CATEGORIES.get(code)
+        message = MESSAGES[code]
+        if self.stage is not None and self.category is not None:
+            http = str(self.status) if self.status is not None else "not received"
+            message = ("Google verification failed [stage=" + GOOGLE_STAGES[self.stage]
+                       + "; HTTP " + http + "; category=" + self.category + "]. " + message)
+        super().__init__(message)
 
 @dataclass(frozen=True)
 class Configuration:
@@ -86,16 +108,26 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
-def status_error(status):
+def status_error(status, *, stage=None):
+    if type(status) is not int or not 100 <= status <= 599:
+        return SafeFailure("http", stage=stage)
     if status in (401, 403):
-        return SafeFailure("authorization")
-    if status == 429:
-        return SafeFailure("quota")
-    if status == 404:
-        return SafeFailure("model")
-    if status in (408, 504):
-        return SafeFailure("network")
-    return SafeFailure("provider")
+        code = "authorization"
+    elif status == 429:
+        code = "quota"
+    elif status in (404, 410):
+        code = "model"
+    elif status in (408, 504):
+        code = "network"
+    elif 400 <= status < 500:
+        code = "request"
+    elif 300 <= status < 400:
+        code = "redirect"
+    elif 500 <= status < 600:
+        code = "provider"
+    else:
+        code = "http"
+    return SafeFailure(code, stage=stage, status=status)
 
 class GoogleClient:
     def __init__(self, opener=None):
@@ -103,6 +135,8 @@ class GoogleClient:
             NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
 
     def request(self, configuration, method, suffix="", body=None):
+        stage = {("GET", ""): "metadata", ("POST", ":generateContent"): "probe"}.get((method, suffix))
+        status = None
         # Model is validated before URL construction. Credential is header-only.
         url = "https://generativelanguage.googleapis.com/v1beta/models/" + configuration.model + suffix
         request = urllib.request.Request(url, method=method,
@@ -110,33 +144,36 @@ class GoogleClient:
             headers={"x-goog-api-key": configuration.api_key, "Content-Type": "application/json"})
         try:
             with self.opener.open(request, timeout=20) as response:
-                if response.status != 200:
-                    raise status_error(response.status)
+                status = response.status
+                if status != 200:
+                    raise status_error(status, stage=stage)
                 data = response.read(LIMIT + 1)
                 if len(data) > LIMIT:
-                    raise SafeFailure("provider")
+                    raise SafeFailure("response", stage=stage, status=status)
                 return json.loads(data)
         except urllib.error.HTTPError as error:
             # Do not read/print the provider error body (which may echo credentials).
-            raise status_error(error.code) from None
+            raise status_error(error.code, stage=stage) from None
         except (urllib.error.URLError, TimeoutError, OSError):
-            raise SafeFailure("network") from None
+            raise SafeFailure("network", stage=stage, status=status) from None
         except (ValueError, UnicodeError):
-            raise SafeFailure("provider") from None
+            raise SafeFailure("response", stage=stage, status=status) from None
 
 def verify_model(configuration, client):
     metadata = client.request(configuration, "GET")
     if (not isinstance(metadata, dict) or metadata.get("name") != "models/" + configuration.model
             or not isinstance(metadata.get("supportedGenerationMethods"), list)
             or "generateContent" not in metadata["supportedGenerationMethods"]):
-        raise SafeFailure("model")
+        raise SafeFailure("model", stage="metadata", status=200)
+    # responseFormat.text.mimeType is a REST enum (APPLICATION_JSON), unlike
+    # the HTTP Content-Type header and inline JPEG MIME strings.
     # One bounded text-only generation verifies this project's actual invocation
     # and the same structured-output REST format as the app. No image is uploaded.
     body = {
         "contents": [{"role": "user", "parts": [{"text":
             'Capability check only. Return the JSON object {"probe":"ok"}.'}]}],
         "generationConfig": {"candidateCount": 1, "maxOutputTokens": 1024,
-            "responseFormat": {"text": {"mimeType": "application/json", "schema": {
+            "responseFormat": {"text": {"mimeType": "APPLICATION_JSON", "schema": {
                 "type": "object", "properties": {"probe": {"type": "string", "enum": ["ok"]}},
                 "required": ["probe"], "additionalProperties": False}}}},
     }
@@ -149,8 +186,8 @@ def verify_model(configuration, client):
                  if p.get("thought") is not True and isinstance(p.get("text"), str)]
         if len(parts) != 1 or json.loads(parts[0]) != {"probe": "ok"}:
             raise ValueError()
-    except (KeyError, TypeError, ValueError):
-        raise SafeFailure("probe") from None
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise SafeFailure("probe", stage="probe", status=200) from None
 
 @contextmanager
 def developer_configuration(root, configuration):
@@ -361,7 +398,7 @@ def main():
         else:
             acknowledge(ROOT, arguments.sha256)
     except SafeFailure as error:
-        print("ERROR: " + MESSAGES[error.code], file=sys.stderr)
+        print("ERROR: " + str(error), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("ERROR: " + MESSAGES["cancelled"], file=sys.stderr)

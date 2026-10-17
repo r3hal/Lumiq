@@ -34,7 +34,8 @@ class Client:
 
 class Response:
     status = 200
-    def __init__(self, body):
+    def __init__(self, body, status=200):
+        self.status = status
         self.body = body
         self.read_limit = None
     def __enter__(self): return self
@@ -49,6 +50,7 @@ class PersonalCloudBuildTests(unittest.TestCase):
             function(*args)
         self.assertEqual(raised.exception.code, code)
         self.assertNotIn(FIXTURE.api_key, str(raised.exception))
+        return raised.exception
 
     def test_configuration_uses_exact_existing_schema_and_hides_repr(self):
         cfg = build.Configuration.from_environment(
@@ -85,7 +87,12 @@ class PersonalCloudBuildTests(unittest.TestCase):
             [(FIXTURE.model, "GET", ""), (FIXTURE.model, "POST", ":generateContent")])
         body = client.requests[1][3]
         self.assertEqual(len(body["contents"][0]["parts"]), 1)
-        self.assertEqual(body["generationConfig"]["responseFormat"]["text"]["mimeType"], "application/json")
+        self.assertEqual(body["generationConfig"]["responseFormat"], {"text": {
+            "mimeType": "APPLICATION_JSON", "schema": {"type": "object",
+                "properties": {"probe": {"type": "string", "enum": ["ok"]}},
+                "required": ["probe"], "additionalProperties": False}}})
+        self.assertTrue({"responseMimeType", "responseSchema", "responseJsonSchema", "response_format"}
+                        .isdisjoint(body["generationConfig"]))
         self.assertNotIn("inlineData", json.dumps(body))
         self.assertNotIn(FIXTURE.api_key, json.dumps(body))
 
@@ -106,6 +113,8 @@ class PersonalCloudBuildTests(unittest.TestCase):
 
     def test_invalid_truncated_or_blocked_probe_is_not_live_success(self):
         for response in [{}, {"candidates": []},
+            {"candidates": [{"finishReason": "STOP", "content": {"parts": [None]}}]},
+            {"candidates": [{"finishReason": "STOP", "content": {"parts": [42]}}]},
             {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": []}}]},
             {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": '{"ready":true}'}]}}]}]:
             self.failure("probe", build.verify_model, FIXTURE, Client([METADATA, response]))
@@ -138,8 +147,111 @@ class PersonalCloudBuildTests(unittest.TestCase):
         for data in [b"broken", b" " * (build.LIMIT + 1)]:
             opener = mock.Mock()
             opener.open.return_value = Response(data)
-            self.failure("provider", build.GoogleClient(opener).request, FIXTURE, "GET")
+            self.failure("response", build.GoogleClient(opener).request, FIXTURE, "GET")
         self.assertIsNone(build.NoRedirect().redirect_request(None, None, 302, "", {}, "https://evil.invalid"))
+
+    def test_http_status_categories_are_explicit_in_both_stages(self):
+        groups = {
+            "authorization": [401, 403], "quota": [429], "model": [404, 410],
+            "network": [408, 504], "request": [400, 402, 405, 409, 413, 415, 422],
+            "redirect": [301, 302, 307, 308], "provider": [500, 502, 503, 599],
+            "http": [101, 201, 204],
+        }
+        for method, suffix, stage in [("GET", "", "metadata"),
+                                      ("POST", ":generateContent", "probe")]:
+            for code, statuses in groups.items():
+                for status in statuses:
+                    with self.subTest(method=method, status=status):
+                        opener = mock.Mock()
+                        body = mock.Mock()
+                        body.read.side_effect = AssertionError("Error body must never be read")
+                        opener.open.side_effect = urllib.error.HTTPError(
+                            "https://provider.invalid/" + FIXTURE.api_key, status,
+                            FIXTURE.api_key, {"Authorization": FIXTURE.api_key}, body)
+                        error = self.failure(code, build.GoogleClient(opener).request,
+                                             FIXTURE, method, suffix)
+                        self.assertEqual((error.stage, error.status), (stage, status))
+                        self.assertIn(build.GOOGLE_STAGES[stage], str(error))
+                        self.assertIn("HTTP " + str(status), str(error))
+                        self.assertIn("category=" + build.GOOGLE_CATEGORIES[code], str(error))
+                        body.read.assert_not_called()
+                        self.assertEqual(opener.open.call_count, 1)
+
+    def test_nonexception_http_status_has_same_safe_diagnostics(self):
+        opener = mock.Mock()
+        response = Response(b"private response must not be read", status=400)
+        opener.open.return_value = response
+        error = self.failure("request", build.GoogleClient(opener).request,
+                             FIXTURE, "POST", ":generateContent")
+        self.assertEqual((error.stage, error.status), ("probe", 400))
+        self.assertIsNone(response.read_limit)
+
+    def test_cli_reports_failed_stage_status_category_without_upstream_content(self):
+        for stage, status, category in [("metadata", 403, "permission"),
+                                        ("probe", 400, "invalid request"),
+                                        ("probe", 429, "quota"),
+                                        ("metadata", 404, "unavailable model"),
+                                        ("probe", 503, "service failure")]:
+            with self.subTest(stage=stage, status=status):
+                sensitive = FIXTURE.api_key + " Authorization raw-provider-body request-payload private-config"
+                provider_body = io.BytesIO(sensitive.encode())
+                provider_error = urllib.error.HTTPError("https://provider.invalid/" + FIXTURE.api_key,
+                    status, sensitive, {"Authorization": sensitive}, provider_body)
+                opener = mock.Mock()
+                opener.open.side_effect = ([Response(json.dumps(METADATA).encode()), provider_error]
+                                          if stage == "probe" else [provider_error])
+                output, errors = io.StringIO(), io.StringIO()
+                with mock.patch.object(sys, "argv", ["build_personal_cloud_ipa.py", "build"]), \
+                     mock.patch.object(build, "build", side_effect=lambda:
+                         build.verify_model(FIXTURE, build.GoogleClient(opener))), \
+                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    self.assertEqual(build.main(), 1)
+                message = output.getvalue() + errors.getvalue()
+                self.assertIn("stage=" + build.GOOGLE_STAGES[stage], message)
+                self.assertIn("HTTP " + str(status), message)
+                self.assertIn("category=" + category, message)
+                for value in [FIXTURE.api_key, "Authorization", "raw-provider-body",
+                              "request-payload", "private-config", "Traceback", "provider.invalid"]:
+                    self.assertNotIn(value, message)
+                self.assertEqual(opener.open.call_count, 2 if stage == "probe" else 1)
+
+    def test_network_diagnostics_have_stage_and_no_invented_http_status(self):
+        for method, suffix, stage in [("GET", "", "metadata"),
+                                      ("POST", ":generateContent", "probe")]:
+            for reason in [urllib.error.URLError(FIXTURE.api_key), TimeoutError(FIXTURE.api_key)]:
+                opener = mock.Mock()
+                opener.open.side_effect = reason
+                error = self.failure("network", build.GoogleClient(opener).request,
+                                     FIXTURE, method, suffix)
+                self.assertEqual(error.stage, stage)
+                self.assertIsNone(error.status)
+                self.assertIn("HTTP not received", str(error))
+
+    def test_invalid_200_response_preserves_stage_and_actual_status(self):
+        for method, suffix, stage in [("GET", "", "metadata"),
+                                      ("POST", ":generateContent", "probe")]:
+            for body in [b"malformed private body", b" " * (build.LIMIT + 1)]:
+                opener = mock.Mock()
+                opener.open.return_value = Response(body)
+                error = self.failure("response", build.GoogleClient(opener).request,
+                                     FIXTURE, method, suffix)
+                self.assertEqual((error.stage, error.status), (stage, 200))
+                self.assertIn("category=invalid response", str(error))
+                self.assertNotIn("private body", str(error))
+        error = self.failure("model", build.verify_model, FIXTURE, Client([{}]))
+        self.assertEqual((error.stage, error.status), ("metadata", 200))
+        error = self.failure("probe", build.verify_model, FIXTURE, Client([METADATA, {}]))
+        self.assertEqual((error.stage, error.status), ("probe", 200))
+
+    def test_diagnostic_fields_cannot_echo_untrusted_strings(self):
+        error = build.SafeFailure("provider", stage=FIXTURE.api_key, status=FIXTURE.api_key)
+        self.assertIsNone(error.stage)
+        self.assertIsNone(error.status)
+        self.assertNotIn(FIXTURE.api_key, str(error))
+        for status in [FIXTURE.api_key, True, 0, 999]:
+            error = build.status_error(status, stage="probe")
+            self.assertIsNone(error.status)
+            self.assertNotIn(FIXTURE.api_key, str(error))
 
     def test_generated_configuration_private_permissions_and_cleanup(self):
         with tempfile.TemporaryDirectory() as folder:

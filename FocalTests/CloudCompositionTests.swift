@@ -197,7 +197,19 @@ final class CloudCompositionTests: XCTestCase {
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with:request) as? [String:Any])
         let contents = try XCTUnwrap(root["contents"] as? [[String:Any]]); XCTAssertEqual(contents.count,1)
         let parts = try XCTUnwrap(contents[0]["parts"] as? [[String:Any]]); XCTAssertEqual(parts.count,2); XCTAssertNotNil(parts[1]["inlineData"])
-        XCTAssertNil(root["tools"]); XCTAssertNotNil(root["generationConfig"]); XCTAssertFalse(String(decoding:request,as:UTF8.self).contains("apiKey"))
+        XCTAssertNil(root["tools"]); XCTAssertFalse(String(decoding:request,as:UTF8.self).contains("apiKey"))
+        let jpeg = try XCTUnwrap(parts[1]["inlineData"] as? [String:Any])
+        XCTAssertEqual(jpeg["mimeType"] as? String,"image/jpeg")
+        let generation = try XCTUnwrap(root["generationConfig"] as? [String:Any])
+        let format = try XCTUnwrap(generation["responseFormat"] as? [String:Any])
+        let text = try XCTUnwrap(format["text"] as? [String:Any])
+        // v1beta TextResponseFormat.mimeType is an enum, not an HTTP MIME string.
+        XCTAssertEqual(text["mimeType"] as? String,"APPLICATION_JSON")
+        let schema = try XCTUnwrap(text["schema"] as? [String:Any])
+        XCTAssertEqual(schema["type"] as? String,"object")
+        XCTAssertEqual(schema["additionalProperties"] as? Bool,false)
+        XCTAssertNotNil(schema["required"])
+        for legacy in ["responseMimeType","responseSchema","responseJsonSchema","response_format"] { XCTAssertNil(generation[legacy]) }
     }
     func testServiceMakesOneGenerationAndCachesModelCapability() async throws {
         let meta = Data(#"{"name":"models/gemini-3.8-flash","supportedGenerationMethods":["generateContent"]}"#.utf8)
@@ -220,6 +232,20 @@ final class CloudCompositionTests: XCTestCase {
             let transport = CloudTestTransport([.success(.init(data:Data("private upstream error must not be surfaced".utf8),status:status))])
             let service = GeminiCloudCompositionService(configuration:.init(apiKey:"unit-test-only",model:"gemini-3.8-flash"),transport:transport)
             do { _ = try await service.scan(capture(evidence())); XCTFail("Expected failure") } catch let actual as CloudCompositionError { XCTAssertEqual(actual,error); XCTAssertFalse(actual.message.contains("private upstream")) }
+        }
+    }
+    func testGenerationHTTPFailuresDoNotRetryOrExposeProviderContent() async throws {
+        let meta = Data(#"{"name":"models/gemini-3.8-flash","supportedGenerationMethods":["generateContent"]}"#.utf8)
+        for (status,expected) in [(400,CloudCompositionError.serviceUnavailable),(401,.unauthorized),(403,.unauthorized),(404,.unavailableModel),(408,.timeout),(429,.quota),(500,.serviceUnavailable),(503,.serviceUnavailable),(504,.timeout)] {
+            let privateBody = "unit-test-only Authorization private request and provider response"
+            let transport = CloudTestTransport([.success(.init(data:meta,status:200)),.success(.init(data:Data(privateBody.utf8),status:status))])
+            let service = GeminiCloudCompositionService(configuration:.init(apiKey:"unit-test-only",model:"gemini-3.8-flash"),transport:transport)
+            do { _ = try await service.scan(capture(evidence())); XCTFail("Expected HTTP failure") }
+            catch let error as CloudCompositionError { XCTAssertEqual(error,expected); XCTAssertFalse(error.message.contains("unit-test-only")); XCTAssertFalse(error.message.contains("Authorization")) }
+            let requests = await transport.requests
+            XCTAssertEqual(requests.map(\.httpMethod),["GET","POST"])
+            XCTAssertTrue(requests.allSatisfy { $0.url?.path.contains("/models/gemini-3.8-flash") == true && $0.url?.query == nil })
+            XCTAssertTrue(requests.allSatisfy { $0.value(forHTTPHeaderField:"Content-Type") == "application/json" })
         }
     }
     func testUnavailableCapabilityDoesNotUploadImage() async throws {
