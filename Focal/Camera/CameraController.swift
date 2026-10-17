@@ -2300,8 +2300,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                 let actualZoom = self.device.map { Double($0.videoZoomFactor/self.zoomMultiplier) }
                 self.analysisQueue.async {
                     do {
+                        let snapshot = self.guidanceSnapshot()
                         guard self.cloudScanGate.accepts(capture.requestID), let live = self.latestCloudEvidence,
-                              self.guidanceSnapshot().revision == capture.evidence.sessionRevision,
+                              snapshot.revision == capture.evidence.sessionRevision,
                               let actualZoom, abs(actualZoom/live.zoom-1) <= 0.02 else { throw CloudCompositionError.stale }
                         let now = ProcessInfo.processInfo.systemUptime
                         var held = try CloudCompositionMatcher.match(result,capture:capture,live:live,at:now)
@@ -2324,7 +2325,14 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                             }
                         }
                         guard self.cloudScanGate.finish(capture.requestID) else { throw CloudCompositionError.stale }
-                        let snapshot = self.invalidateGuidanceResults()
+                        // Acceptance revokes old frame proof, not the camera session.
+                        // A newer scan/context may begin after finish; never invalidate it.
+                        self.resultGate.invalidate(at:now); self.autofocusRequests.invalidate()
+                        DispatchQueue.main.async {
+                            guard self.guidanceSnapshot() == snapshot else { return }
+                            self.reading = CompositionReading(); self.compositionPlan = nil; self.framingHoldProgress = 0
+                            self.guidance = .init(kind:.framing,text:"Verifying the selected composition locally…")
+                        }
                         self.framing.reset(enabled:self.automaticShotArmed && self.guidanceEnabled && self.analysisSource == .iPhone)
                         self.shotCapture.invalidateVerification(); self.engine.reset(); self.automaticGuidance.reset(); self.scenePlanner.reset(); self.directZoomPlan = nil
                         self.cloudCompositionLock = held; self.cloudRecovering = false

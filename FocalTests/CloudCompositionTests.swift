@@ -108,6 +108,9 @@ final class CloudCompositionTests: XCTestCase {
     func testNewScanAndOldCompletionCannotClearCurrentScan() {
         let gate = CloudScanRequestGate(); let old = gate.begin(); let newer = gate.begin()
         XCTAssertFalse(gate.accepts(old)); XCTAssertFalse(gate.finish(old)); XCTAssertTrue(gate.accepts(newer)); XCTAssertTrue(gate.finish(newer)); XCTAssertFalse(gate.finish(newer))
+        // A rescan can start just after acceptance, before old async cleanup.
+        let afterAcceptance = gate.begin()
+        XCTAssertFalse(gate.finish(newer)); XCTAssertTrue(gate.accepts(afterAcceptance))
     }
     func testInvalidationRejectsPendingResponse() {
         let gate = CloudScanRequestGate(), id = gate.begin()

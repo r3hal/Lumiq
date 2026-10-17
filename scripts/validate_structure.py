@@ -123,6 +123,10 @@ assert 'x-goog-api-key' in cloud_text and '?key=' not in cloud_text
 assert 'print(' not in cloud_text and 'Logger(' not in cloud_text
 assert 'capturePhoto(' not in cloud_text and 'shoot(' not in cloud_text
 assert 'streamGenerateContent' not in cloud_text and 'service.scan(capture)' not in controller
+# Accepted old scans must not invalidate a newer scan/camera session.
+cloud_accept=controller.split('func applyCloudComposition(')[1].split('private func publishCloudCompositionStatus(')[0]
+assert 'invalidateGuidanceResults(' not in cloud_accept
+assert 'self.resultGate.invalidate(at:now)' in cloud_accept
 # Cloud recovery cannot accumulate local READY proof against a replacement.
 assert 'framing.confirmCurrentFrame(eligible:!cloudRecovering && (' in controller
 assert 'retaining:!cloudRecovering && (' in controller
