@@ -2,13 +2,15 @@ import Foundation
 
 enum BackupProblem: String, Codable, Error, Sendable {
     case offline, temporaryService, quota, authorization, ownerAuthorization, destinationMismatch, integrity
-    case missingOriginal, storage, ownerStorage, queueFull, invalidResponse, permission, cancelled, configuration
+    case missingOriginal, storage, ownerStorage, queueFull, invalidResponse, permission, cancelled, configuration, folderAuthorization, rateLimited
     var explanation:String {
         switch self {
         case .offline: return "Waiting for an internet connection. Originals remain on this iPhone."
         case .temporaryService: return "Google Drive is temporarily unavailable. Backup will retry."
         case .quota: return "Google Drive storage or quota is full. Free space, then retry."
         case .ownerAuthorization: return "The backup owner must reconnect Google Drive on the server. No Google login is needed on this iPhone."
+        case .folderAuthorization: return "The owner must grant write access to the exact Google Drive backup folder on the server. Originals remain on this iPhone."
+        case .rateLimited: return "The backup service is rate-limited. Uploads will retry automatically when iOS allows. Originals are preserved."
         case .authorization: return "Reconnect this device to the owner backup server to resume."
         case .destinationMismatch: return "These photos belong to a different backup destination. Reconnect the original destination to resume."
         case .integrity: return "File verification failed. The local original has been preserved."
@@ -158,7 +160,7 @@ enum BackupRetry {
         let exponential = min(21_600,30*pow(2,Double(max(0,min(10,attempt-1)))))
         return min(86_400,max(exponential,retryAfter.flatMap{$0.isFinite && $0 >= 0 ? $0 : nil} ?? 0))
     }
-    static func retryable(_ problem:BackupProblem) -> Bool { [.offline,.temporaryService,.storage,.ownerStorage,.cancelled].contains(problem) }
+    static func retryable(_ problem:BackupProblem) -> Bool { [.offline,.temporaryService,.storage,.ownerStorage,.cancelled,.rateLimited].contains(problem) }
 }
 
 struct BackupHTTPResult:Sendable {

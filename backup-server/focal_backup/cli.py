@@ -3,8 +3,8 @@ import argparse
 import asyncio
 import json
 
-from .store import Settings, Store
-from .google_drive import OwnerGoogleAuthorization
+from .store import Settings, Store, TARGET_FOLDER_ID
+from .google_drive import OwnerGoogleAuthorization, GoogleDrive, GoogleFailure
 
 
 def main():
@@ -17,6 +17,7 @@ def main():
     revoke = actions.add_parser("revoke-device")
     revoke.add_argument("device_id")
     actions.add_parser("status")
+    actions.add_parser("verify-folder")
     actions.add_parser("retry-drive")
     prune = actions.add_parser("prune-completed")
     prune.add_argument("--older-than-days", type=int, default=365)
@@ -29,9 +30,19 @@ def main():
     if args.action == "invite":
         if not OwnerGoogleAuthorization(store).connected:
             raise SystemExit("Authorize owner Google Drive at /admin first")
+        try:
+            asyncio.run(GoogleDrive(OwnerGoogleAuthorization(store)).verify_target_folder())
+        except GoogleFailure:
+            raise SystemExit("Exact folder is not writable; complete owner folder selection at /admin first") from None
         code = store.issue_invite(args.label, args.expires, args.recover_device)
         print("One-use invitation (share privately; do not paste in CI or issue logs):")
         print(code)
+    elif args.action == "verify-folder":
+        try:
+            asyncio.run(GoogleDrive(OwnerGoogleAuthorization(store)).verify_target_folder())
+        except GoogleFailure as error:
+            raise SystemExit("Folder verification failed: " + error.code) from None
+        print("Verified exact folder and canAddChildren permission: " + TARGET_FOLDER_ID)
     elif args.action == "revoke-device":
         store.revoke(args.device_id)
         print("Device authorization revoked; completed Drive backups are preserved.")
@@ -67,6 +78,7 @@ def main():
             errors = dict(db.execute("SELECT error,COUNT(*) FROM resources WHERE error IS NOT NULL GROUP BY error"))
             devices = [dict(row) for row in db.execute("SELECT id,label,revoked FROM devices ORDER BY created")]
         print(json.dumps({"drive_connected": OwnerGoogleAuthorization(store).connected,
+                          "target_folder_id": TARGET_FOLDER_ID, "folder_status": store.get("folder_status") or "needs_selection",
                           "resources": counts, "errors": errors, "worker_health": store.get("worker_health") or "not_started", "devices": devices}, indent=2))
 
 

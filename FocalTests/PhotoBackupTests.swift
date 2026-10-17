@@ -88,6 +88,18 @@ private final class BackupFixture {
 }
 
 final class PhotoBackupTests:XCTestCase {
+    func testFolderPermissionLossWaitsForOwnerWithoutClaimingCompletion() async throws {
+        let f = try BackupFixture();try await f.start();let capture = try f.capture();try await f.enable(capture)
+        let transfer = await f.transfers.latest()!
+        let receipt = try await f.receipt(transfer)
+        var body = try JSONSerialization.jsonObject(with:receipt.data) as! [String:Any]
+        body["error"] = "folder_authorization"
+        await f.engine.completed(tag:transfer.tag,result:.init(status:200,data:try JSONSerialization.data(withJSONObject:body)),problem:nil)
+        let queue = await f.engine.snapshot()
+        let job = try XCTUnwrap(queue.jobs.first{$0.id == transfer.resourceID})
+        XCTAssertEqual(job.state,.verifying);XCTAssertEqual(job.problem,.folderAuthorization);XCTAssertNil(job.remoteID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath:f.disk.originals.appendingPathComponent(job.source.filename).path))
+    }
     func testCaptureInsertionIsPersistentAndIdempotent() async throws {
         let f = try BackupFixture();try await f.start();let capture = try f.capture()
         await f.engine.enroll(capture);await f.engine.enroll(capture)
@@ -211,6 +223,14 @@ final class PhotoBackupTests:XCTestCase {
     func testQuotaResponseHonorsRetryAfter() async throws {
         let f = try BackupFixture();try await f.start();await f.http.setStatus(429);try await f.enable(f.capture())
         let state = await f.engine.snapshot();XCTAssertEqual(state.jobs[0].state,.retry);XCTAssertGreaterThan(state.jobs[0].nextAttempt.timeIntervalSinceNow,110)
+        for step in 0..<40 {
+            await f.engine.pump(now:Date().addingTimeInterval(Double(step+1)*86400))
+            try await Task.sleep(nanoseconds:2_000_000)
+        }
+        let deferred = await f.engine.snapshot()
+        XCTAssertTrue(deferred.jobs.allSatisfy{$0.state == .retry && $0.problem == .rateLimited && $0.attempts <= 8})
+        await f.http.setStatus(nil);await f.engine.pump(now:Date().addingTimeInterval(50*86400))
+        let transfer = await f.transfers.latest();XCTAssertNotNil(transfer)
     }
     func testDuplicateCaptureReconciliationDoesNotResetProgress() async throws {
         let f = try BackupFixture();try await f.start();let c = try f.capture();try await f.enable(c);let before = await f.engine.snapshot()

@@ -234,6 +234,7 @@ actor BackupEngine {
         case "pendingDrive", "uploadingDrive":
             job.state = .verifying;job.nextAttempt = now.addingTimeInterval(60)
             if status.error == "owner_authorization" { job.problem = .ownerAuthorization }
+            else if status.error == "folder_authorization" { job.problem = .folderAuthorization }
             else if status.error == "drive_quota" { job.problem = .quota }
         case "uploading":
             guard status.offset < status.size else { throw BackupProblem.invalidResponse }
@@ -261,8 +262,10 @@ actor BackupEngine {
         let problem = Self.problem(error)
         if problem == .authorization || problem == .destinationMismatch { state.problem = problem;state.authorizationPaused = true }
         state.jobs[index].operationID = nil;state.jobs[index].problem = problem;state.jobs[index].needsStatusProbe = true
-        state.jobs[index].attempts += 1
-        let retry = BackupRetry.retryable(problem) && state.jobs[index].attempts < BackupRetry.maximumAttempts
+        state.jobs[index].attempts = min(BackupRetry.maximumAttempts,state.jobs[index].attempts + 1)
+        // Rate limits are durable deferrals, including a daily device budget.
+        // Bound the attempt counter and delay, not the lifetime of the backup.
+        let retry = problem == .rateLimited || (BackupRetry.retryable(problem) && state.jobs[index].attempts < BackupRetry.maximumAttempts)
         state.jobs[index].state = retry ? .retry : .failed
         state.jobs[index].nextAttempt = now.addingTimeInterval(BackupRetry.delay(attempt:state.jobs[index].attempts,retryAfter:(error as? BackupWireFailure)?.retryAfter))
         do { try save() } catch { state.problem = .storage;publish() }

@@ -11,7 +11,7 @@ from urllib.parse import urlencode, urlparse
 from cryptography.fernet import Fernet, InvalidToken
 import httpx
 
-from .store import Store, Problem, digest
+from .store import Store, Problem, digest, TARGET_FOLDER_ID
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -125,6 +125,7 @@ class OwnerGoogleAuthorization:
                     raise Problem("different_google_owner", 409)
                 for key, value in {"google_owner": owner_hash, "google_tokens": self.encrypt(tokens), "google_status": "active"}.items():
                     db.execute("INSERT INTO config VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+                db.execute("INSERT INTO config VALUES('folder_status','needs_selection') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
 
     async def access_token(self, force=False):
         async with self.lock:
@@ -176,12 +177,13 @@ class GoogleDrive:
             reasons = [item.get("reason") for item in result.get("error", {}).get("errors", [])] if isinstance(result.get("error"), dict) else []
             if "storageQuotaExceeded" in reasons:
                 raise GoogleFailure("drive_quota")
-            if status == 429 or status >= 500 or any(r in reasons for r in ["rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"]):
+            limited = status == 429 or any(r in reasons for r in ["rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"])
+            if limited or status >= 500:
                 try:
                     retry = float(response_headers.get("retry-after", 0))
                 except (ValueError, TypeError):
                     retry = 0
-                raise GoogleFailure("google_temporary", retry)
+                raise GoogleFailure("google_rate_limited" if limited else "google_temporary", retry)
             raise GoogleFailure("drive_permission" if status == 403 else "invalid_google_response")
         return status, response_headers, result
 
@@ -194,7 +196,7 @@ class GoogleDrive:
 
     async def metadata(self, file_id):
         from urllib.parse import quote
-        status, _, result = await self.request("GET", "files/" + quote(file_id, safe="") + "?fields=id,size,sha256Checksum,md5Checksum,appProperties,trashed,mimeType", allow=(200, 404))
+        status, _, result = await self.request("GET", "files/" + quote(file_id, safe="") + "?supportsAllDrives=true&fields=id,size,sha256Checksum,md5Checksum,appProperties,trashed,mimeType,parents", allow=(200, 404))
         if status == 200 and result.get("id") != file_id:
             raise GoogleFailure("invalid_google_response")
         return result if status == 200 else None
@@ -205,53 +207,37 @@ class GoogleDrive:
 
     async def find(self, query):
         _, _, result = await self.request("GET", "files?" + urlencode({"q": query, "spaces": "drive", "pageSize": 100,
+            "supportsAllDrives": "true", "includeItemsFromAllDrives": "true",
             "fields": "files(id,name,appProperties),nextPageToken"}))
         if result.get("nextPageToken"):
             raise GoogleFailure("ambiguous_folder")
         return result.get("files", [])
 
-    async def folder(self, path, name, parent):
-        marker = path or "root"
-        with self.store.transaction() as db:
-            row = db.execute("SELECT drive_id FROM folders WHERE path=?", (marker,)).fetchone()
-        file_id = row[0] if row else None
-        if not file_id:
-            query = ("trashed=false and mimeType='" + FOLDER_MIME + "' and appProperties has { key='focalDestination' and value='" + self.q(self.store.destination)
-                     + "' } and appProperties has { key='focalPath' and value='" + self.q(marker) + "' }")
-            if parent:
-                query += " and '" + self.q(parent) + "' in parents"
-            found = await self.find(query)
-            file_id = sorted(f["id"] for f in found)[0] if found else await self.generate_id()
-            with self.store.transaction() as db:
-                db.execute("INSERT OR IGNORE INTO folders VALUES(?,?)", (marker, file_id))
-                file_id = db.execute("SELECT drive_id FROM folders WHERE path=?", (marker,)).fetchone()[0]
-        existing = await self.metadata(file_id)
-        if existing:
-            props = existing.get("appProperties", {})
-            if existing.get("trashed") or existing.get("mimeType") != FOLDER_MIME or props.get("focalDestination") != self.store.destination or props.get("focalPath") != marker:
-                raise GoogleFailure("folder_changed")
-            return file_id
-        body = {"id": file_id, "name": name, "mimeType": FOLDER_MIME,
-                "appProperties": {"focalDestination": self.store.destination, "focalPath": marker}}
-        if parent:
-            body["parents"] = [parent]
-        status, _, _ = await self.request("POST", "files?fields=id", body=body, allow=(200, 201, 409))
-        if status == 409:
-            check = await self.metadata(file_id)
-            if not check or check.get("appProperties", {}) != body["appProperties"]:
-                raise GoogleFailure("folder_changed")
-        return file_id
-
-    async def date_folder(self, day):
-        parent = await self.folder("", "Focal Photos", None)
-        prefix = []
-        for part in day.split("/"):
-            prefix.append(part)
-            parent = await self.folder("/".join(prefix), part, parent)
-        return parent
+    async def verify_target_folder(self, *, owner_selection=False):
+        if not owner_selection and self.store.get("folder_status") not in ("verified", "unavailable"):
+            raise GoogleFailure("folder_authorization")
+        try:
+            status, _, folder = await self.request("GET", "files/" + TARGET_FOLDER_ID +
+                "?supportsAllDrives=true&fields=id,mimeType,trashed,capabilities(canAddChildren)", allow=(200, 404))
+            if (status != 200 or folder.get("id") != TARGET_FOLDER_ID or folder.get("trashed")
+                    or folder.get("mimeType") != FOLDER_MIME
+                    or folder.get("capabilities", {}).get("canAddChildren") is not True):
+                self.store.set("folder_status", "unavailable")
+                raise GoogleFailure("folder_authorization")
+        except GoogleFailure as error:
+            if error.code in ("owner_authorization", "drive_permission"):
+                self.store.set("folder_status", "unavailable")
+            if error.code == "drive_permission":
+                raise GoogleFailure("folder_authorization") from None
+            raise
+        if self.store.get("folder_status") != "verified":
+            self.store.set("folder_status", "verified")
+        return TARGET_FOLDER_ID
 
     def verified(self, metadata, row, md5=None):
-        if not metadata or metadata.get("trashed") or str(metadata.get("size")) != str(row["size"]):
+        if (not metadata or not metadata.get("id") or metadata.get("trashed")
+                or metadata.get("parents") != [TARGET_FOLDER_ID]
+                or str(metadata.get("size")) != str(row["size"])):
             return False
         props = metadata.get("appProperties", {})
         if props.get("focalResource") != row["key"] or props.get("focalDestination") != self.store.destination:
@@ -270,19 +256,24 @@ class GoogleDrive:
             raise GoogleFailure("integrity")
         with path.open("rb") as source:
             md5 = hashlib.file_digest(source, "md5").hexdigest()
+        folder = await self.verify_target_folder()
         if row["drive_id"]:
             current = await self.metadata(row["drive_id"])
             if current:
                 if not self.verified(current, row, md5):
                     raise GoogleFailure("integrity")
                 return row["drive_id"]
-        folder = await self.date_folder(row["day"])
         # Private appProperties remain a fallback after a restored older DB.
         found = await self.find("trashed=false and appProperties has { key='focalResource' and value='" + row["key"] + "' }")
+        if len(found) > 1:
+            raise GoogleFailure("integrity")
         for candidate in found:
             current = await self.metadata(candidate["id"])
             if self.verified(current, row, md5):
                 return candidate["id"]
+            # Never silently duplicate/move an existing capture that was moved
+            # out of the destination or whose integrity can no longer be proven.
+            raise GoogleFailure("folder_changed")
         if not row["drive_id"]:
             row["drive_id"] = await self.generate_id()
             self.store.update_resource(row["key"], drive_id=row["drive_id"])
@@ -309,8 +300,8 @@ class GoogleDrive:
                 offset = self.offset(headers.get("range"), row["size"])
         if not session:
             body = {"id": row["drive_id"], "name": row["drive_name"], "mimeType": row["mime"], "parents": [folder],
-                    "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination, "focalCapture": row["capture_id"]}}
-            status, headers, _ = await self.request("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size,sha256Checksum,md5Checksum,appProperties", body=body,
+                    "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination, "focalCapture": row["capture_id"], "focalDate": row["day"], "focalRole": row["role"]}}
+            status, headers, _ = await self.request("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,parents,size,sha256Checksum,md5Checksum,appProperties", body=body,
                 headers={"X-Upload-Content-Type": row["mime"], "X-Upload-Content-Length": str(row["size"])}, allow=(200, 201, 409))
             if status == 409:
                 current = await self.metadata(row["drive_id"])
@@ -378,12 +369,15 @@ async def worker_once(store: Store, drive):
         (store.files / (row["key"] + ".bin")).unlink(missing_ok=True)
     except GoogleFailure as error:
         attempt = row["attempts"] + 1
-        requires_owner = error.code in ("owner_authorization", "drive_quota")
-        failed = error.code in ("integrity", "missing_original", "drive_permission", "device_revoked", "folder_changed") or (attempt >= 8 and not requires_owner)
+        code = "folder_authorization" if error.code == "drive_permission" else error.code
+        if code == "folder_authorization":
+            store.set("folder_status", "unavailable")
+        durable_deferral = code in ("owner_authorization", "drive_quota", "folder_authorization", "google_rate_limited")
+        failed = code in ("integrity", "missing_original", "device_revoked", "folder_changed") or (attempt >= 8 and not durable_deferral)
         delay = max(min(21600, 30 * 2**min(10, attempt - 1)), error.retry_after)
-        if requires_owner:
+        if durable_deferral:
             delay = max(delay, 300)
-        store.update_resource(row["key"], state="failed" if failed else "pendingDrive", error=error.code,
+        store.update_resource(row["key"], state="failed" if failed else "pendingDrive", error=code,
                               attempts=min(attempt, 8), retry_at=time.time() + delay, lease_until=0)
     except OSError:
         store.update_resource(row["key"], state="failed", error="owner_storage", lease_until=0)

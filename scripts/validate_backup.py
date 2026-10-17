@@ -37,6 +37,11 @@ assert '.env' in read('backup-server/.dockerignore')
 assert '--no-access-log' in read('backup-server/Dockerfile')
 assert 'https://www.googleapis.com/auth/drive.file' in read('backup-server/focal_backup/google_drive.py')
 assert 'code_challenge_method' in read('backup-server/focal_backup/google_drive.py')
-assert 'focal-data:/data' in read('backup-server/compose.yaml')
+assert 'focal-exact-folder-data:/data' in read('backup-server/compose.yaml')
+drive = read('backup-server/focal_backup/google_drive.py')
+assert 'date_folder(' not in drive and 'async def folder(' not in drive
+assert 'metadata.get("parents") != [TARGET_FOLDER_ID]' in drive
+assert 'folder = await self.verify_target_folder()' in drive
+assert 'TARGET_FOLDER_ID = "1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU"' in read('backup-server/focal_backup/store.py')
 assert 'ports:' not in read('backup-server/compose.yaml').split('  https:')[0]
 print(f'PASS: {len(manifest["sha256"])} protected camera/AI/Gemini/Sony/editor source hashes; post-commit enrollment; file-backed cellular/background integration; consent/Keychain/privacy/secret and deployment guards. Not native execution.')

@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 import httpx
 
 from focal_backup.app import create_app
-from focal_backup.store import Settings, Store, Problem
+from focal_backup.store import Settings, Store, Problem, TARGET_FOLDER_ID
 from focal_backup.google_drive import OwnerGoogleAuthorization, GoogleDrive, GoogleFailure, GoogleHTTP, worker_once, DRIVE_SCOPE
 
 
@@ -69,10 +69,16 @@ class Base(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.put(self.bytes)).json()["state"], "pendingDrive")
         return self.store.resource(self.grant["deviceId"], "fixture-photo")
 
+    @staticmethod
+    def folder_ok():
+        return 200, {}, {"id": TARGET_FOLDER_ID, "mimeType": "application/vnd.google-apps.folder",
+                         "trashed": False, "capabilities": {"canAddChildren": True}}
+
     def authorize(self, http=None):
         auth = OwnerGoogleAuthorization(self.store, http)
         self.store.set("google_tokens", auth.encrypt({"access_token": "fixture-access", "refresh_token": "fixture-refresh", "expires_at": time.time()+3600}))
         self.store.set("google_status", "active")
+        self.store.set("folder_status", "verified")
         return auth
 
 
@@ -320,7 +326,7 @@ class DriveTests(Base):
         row = await self.pending()
         drive = GoogleDrive(self.authorize())
         meta = {"id": "fixture-id", "size": str(row["size"]), "sha256Checksum": row["sha256"],
-                "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
+                "parents": [TARGET_FOLDER_ID], "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
         self.assertTrue(drive.verified(meta, row))
         self.assertFalse(drive.verified(dict(meta, size="0"), row))
         self.assertFalse(drive.verified(dict(meta, sha256Checksum="wrong", md5Checksum="correct-md5"), row, "correct-md5"))
@@ -330,51 +336,47 @@ class DriveTests(Base):
     async def test_actual_resumable_request_flow_and_exact_bytes(self):
         row = await self.pending()
         metadata = {"id": "pre-generated-fixture", "size": str(row["size"]), "sha256Checksum": row["sha256"],
-                    "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
-        http = ScriptHTTP([(200, {}, {"files": []}), (200, {}, {"ids": ["pre-generated-fixture"]}), (200, {}, {"files": []}),
+                    "parents": [TARGET_FOLDER_ID], "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
+        http = ScriptHTTP([self.folder_ok(), (200, {}, {"files": []}), (200, {}, {"ids": ["pre-generated-fixture"]}), (200, {}, {"files": []}),
                            (200, {"location": "https://www.googleapis.com/upload/drive/v3/files?upload_id=fixture"}, {}),
                            (200, {}, {"id": "pre-generated-fixture"}), (200, {}, metadata)])
         drive = GoogleDrive(self.authorize(http))
-        async def folder(day):
-            self.assertEqual(day, "2026/10/17")
-            return "fixture-date-folder"
-        drive.date_folder = folder
         self.assertEqual(await drive.upload(row), "pre-generated-fixture")
-        initiate = http.requests[3]
+        initiate = http.requests[4]
         self.assertEqual(initiate[2]["body"]["id"], "pre-generated-fixture")
         self.assertEqual(initiate[2]["body"]["mimeType"], "image/heic")
-        self.assertEqual(http.requests[4][2]["data"], self.bytes)
-        self.assertEqual(http.requests[4][2]["headers"]["Content-Range"], f"bytes 0-{len(self.bytes)-1}/{len(self.bytes)}")
+        self.assertEqual(initiate[2]["body"]["parents"], [TARGET_FOLDER_ID])
+        self.assertEqual(http.requests[5][2]["data"], self.bytes)
+        self.assertEqual(http.requests[5][2]["headers"]["Content-Range"], f"bytes 0-{len(self.bytes)-1}/{len(self.bytes)}")
         saved = self.store.resource(self.grant["deviceId"], "fixture-photo")
         self.assertNotIn("upload_id=fixture", saved["session"])
 
     async def test_resume_uses_google_range_not_assumed_local_offset(self):
         row = await self.pending()
         meta = {"id": "existing-fixture", "size": str(row["size"]), "sha256Checksum": row["sha256"],
-                "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
-        http = ScriptHTTP([(404, {}, {}), (200, {}, {"files": []}), (308, {"range": "bytes=0-9"}, {}), (200, {}, {}), (200, {}, meta)])
+                "parents": [TARGET_FOLDER_ID], "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
+        http = ScriptHTTP([self.folder_ok(), (404, {}, {}), (200, {}, {"files": []}), (308, {"range": "bytes=0-9"}, {}), (200, {}, {}), (200, {}, meta)])
         auth = self.authorize(http); drive = GoogleDrive(auth)
         row.update(drive_id="existing-fixture", drive_name="original.heic", session=auth.encrypt("https://www.googleapis.com/upload/drive/v3/files?upload_id=fixture"))
-        async def folder(day): return "fixture-date-folder"
-        drive.date_folder = folder
         self.assertEqual(await drive.upload(row), "existing-fixture")
-        self.assertEqual(http.requests[2][2]["headers"]["Content-Range"], f"bytes */{len(self.bytes)}")
-        self.assertEqual(http.requests[3][2]["data"], self.bytes[10:])
+        self.assertEqual(http.requests[3][2]["headers"]["Content-Range"], f"bytes */{len(self.bytes)}")
+        self.assertEqual(http.requests[4][2]["data"], self.bytes[10:])
 
     async def test_preexisting_verified_id_avoids_duplicate_upload(self):
         row = await self.pending(); row["drive_id"] = "existing-fixture"
         meta = {"id": "existing-fixture", "size": str(row["size"]), "sha256Checksum": row["sha256"],
-                "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
-        http = ScriptHTTP([(200, {}, meta)])
+                "parents": [TARGET_FOLDER_ID], "appProperties": {"focalResource": row["key"], "focalDestination": self.store.destination}}
+        http = ScriptHTTP([self.folder_ok(), (200, {}, meta)])
         self.assertEqual(await GoogleDrive(self.authorize(http)).upload(row), "existing-fixture")
-        self.assertEqual(len(http.requests), 1)
+        self.assertEqual(len(http.requests), 2)
 
-    async def test_folder_ids_are_persisted_before_creation(self):
-        auth = self.authorize(ScriptHTTP([(200, {}, {"files": []}), (200, {}, {"ids": ["folder-fixture"]}), (404, {}, {}), (200, {}, {"id": "folder-fixture"})]))
-        self.assertEqual(await GoogleDrive(auth).folder("", "Focal Photos", None), "folder-fixture")
-        with self.store.transaction() as db:
-            self.assertEqual(db.execute("SELECT drive_id FROM folders WHERE path='root'").fetchone()[0], "folder-fixture")
-        self.assertEqual(auth.http.requests[-1][2]["body"]["appProperties"]["focalDestination"], self.store.destination)
+    async def test_exact_existing_folder_is_verified_without_creating_any_folder(self):
+        auth = self.authorize(ScriptHTTP([self.folder_ok()]))
+        self.assertEqual(await GoogleDrive(auth).verify_target_folder(), TARGET_FOLDER_ID)
+        self.assertEqual(len(auth.http.requests), 1)
+        self.assertEqual(auth.http.requests[0][0], "GET")
+        self.assertIn("/files/" + TARGET_FOLDER_ID + "?", auth.http.requests[0][1])
+        self.assertIn("capabilities(canAddChildren)", auth.http.requests[0][1])
 
     async def test_corrupt_server_original_blocks_google_before_network(self):
         row = await self.pending()

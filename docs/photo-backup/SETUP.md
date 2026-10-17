@@ -1,5 +1,7 @@
 # Focal owner-controlled photo backup: setup
 
+Destination: **[Google Drive folder 1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU](https://drive.google.com/drive/folders/1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU)**. All uploaded resources are direct children of this folder. There is no new root or date hierarchy. A sharing link is not an upload credential.
+
 This feature branch contains code, mock tests and deployment files. It does **not** provision a server, authorize a Google account, or enable uploads by default. No real user photographs were uploaded during implementation. Follow the fixture test step before authorizing real data.
 
 The owner authorizes Google Drive on an always-on HTTPS backend. Test phones receive individual upload-only credentials through expiring invitations. Friends need neither Google accounts nor the owner's credentials. The iPhone never connects directly to the Windows PC. The backend and Drive can accept photos while that PC is switched off.
@@ -22,7 +24,7 @@ Linux needs OpenSSL development headers (`libssl-dev`) for the test harness's SH
 
 Use a trusted Linux VPS/cloud host with Docker Engine + Compose, persistent disk, SSH access, automatic security updates, and enough free space. A domain you control must point to it. Open inbound TCP 80/443 for Caddy's HTTPS certificate issuance and service. Do **not** expose backend port 8000, the SQLite database, or `/data`. Keep the host online independently of the home PC. Running only on that PC would defeat offline-PC backup.
 
-Clone this **private** repository on that host and check out `codex/focal-google-drive-backup`. In `backup-server`:
+Clone this **private** repository on that host and check out `codex/focal-exact-drive-folder`. In `backup-server`:
 
 ```sh
 cp .env.example .env
@@ -41,6 +43,8 @@ Edit `.env` privately on the host:
 | `ADMIN_TOKEN` | A fresh random value, at least 32 bytes |
 | `GOOGLE_CLIENT_ID` | The **Web application** OAuth client ID from step 3 |
 | `GOOGLE_CLIENT_SECRET` | That web client's secret, backend only |
+| `GOOGLE_PICKER_API_KEY` | Restricted browser key for the Google Picker API, from the same Google Cloud project |
+| `GOOGLE_PROJECT_NUMBER` | Numeric project number from that project's dashboard, not its name or OAuth client ID |
 | `STORAGE_BYTES_LIMIT` | Maximum unfinished server bytes, default 5 GiB |
 | `DEVICE_DAILY_BYTES_LIMIT` | Per-device accepted bytes over 24 hours, default 2 GiB |
 
@@ -53,16 +57,17 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 
 Copy each into the appropriate local `.env` entry. Do not commit `.env`, paste outputs into chat, or copy them into Codemagic. The encryption key must stay stable across restarts and upgrades. Back up it and the database securely and separately. Losing it prevents decrypting Google refresh tokens and resumable sessions. The master key does not encrypt image bytes: use encrypted host storage and encrypted backups for the entire data volume. Restrict host administrators; a compromised backend can access photos and its authorized Google files.
 
-The Docker context excludes local secrets/data/tests, the app image runs as UID 10001, and Compose uses a read-only root with one persistent `focal-data` volume. Keep **one backend worker/replica**; the SQLite/filesystem design is for a personal owner service, not distributed replicas. Do not add access logging, exception dumps, request-body logging or tracing that includes OAuth callback queries, Authorization headers, invitations or filenames. Proxies/hosting dashboards must also redact/disable those logs.
+The Docker context excludes local secrets/data/tests, the app image runs as UID 10001, and Compose uses a read-only root with one persistent `focal-exact-folder-data` volume. Keep **one backend worker/replica**; the SQLite/filesystem design is for a personal owner service, not distributed replicas. Do not add access logging, exception dumps, request-body logging or tracing that includes OAuth callback queries, Authorization headers, invitations or filenames. Proxies/hosting dashboards must also redact/disable those logs.
 
 ## 3. Configure Google OAuth once, for the owner
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create/select an owner-controlled project and enable **Google Drive API**.
+1. In [Google Cloud Console](https://console.cloud.google.com/), create/select an owner-controlled project and enable **Google Drive API** and **Google Picker API**.
 2. Configure the Google Auth Platform consent screen, application name, owner support email and audience. For personal testing, add **only your Google account** as an external test user. Friends are backend invitees, not Google OAuth users.
 3. Add only `https://www.googleapis.com/auth/drive.file` to data access. No full-Drive scope, Gmail scope or Gemini API key is needed.
 4. Create an OAuth client of type **Web application** for this server, with the exact authorized redirect URI:
    `https://YOUR_BACKUP_DOMAIN/admin/google/callback`
-5. Put its client ID and secret only in the backend `.env`. No iOS OAuth client, iOS URL scheme, client secret or Google refresh token belongs in the IPA.
+5. On the same Web client, register the JavaScript origin `https://YOUR_BACKUP_DOMAIN` (no path). Create a browser API key in the same project. Restrict it to **Google Picker API** and Websites `https://YOUR_BACKUP_DOMAIN/*` and `https://docs.google.com/*`, as required by Google's iframe-based Picker. This is a separate restricted Picker key, not a Gemini key and not an OAuth credential. Put it in `GOOGLE_PICKER_API_KEY`, and the numeric project number in `GOOGLE_PROJECT_NUMBER`.
+6. Put its OAuth client ID and secret only in the backend `.env`. No iOS OAuth client, iOS URL scheme, client secret or Google refresh token belongs in the IPA.
 
 Google's external **Testing** publishing status generally expires these Drive refresh tokens after seven days. Reauthorize the same owner at `/admin` when needed. For sustained use, configure an appropriate production consent state and follow Google's applicable verification/policy requirements. Do not assume personal/limited use bypasses policies. See [Google OAuth token expiry](https://developers.google.com/identity/protocols/oauth2#expiration) and [Web server authorization](https://developers.google.com/identity/protocols/oauth2/web-server).
 
@@ -78,7 +83,22 @@ Visit `https://YOUR_BACKUP_DOMAIN/health` and confirm `{"ok":true}` over valid H
 docker compose exec backup python -m focal_backup.cli status
 ```
 
-`drive_connected` should be true; it is an authorization status, not evidence of a successful photo backup. The first verified test file will establish that. The first upload creates an app-owned `Focal Photos/YYYY/MM/DD/` tree in **My Drive**. A pre-existing unrelated folder with the same visible name is not reused or overwritten. `drive.file` permits the server to access its own app files, not arbitrary Drive contents. Do not change the OAuth project/client casually: private app properties and access are client-bound.
+The OAuth callback opens an owner-only, ten-minute **Choose the exact folder** page. In Google's Picker, select the folder with ID **`1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU`**. Check the ID, not just its display name. The owner browser must be signed into the same Google account. That account must be able to add children to the folder. Other selections are rejected; the server independently reads the fixed folder ID and `capabilities.canAddChildren` using its encrypted owner grant. No test image is uploaded during authorization.
+
+`drive.file` alone does not grant an existing folder by URL. The Picker grants the selected folder to this OAuth app. Google does not offer a literal folder-specific write-only OAuth scope: `drive.file` can read/edit app-authorized files. Focal's backend narrows its behavior to creating and verifying files in this one folder, and exposes only per-device upload/status APIs. It never exposes owner credentials or arbitrary Drive methods to testers. The short-lived access token needed by the official Picker is returned only to the authenticated owner's browser, with no-store responses; the refresh token and OAuth secret stay on the server.
+
+Verify actual access from the owner terminal:
+
+```sh
+docker compose exec backup python -m focal_backup.cli verify-folder
+docker compose exec backup python -m focal_backup.cli status
+```
+
+`folder_status` must be `verified`, and `target_folder_id` must exactly match the ID above. `drive_connected` alone reports OAuth status, not a successful upload. A verified test-card capture later establishes upload success. Every resumable upload supplies `parents: ["1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU"]`; the completion read verifies that parent, Drive file ID, original size and checksum. Date and capture association are private file metadata and sidecars, not new subfolders. Missing/trashed/read-only folder access pauses uploads with a recoverable owner error; there is no fallback to My Drive root or another folder.
+
+**Existing backup deployments:** this branch uses a separate `focal-exact-folder-data` volume and refuses a legacy database or a database bound to another folder. Do not rename/reuse the old `focal-data` volume, delete it, or edit its binding by hand. Its receipts and resumable sessions refer to a different destination. Keep the old deployment/volume available for old pending photos; deploy this branch with fresh storage, preferably a separate HTTPS origin, then explicitly enroll phones with new invitations for future captures. Old enrollments stay bound to their original destination; they are not silently migrated or duplicated. No previous Drive files are moved or deleted. Keep the same new volume and encryption key for all subsequent exact-folder service upgrades.
+
+Do not change the Google OAuth project/client casually: per-file authorization and private properties are client-bound. If the owner setup page expires or Picker access is denied, reopen `/admin` and authorize the **same owner**, then select the exact folder again. Never broaden the scope to full Drive just to bypass a missing folder grant.
 
 ## 4. Enroll each iPhone, including friends' devices
 
@@ -138,18 +158,18 @@ docker compose up -d backup
 
 The phone's originals and any existing Drive files remain. A later explicitly recovered phone can upload again; Google private resource markers/pre-generated IDs prevent duplicate completed files. Keep normal backups rather than deleting the volume. To bound long-lived completion receipts, `prune-completed --older-than-days 365` deletes only old verified server records; it does not delete Drive files. A stale client may need to resend its original before the worker can verify a pruned receipt against Drive.
 
-Server safety limits are 5 GiB unfinished bytes (configurable), 2 GiB per device/day (configurable), 512 MiB/resource, 1000 unfinished resources and 100,000 receipts. iPhone limits are 4 MiB/transfer, 64 MiB staging, 256 MiB free-space reserve, 5000 unfinished resources, 20,000 queue records, 32 MiB manifest. Queue/storage failures remain visible and recoverable in Settings; originals are never automatically removed. Failed work is not retried in a hot loop. A fresh network opportunity automatically requeues offline failures with a bounded retry budget; it never clears a revoked grant or integrity/quota error. For other failures, tap Retry now after resolving the cause. To free a fully populated phone queue, first confirm Drive originals and then manually remove the corresponding backed-up photos in Focal. No automatic local deletion or hidden unlimited staging is implemented.
+Server safety limits are 5 GiB unfinished bytes (configurable), 2 GiB per device/day (configurable), 512 MiB/resource, 1000 unfinished resources and 100,000 receipts. iPhone limits are 4 MiB/transfer, 64 MiB staging, 256 MiB free-space reserve, 5000 unfinished resources, 20,000 queue records, 32 MiB manifest. Queue/storage failures remain visible and recoverable in Settings; originals are never automatically removed. Failed work is not retried in a hot loop. A fresh network opportunity automatically requeues offline failures with a bounded retry budget; it never clears a revoked grant or integrity/quota error. Rate-limited work stays durably deferred with bounded counters/delays rather than failing after one retry burst; server Google rate limits also honor Retry-After. iOS must provide an execution window to retry device work. For other terminal failures, tap Retry now after resolving the cause. To free a fully populated phone queue, first confirm Drive originals and then manually remove the corresponding backed-up photos in Focal. No automatic local deletion or hidden unlimited staging is implemented.
 
 Deleting in Focal removes pending local work and local images. It does **not** retract bytes already accepted by the backend or erase cloud copies. Disconnecting/pausing cancels pending device transfers; accepted backend work can finish. Use the owner maintenance command/Drive UI for explicit cloud-side retention decisions. Keep the data volume and master key through container upgrades. Reauthorizing a different Google owner on the same backend destination is rejected; deploy a fresh destination and explicitly enroll devices instead.
 
 ## 6. Windows PC synchronization
 
-Install [Google Drive for desktop](https://www.google.com/drive/download/) on Windows and sign in **as the owner**, not with a tester device grant. Confirm `Focal Photos` appears under My Drive after a verified upload.
+Install [Google Drive for desktop](https://www.google.com/drive/download/) on Windows and sign in **as the owner**, not with a tester device grant. Open the exact folder link above and identify its actual display name and location in your own Drive. No folder called `Focal Photos` is created. Confirm a verified test capture appears directly inside that existing folder.
 
 Choose one strategy:
 
 - **Mirror My Drive:** Drive for desktop Settings → Preferences → Google Drive → Mirror files. Choose the local folder (with sufficient disk space). My Drive files are downloaded to normal disk storage; this mirrors the whole My Drive selection supported by the client, not just Focal's folder.
-- **Stream + offline folder:** Keep streaming, open My Drive in File Explorer, right-click **Focal Photos** → Offline access → **Available offline**. Wait for synchronization/offline-completion indicators. A streamed shortcut or visible filename alone does not prove bytes are on disk. Streamed offline files depend on Drive for desktop running and its virtual-drive/cache behavior; use mirroring for a conventional durable local folder.
+- **Stream + offline folder:** Keep streaming, open My Drive in File Explorer, right-click **the existing target folder** → Offline access → **Available offline**. Wait for synchronization/offline-completion indicators. A streamed shortcut or visible filename alone does not prove bytes are on disk. Streamed offline files depend on Drive for desktop running and its virtual-drive/cache behavior; use mirroring for a conventional durable local folder.
 
 Drive letters and paths depend on your setup; do not assume `G:`. In either strategy, the PC may be off when the phone captures/uploads. Once the PC is on, online and signed into Drive for desktop, it synchronizes. Leave it running until transfers complete. The phone needs internet to the backend, not the PC's IP address. No custom Windows receiver/server is needed.
 
@@ -157,18 +177,18 @@ See Google's [streaming versus mirroring guide](https://support.google.com/drive
 
 ## 7. Codemagic / AltStore
 
-Build branch `codex/focal-google-drive-backup`, version **2.12.0 (39)**, using existing Codemagic **ios-sideload**. Its simulator tests precede the unsigned device archive/IPA. AltStore performs personal signing as before; no paid background entitlement, app group, Google SDK or iOS Google sign-in client is added. Keep the same signing identity/bundle where practical to preserve the app container and Keychain; uninstalling can remove originals and queue.
+Build branch `codex/focal-exact-drive-folder`, version **2.12.1 (40)**, using existing Codemagic **ios-sideload**. Its simulator tests precede the unsigned device archive/IPA. AltStore performs personal signing as before; no paid background entitlement, app group, Google SDK or iOS Google sign-in client is added. Keep the same signing identity/bundle where practical to preserve the app container and Keychain; uninstalling can remove originals and queue.
 
 Do not add backend secrets/device invitation codes/Google tokens to Codemagic. The backend is configured through Settings and owner SSH. Existing private Gemini Debug-build tooling and its secret group are independent; do not add the backend's credentials to them. Normal Release builds do not embed the optional Gemini local configuration.
 
-The dedicated GitHub Actions **Focal owner photo backup validation** workflow runs portable regressions, backend tests, Docker build, native simulator XCTest and an unsigned Release iPhone archive on this feature branch. The final code revision passed [CI run 39034539352](https://github.com/r3hal/focal-private/actions/runs/39034539352), including 712 native tests and the unsigned iPhone archive. This does not validate a deployed backend or physical iPhone background behavior. CI is secret-free and uses only fixture data.
+The dedicated GitHub Actions **Focal owner photo backup validation** workflow runs portable regressions, backend tests, Docker build, native simulator XCTest and an unsigned Release iPhone archive on this feature branch. The earlier backup baseline passed [CI run 39034539352](https://github.com/r3hal/focal-private/actions/runs/39034539352). See [the validation record](VALIDATION.md) for this exact-folder branch's results. This does not validate a deployed backend or physical iPhone background behavior. CI is secret-free and uses only fixture data.
 
 ## 8. Physical-device acceptance checklist
 
 Record version/build, iOS version, transport and timestamps in a private test log. Do not post images, credentials or sensitive filenames.
 
 1. With backup off, capture JPEG/HEIC and RAW; prove local capture/gallery/editor/paired save work and no network file enrollment occurs.
-2. Enroll and enable, capture a test card, verify processed + original + DNG + scan/wide-preview where present and `.focal.json` association. Compare byte size and SHA-256 to originals. Confirm Windows receives the same bytes after turning on the PC.
+2. Enroll and enable, capture a test card, verify processed + original + DNG + scan/wide-preview where present and `.focal.json` association. Compare byte size and SHA-256 to originals. Confirm each Drive file has the exact target folder as its parent and Windows receives the same bytes after turning on the PC.
 3. Capture offline; terminate/relaunch normally and reboot; unlock once and restore internet. Verify recovery with no duplicate Drive files.
 4. Test Wi-Fi and cellular/5G, large RAW chunks, transient packet loss, backend restart mid-upload, lost chunk acknowledgements, owner quota full and Google refresh expiry/revocation. Verify local originals survive.
 5. Lock/background the phone mid-upload. Check iOS background delegates and completion persistence. **Force-quitting cancels/prevents automatic transfers until reopening; immediate upload is not guaranteed.** iOS can suspend retry/receipt polling until another permitted execution window or launch.

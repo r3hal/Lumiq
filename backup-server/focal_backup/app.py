@@ -6,13 +6,14 @@ from datetime import datetime
 import hmac
 import json
 import re
+from pathlib import Path
 import unicodedata
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .store import Store, Settings, Problem, digest
+from .store import Store, Settings, Problem, digest, TARGET_FOLDER_ID
 from .google_drive import OwnerGoogleAuthorization, GoogleDrive, GoogleFailure, worker_once
 
 ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -116,8 +117,10 @@ def create_app(settings: Settings, *, google_http=None, drive=None, run_worker=T
             response = JSONResponse({"error": "internal_error"}, status_code=500)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
+        if "Referrer-Policy" not in response.headers:
+            response.headers["Referrer-Policy"] = "no-referrer"
+        if "Content-Security-Policy" not in response.headers:
+            response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
         return response
 
     @app.exception_handler(Problem)
@@ -156,7 +159,7 @@ def create_app(settings: Settings, *, google_http=None, drive=None, run_worker=T
     async def status(request: Request):
         grant = device(request)
         return {"destinationId": store.destination, "deviceId": grant["id"], "ownerLabel": settings.owner_label,
-                "driveConnected": authorization.connected}
+                "driveConnected": authorization.connected and store.get("folder_status") == "verified"}
 
     @app.post("/v1/resources")
     async def reserve(request: Request):
@@ -227,13 +230,68 @@ def create_app(settings: Settings, *, google_http=None, drive=None, run_worker=T
     @app.get("/admin/google/callback")
     async def google_callback(request: Request):
         await authorization.complete(request.query_params.get("code", ""), request.query_params.get("state", ""), request.cookies.get("focal_owner_oauth", ""))
-        response = RedirectResponse("/admin/connected", status_code=303)
+        cookie, csrf = store.owner_session()
+        response = RedirectResponse("/admin/folder", status_code=303)
         response.delete_cookie("focal_owner_oauth", path="/admin", secure=True, httponly=True, samesite="lax")
+        response.set_cookie("focal_owner_setup", cookie, max_age=600, secure=True, httponly=True, samesite="strict", path="/admin")
+        response.set_cookie("focal_owner_csrf", csrf, max_age=600, secure=True, httponly=True, samesite="strict", path="/admin")
+        return response
+
+    def owner(request, *, writing=False):
+        if writing and request.headers.get("origin") != settings.public_url:
+            raise Problem("invalid_origin", 403)
+        store.require_owner_session(request.cookies.get("focal_owner_setup"),
+                                    request.headers.get("x-focal-csrf", "") if writing else None)
+        store.throttle("owner-setup", 30)
+
+    @app.get("/admin/folder", response_class=HTMLResponse)
+    async def folder_page(request: Request):
+        owner(request)
+        return HTMLResponse((Path(__file__).parent / "folder.html").read_text(), headers={
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Content-Security-Policy": "default-src 'none'; script-src 'self' https://apis.google.com; "
+                "style-src 'unsafe-inline'; frame-src https://docs.google.com https://drive.google.com; "
+                "connect-src 'self' https://apis.google.com https://www.googleapis.com; "
+                "img-src 'self' https://*.googleusercontent.com https://www.google.com; "
+                "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+
+    @app.get("/admin/folder.js")
+    async def folder_script(request: Request):
+        owner(request)
+        return Response((Path(__file__).parent / "folder.js").read_text(), media_type="text/javascript")
+
+    @app.get("/admin/folder/config")
+    async def folder_config(request: Request):
+        owner(request)
+        if (not settings.google_picker_key or not settings.google_project_number.isdecimal()
+                or not request.cookies.get("focal_owner_csrf")):
+            raise Problem("picker_not_configured", 503)
+        csrf = request.cookies["focal_owner_csrf"]
+        store.require_owner_session(request.cookies.get("focal_owner_setup"), csrf)
+        # The short-lived access token is needed by Google's official Picker in
+        # the OWNER'S browser only. Never returned by any /v1 device endpoint.
+        return {"targetFolderId": TARGET_FOLDER_ID, "apiKey": settings.google_picker_key,
+                "appId": settings.google_project_number, "accessToken": await authorization.access_token(), "csrf": csrf}
+
+    @app.post("/admin/folder/confirm")
+    async def confirm_folder(request: Request):
+        owner(request, writing=True)
+        body = await object_body(request)
+        if body != {"folderId": TARGET_FOLDER_ID}:
+            raise Problem("wrong_target_folder", 400)
+        # Picker callback data is not evidence of access. Read the fixed folder
+        # back from Drive using the stored OWNER token and inspect capabilities.
+        await drive.verify_target_folder(owner_selection=True)
+        with store.transaction() as db:
+            db.execute("DELETE FROM owner_sessions")
+        response = JSONResponse({"verified": True, "targetFolderId": TARGET_FOLDER_ID})
+        for name in ("focal_owner_setup", "focal_owner_csrf"):
+            response.delete_cookie(name, path="/admin", secure=True, httponly=True, samesite="strict")
         return response
 
     @app.get("/admin/connected", response_class=HTMLResponse)
     async def connected():
-        return "<h1>Authorization processed</h1><p>Use the owner CLI to check status and create a device invitation.</p>"
+        return "<h1>Owner setup</h1><p>Authorize Google and select the exact folder at /admin. Use the owner CLI to verify access before inviting a device.</p>"
 
     return app
 

@@ -12,6 +12,8 @@ import uuid
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+TARGET_FOLDER_ID = "1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU"
+
 
 class Problem(Exception):
     def __init__(self, code: str, status: int = 400):
@@ -34,6 +36,8 @@ class Settings:
     max_pending: int = 1000
     max_receipts: int = 100_000
     testing: bool = False
+    google_picker_key: str = ""
+    google_project_number: str = ""
 
     @classmethod
     def from_env(cls):
@@ -44,7 +48,9 @@ class Settings:
                          os.environ["GOOGLE_CLIENT_ID"], os.environ["GOOGLE_CLIENT_SECRET"],
                          os.environ.get("OWNER_LABEL", "Owner photo backup"),
                          int(os.environ.get("STORAGE_BYTES_LIMIT", str(5 * 1024**3))),
-                         int(os.environ.get("DEVICE_DAILY_BYTES_LIMIT", str(2 * 1024**3))))
+                         int(os.environ.get("DEVICE_DAILY_BYTES_LIMIT", str(2 * 1024**3))),
+                         google_picker_key=os.environ.get("GOOGLE_PICKER_API_KEY", ""),
+                         google_project_number=os.environ.get("GOOGLE_PROJECT_NUMBER", ""))
         except (KeyError, ValueError):
             raise RuntimeError("Owner backup configuration is incomplete") from None
         parsed = urlparse(result.public_url)
@@ -66,6 +72,16 @@ class Store:
         self.files = settings.data / "files"
         self.files.mkdir(exist_ok=True, mode=0o700)
         self.db_path = settings.data / "backup.sqlite3"
+        # Never reinterpret legacy receipts or resumable sessions as exact-folder
+        # backups. A separate data volume also gives devices a new destination ID.
+        if self.db_path.exists():
+            with sqlite3.connect(self.db_path) as previous:
+                try:
+                    bound = previous.execute("SELECT value FROM config WHERE key='target_folder'").fetchone()
+                except sqlite3.Error:
+                    bound = None
+                if not bound or bound[0] != TARGET_FOLDER_ID:
+                    raise RuntimeError("Use a fresh exact-folder data volume; legacy destinations cannot be retargeted")
         with self.transaction() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -81,12 +97,13 @@ class Store:
                     drive_id TEXT, drive_name TEXT, session TEXT, attempts INTEGER NOT NULL DEFAULT 0,
                     retry_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0,
                     UNIQUE(device_id, resource_id));
-                CREATE TABLE IF NOT EXISTS folders(path TEXT PRIMARY KEY, drive_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS owner_sessions(hash TEXT PRIMARY KEY, csrf_hash TEXT NOT NULL, expires REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS oauth_states(hash TEXT PRIMARY KEY, cookie_hash TEXT NOT NULL,
                     verifier TEXT NOT NULL, expires REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS throttle(key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires REAL NOT NULL);
             """)
             db.execute("INSERT OR IGNORE INTO config VALUES('destination',?)", (str(uuid.uuid4()),))
+            db.execute("INSERT OR IGNORE INTO config VALUES('target_folder',?)", (TARGET_FOLDER_ID,))
         os.chmod(self.db_path, 0o600)
         self.recover_files()
 
@@ -120,6 +137,24 @@ class Store:
     @property
     def destination(self):
         return self.get("destination")
+
+    def owner_session(self):
+        cookie, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        with self.transaction() as db:
+            db.execute("DELETE FROM owner_sessions WHERE expires<?", (time.time(),))
+            # Each successful owner OAuth login supersedes prior setup sessions.
+            db.execute("DELETE FROM owner_sessions")
+            db.execute("INSERT INTO owner_sessions VALUES(?,?,?)", (digest(cookie), digest(csrf), time.time()+600))
+        return cookie, csrf
+
+    def require_owner_session(self, cookie, csrf=None):
+        with self.transaction() as db:
+            row = db.execute("SELECT * FROM owner_sessions WHERE hash=?", (digest(cookie or ""),)).fetchone()
+        if not row or row["expires"] <= time.time():
+            raise Problem("owner_session_expired", 401)
+        if csrf is not None and not secrets.compare_digest(row["csrf_hash"], digest(csrf)):
+            raise Problem("invalid_csrf", 403)
+        return row
 
     def issue_invite(self, label: str, ttl: int = 600, device_id: str | None = None):
         if not 60 <= ttl <= 3600 or not label or len(label.encode()) > 120:

@@ -126,7 +126,7 @@ struct OwnerBackupAPI:Sendable {
         case 409: problem = code == "destination_mismatch" ? .destinationMismatch : code == "offset_mismatch" ? .temporaryService : .integrity
         case 404,410: problem = .missingOriginal
         case 413: problem = .storage
-        case 429: problem = .temporaryService
+        case 429: problem = .rateLimited
         case 507: problem = .ownerStorage
         case 500...599: problem = .temporaryService
         default: problem = .invalidResponse

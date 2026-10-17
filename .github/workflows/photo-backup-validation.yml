@@ -1,7 +1,7 @@
 name: Focal owner photo backup validation
 on:
   push:
-    branches: [codex/focal-google-drive-backup]
+    branches: [codex/focal-google-drive-backup, codex/focal-exact-drive-folder]
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +26,7 @@ jobs:
         run: |
           /tmp/focal-test-env/bin/python scripts/validate_structure.py
           python3 scripts/validate_backup.py
+          node --check backup-server/focal_backup/folder.js
       - name: Swift backup queue with mock transport
         run: python3 scripts/test_backup_portable.py
       - name: Backend and Google protocol fixtures (no external services)
