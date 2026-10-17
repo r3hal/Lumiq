@@ -123,6 +123,9 @@ assert 'x-goog-api-key' in cloud_text and '?key=' not in cloud_text
 assert 'print(' not in cloud_text and 'Logger(' not in cloud_text
 assert 'capturePhoto(' not in cloud_text and 'shoot(' not in cloud_text
 assert 'streamGenerateContent' not in cloud_text and 'service.scan(capture)' not in controller
+# Cloud recovery cannot accumulate local READY proof against a replacement.
+assert 'framing.confirmCurrentFrame(eligible:!cloudRecovering && (' in controller
+assert 'retaining:!cloudRecovering && (' in controller
 # The locked subject must be retained even with Auto Zoom and subject AF off.
 retention=controller.split('let keepFramedSubject =')[1].split('let inferenceStarted =')[0]
 assert '&& (cloudCompositionLock != nil || framing.shotPlan != nil && framing.phase.isPreparing' in retention

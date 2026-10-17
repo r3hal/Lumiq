@@ -168,7 +168,15 @@ final class CloudCompositionTests: XCTestCase {
     func testWideSceneAdviceHasNoInventedSubjectOrDirectionTarget() throws {
         var local = try evidence(); local.bounds = nil; local.trackingReference = nil
         var result = proposal(); result.subjectBoundingBox = nil; result.localSubjectID = nil; result.primarySubjectDescription = "Whole scene"; result.sceneCategory = .forest; result.recommendedCompositionTechnique = .forestPath; result.normalizedTargetPosition = .init(x:0.5,y:0.5)
-        let held = try CloudCompositionMatcher.match(result,capture:capture(local),live:local,at:10.1)
+        var held = try CloudCompositionMatcher.match(result,capture:capture(local),live:local,at:10.1)
+        let id = held.id
+        let attractiveForeground = try evidence(at:10.2)
+        XCTAssertEqual(held.observe(attractiveForeground,at:10.2),.retained)
+        XCTAssertEqual(held.plan(at:10.2,zoom:1).id,id)
+        var staleScene = attractiveForeground; staleScene.observedAt = 12
+        XCTAssertEqual(held.observe(staleScene,at:12),.recovering)
+        staleScene.observedAt = 13.6
+        XCTAssertEqual(held.observe(staleScene,at:13.6),.invalid)
         XCTAssertTrue(held.isWholeScene); XCTAssertFalse(held.plan(at:10.1,zoom:1).permitsZoom); XCTAssertFalse(OutdoorCompositionPlanner.instruction(held.plan(at:10.1,zoom:1),mirrored:false).1?.isAdjustment == true)
         result.normalizedTargetPosition.x = 0.8
         assertError(.subjectMismatch) { _ = try CloudCompositionMatcher.match(result,capture:capture(local),live:local,at:10.1) }

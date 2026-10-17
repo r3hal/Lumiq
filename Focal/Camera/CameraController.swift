@@ -2009,8 +2009,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             if (bounds == nil || plan?.selected.sceneAnchor != nil), let evidence = compositionEvidence, sceneEligible, framing.shotPlan == nil {
                 framing.selectShot(AutomaticShotPlan.scene(label:scene?.label ?? "Scene",evidence:evidence,zoom:analysisZoom,projection:projection))
             }
-            framing.confirmCurrentFrame(eligible:currentFrameEligible || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible),timestamp:observationTime,holdDuration:plan?.selected.sceneAnchor != nil ? min(0.7,holdDuration) : holdDuration,
-                retaining:retainCurrentFrame || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible),
+            framing.confirmCurrentFrame(eligible:!cloudRecovering && (currentFrameEligible || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible)),timestamp:observationTime,holdDuration:plan?.selected.sceneAnchor != nil ? min(0.7,holdDuration) : holdDuration,
+                retaining:!cloudRecovering && (retainCurrentFrame || ((bounds == nil || plan?.selected.sceneAnchor != nil) && framing.shotPlan?.sceneAnchor == true && sceneEligible)),
                 identity:"\(snapshot.revision):\(tracker.trackingReference ?? "scene"):\(mode.rawValue)")
         }
         let preparingZoom = automaticShotArmed && autoFrameEnabled && analysisSource == .iPhone && framing.phase.isPreparing && !framing.phase.isRecovering && !zooming && execution.requiresZoom
@@ -2237,7 +2237,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         if cloudRecovering {
             result.state = .searching; result.subject = nil; result.subjectBounds = nil; result.guidanceBounds = nil
         }
-        let presentedMessage = cloudRecovering ? GuidanceMessage(kind:.framing,text:"Reacquiring the cloud-selected subject…") : message
+        let recoveryText = cloudCompositionLock?.isWholeScene == true ? "Rechecking the selected wide scene…" : "Reacquiring the cloud-selected subject…"
+        let presentedMessage = cloudRecovering ? GuidanceMessage(kind:.framing,text:recoveryText) : message
         fulfillCloudCapture(fullBuffer,projection:projection,snapshot:snapshot)
         framing.recordReadyEvidence(at:observationTime)
         let phase = framing.phase
@@ -2363,7 +2364,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         case .invalid: clearCloudCompositionState()
         case .recovering:
             cloudCompositionLock = held; cloudRecovering = true; framing.invalidateReadiness(at:time)
-            publishCloudCompositionStatus("Reacquiring the cloud-selected subject; no directional guidance",snapshot:snapshot)
+            publishCloudCompositionStatus(held.isWholeScene ? "Rechecking the selected wide scene; no directional guidance" : "Reacquiring the cloud-selected subject; no directional guidance",snapshot:snapshot)
         case .retained:
             cloudCompositionLock = held; cloudRecovering = false
             publishCloudCompositionStatus("Cloud plan locked: \(held.result.recommendedCompositionTechnique.local.rawValue)",snapshot:snapshot)

@@ -188,7 +188,7 @@ struct CloudCompositionLock {
     mutating func observe(_ local:CloudLocalEvidence,at time:TimeInterval) -> Observation {
         guard local.isIPhone, local.mode == .automatic, time.isFinite, time >= acquiredAt, time-acquiredAt <= 300 else { return .invalid }
         let fresh = GuidanceObservationPolicy.fresh(capturedAt:local.observedAt,evaluatedAt:time)
-        let matches = isWholeScene ? true : local.freshTrack && local.trackingReference == trackingReference && local.label == subjectLabel
+        let matches = isWholeScene ? local.scene?.isFresh(at:time) == true : local.freshTrack && local.trackingReference == trackingReference && local.label == subjectLabel
         guard fresh, matches else {
             if lostSince == nil { lostSince = time }
             return time-(lostSince ?? time) < 1.5 ? .recovering : .invalid
