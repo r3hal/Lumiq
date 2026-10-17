@@ -108,9 +108,11 @@ final class PhotoBackupTests:XCTestCase {
             try await Task.sleep(nanoseconds:2_000_000)
         }
         let failed = await f.engine.snapshot();XCTAssertTrue(failed.jobs.allSatisfy{$0.state == .failed && $0.problem == .offline})
+        await f.engine.retryFailed() // An unsuccessful user retry can set a connection-level warning.
+        let offline = await f.engine.summary();XCTAssertEqual(offline.problem,.offline)
         await f.http.setFailure(nil);await f.engine.networkRestored()
         let transfer = await f.transfers.latest();XCTAssertNotNil(transfer)
-        let recovered = await f.engine.snapshot();XCTAssertEqual(recovered.jobs[0].attempts,0)
+        let recovered = await f.engine.snapshot();XCTAssertEqual(recovered.jobs[0].attempts,0);XCTAssertNil(recovered.problem)
     }
     func testFileBackedUploadUsesExactHEICBytesAndRealRange() async throws {
         let f = try BackupFixture();try await f.start();let bytes = Data([0,1,2,3,4,255]);try await f.enable(f.capture(bytes:bytes,ext:"heic"))

@@ -139,6 +139,7 @@ actor BackupEngine {
             state.jobs[i].state = .retry;state.jobs[i].attempts = 0;state.jobs[i].problem = nil
             state.jobs[i].nextAttempt = .distantPast;state.jobs[i].needsStatusProbe = true;changed = true
         }
+        if state.problem == .offline { state.problem = nil;changed = true }
         if changed {
             do { try save() } catch { state.problem = .storage;publish();return }
         }
