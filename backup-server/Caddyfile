@@ -1,0 +1,14 @@
+{
+    # OAuth callback queries and authorization headers must never enter logs.
+    log default {
+        output discard
+    }
+}
+{$BACKUP_DOMAIN} {
+    # No access logger. Operational status is available via /health and owner CLI.
+    request_body {
+        max_size 5MB
+    }
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy backup:8000
+}

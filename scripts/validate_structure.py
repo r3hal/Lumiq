@@ -65,7 +65,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','HEAD','--name-only','--','Focal/Sony').strip(),'Sony integration changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==675,count
+assert count==709,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 

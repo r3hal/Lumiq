@@ -29,6 +29,7 @@ struct SavedPhoto: Identifiable, Codable, Equatable {
     var developedFromRAW: Bool? = nil
     var framingSession: FramingCaptureMetadata? = nil
     var widePreviewFilename: String? = nil
+    var backupEnrollment: BackupEnrollment? = nil
     var canUsePhoneEditor: Bool { cameraOrigin == CameraSource.iPhone.rawValue || (isDemo && cameraOrigin != CameraSource.sony.rawValue) }
 
     var resolutionLabel: String? {
@@ -42,6 +43,7 @@ final class PhotoLibrary: ObservableObject {
     @Published private(set) var photos: [SavedPhoto] = []
     @Published var errorMessage: String?
     @Published private(set) var collections: [String] = []
+    weak var backupCoordinator: (any PhotoBackupRecording)?
     private let directory: URL
     private var manifest: URL { directory.appendingPathComponent("library.json") }
     private var canWrite = true
@@ -118,6 +120,7 @@ final class PhotoLibrary: ObservableObject {
             photo.pixelWidth = orientation >= 5 ? height : width
             photo.pixelHeight = orientation >= 5 ? width : height
         }
+        photo.backupEnrollment = backupCoordinator?.enrollment(for:photo)
         let destination = url(for: photo)
         var files: [URL: Data] = [destination: data]
         if let rawData, let file = rawURL(for: photo) { files[file] = rawData }
@@ -134,6 +137,7 @@ final class PhotoLibrary: ObservableObject {
             let next = [photo] + photos
             try persist(next)
             photos = next
+            backupCoordinator?.saved(photo)
         } catch {
             for file in capturedFiles.keys { try? FileManager.default.removeItem(at: file) }
             throw error
@@ -207,6 +211,7 @@ final class PhotoLibrary: ObservableObject {
         let next = photos.filter { $0.id != photo.id }
         try persist(next)
         photos = next
+        backupCoordinator?.deleted(photo.id)
         // A failed file removal only leaves an unreferenced file, never a broken manifest.
         var failure: Error?
         for file in [url(for: photo), rawURL(for: photo), originalURL(for: photo), scanURL(for: photo), editingSourceURL(for: photo), widePreviewURL(for:photo)].compactMap({ $0 }) {

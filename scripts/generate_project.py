@@ -52,7 +52,7 @@ common = dict(SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="17.0", SWIFT_VERSI
 app = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.example.focal",
            INFOPLIST_FILE="Focal/Resources/Info.plist", GENERATE_INFOPLIST_FILE="NO",
            ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", TARGETED_DEVICE_FAMILY="1",
-           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="38", MARKETING_VERSION="2.11.1", VERSIONING_SYSTEM="apple-generic",
+           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="39", MARKETING_VERSION="2.12.0", VERSIONING_SYSTEM="apple-generic",
            SUPPORTED_PLATFORMS="iphoneos iphonesimulator", SUPPORTS_MACCATALYST="NO",
            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"],
            ENABLE_PREVIEWS="YES")
@@ -134,11 +134,14 @@ info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplay
 (ROOT / "Focal/Resources/Info.plist").write_bytes(plistlib.dumps(info))
 privacy = dict(NSPrivacyTracking=False, NSPrivacyTrackingDomains=[], NSPrivacyCollectedDataTypes=[dict(NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypePhotosorVideos",
                     NSPrivacyCollectedDataTypeLinked=True,NSPrivacyCollectedDataTypeTracking=False,
-                    NSPrivacyCollectedDataTypePurposes=["NSPrivacyCollectedDataTypePurposeAppFunctionality"])],
+                    NSPrivacyCollectedDataTypePurposes=["NSPrivacyCollectedDataTypePurposeAppFunctionality"]),
+                    dict(NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypeDeviceID",NSPrivacyCollectedDataTypeLinked=True,
+                         NSPrivacyCollectedDataTypeTracking=False,NSPrivacyCollectedDataTypePurposes=["NSPrivacyCollectedDataTypePurposeAppFunctionality"])],
                NSPrivacyAccessedAPITypes=[
                    dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryUserDefaults", NSPrivacyAccessedAPITypeReasons=["CA92.1"]),
                    dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategorySystemBootTime", NSPrivacyAccessedAPITypeReasons=["35F9.1"]),
-                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryFileTimestamp", NSPrivacyAccessedAPITypeReasons=["C617.1"])
+                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryFileTimestamp", NSPrivacyAccessedAPITypeReasons=["C617.1"]),
+                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryDiskSpace", NSPrivacyAccessedAPITypeReasons=["E174.1"])
                ])
 (ROOT / "Focal/Resources/PrivacyInfo.xcprivacy").write_bytes(plistlib.dumps(privacy))
 assets = ROOT / "Focal/Resources/Assets.xcassets"

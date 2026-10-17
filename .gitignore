@@ -10,3 +10,8 @@ __pycache__/
 # Developer-only Gemini credentials; never distribute an embedded-key build.
 LocalDeveloper/
 **/CloudComposition.local.json
+
+# Owner backup secrets/data are backend-local only.
+backup-server/.env
+backup-server/data/
+.venv/
