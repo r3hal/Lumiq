@@ -123,4 +123,3 @@ workflows:
           set -euo pipefail
           python3 scripts/build_personal_cloud_ipa.py build
     # No key-bearing IPA, app, archive, logs or test bundle goes into artifact storage.
-    artifacts: []

@@ -140,7 +140,7 @@ print('PASS: explicit experimental scan integration, tracked-secret exclusion, b
 
 # Personal cloud builds use temporary SSH delivery, never persistent key-bearing artifacts.
 personal=config['workflows']['ios-cloud-personal']
-assert personal.get('artifacts')==[]
+assert 'artifacts' not in personal
 assert all(key not in personal for key in ('triggering','publishing','cache'))
 assert personal['environment']['groups']==['focal_cloud_personal']
 assert 'GEMINI_API_KEY' not in personal['environment'].get('vars',{})
