@@ -17,7 +17,7 @@ Cloud AI is not claimed to fix the existing local-only loop. The experimental lo
 
 ## Architecture and ownership
 
-An explicit UI action requests one fresh preview still. The camera serial queues provide that frame and local evidence; network work awaits an asynchronous CloudCompositionService outside the capture/analysis loops. GeminiCloudCompositionService implements the protocol using bounded, ephemeral HTTPS requests. Unit tests inject a transport; no live API key or image upload is used by CI.
+An explicit UI action requests one fresh preview still. The camera serial queues provide that frame and local evidence; network work awaits an asynchronous CloudCompositionService outside the capture/analysis loops. GeminiCloudCompositionService implements the protocol using bounded, ephemeral HTTPS requests. Unit tests inject a transport; automated GitHub CI uses fixture credentials and sends no images. The explicitly started personal Codemagic workflow performs a real text-only model check.
 
 The strict structured result passes JSON, enum, coordinate, text, confidence, zoom-budget, scanned-box, track-identity, freshness and scene-context validation. Only then does the analysis queue install CloudCompositionLock and invalidate earlier frame/AF tickets and READY proof. Acceptance does not advance or invalidate the camera/cloud session: a newer scan can start just after the old request is claimed, and its request must survive old cleanup. Publications keep the captured session snapshot. The lock holds a stable plan ID, target and technique. Local camera observations own arrows, framing safety, autofocus, hold duration, READY and recovery. Cloud types have no READY or capture capability.
 
@@ -37,13 +37,15 @@ Without a reliable object track, accepted landscape/forest/architecture advice r
 
 ## Access and developer setup
 
+Windows + Codemagic + AltStore personal testing now has a separate [private Debug workflow](PERSONAL_CLOUD_SCAN_WINDOWS.md). It accepts the key only as an encrypted Codemagic environment variable, verifies the real project model, and uses temporary SSH delivery without persistent artifacts. Automated GitHub CI continues to use fixture credentials only.
+
 1. Use a local Debug build on a Mac with Xcode. Enable local AI Guide, use the iPhone source and Automatic composition mode. Manual Thirds remains a separate local flow. Sony Cloud Scan is intentionally disabled in this prototype.
-2. Copy DeveloperExamples/CloudComposition.example.json to LocalDeveloper/CloudComposition.local.json at the repository root. Edit that local file with your own developer API key and chosen model. Do not paste keys into chat, Git, reports or CI variables/artifacts for this prototype.
-3. The optional build phase copies the local file only into Debug app bundles. The directory and actual filename are Git-ignored. Release archives remove the configuration and the default service factory is disabled outside DEBUG. CI never has a real key and checks the unsigned archive for absence of the file.
+2. Copy DeveloperExamples/CloudComposition.example.json to LocalDeveloper/CloudComposition.local.json at the repository root. Edit that local file with your own developer API key and chosen model. Do not paste keys into chat, Git, reports or public CI variables/artifacts. The separate personal Codemagic workflow is the approved encrypted-variable route; it generates this ignored file only during its private build.
+3. The optional build phase copies the local file only into Debug app bundles. The directory and actual filename are Git-ignored. Release archives remove the configuration and the default service factory is disabled outside DEBUG. Automated GitHub CI has no real key and checks the unsigned Release archive for absence of the file. The optional personal Codemagic Debug workflow uses an encrypted variable and temporary private delivery as documented separately.
 4. Long-press the AI Guide button and choose Cloud AI Scan (Experimental). Read the disclosure, acknowledge first use, and press Send one frame to Google. Opening the sheet does not transmit an image. Cancel/Done never takes a photo.
 5. After acceptance, return to the viewfinder for local guidance. Use local composition guidance, select a subject/technique, or request an explicit rescan to unlock.
 
-A Debug app containing the developer file exposes that key to anyone who obtains the bundle or controls the device. Git exclusion and Debug-only copying do not make an embedded secret secure. Never distribute, upload or attach a key-bearing Debug build. Do not add the real file to CI artifacts. A distributed build needs the authenticated backend described in CLOUD_COMPOSITION_PROXY.md; the current Release prototype has no embedded developer credential or deployed backend.
+A Debug app containing the developer file exposes that key to anyone who obtains the bundle or controls the device. Git exclusion and Debug-only copying do not make an embedded secret secure. Never publish, share or attach a key-bearing Debug build or upload it to analysis services. The personal Codemagic route transfers it privately to your own computer/phone only. Do not add the real file or key-bearing IPA to retained CI artifacts. A distributed build needs the authenticated backend described in CLOUD_COMPOSITION_PROXY.md; the current Release prototype has no embedded developer credential or deployed backend.
 
 ## Exact configured model and API verification
 
@@ -90,6 +92,8 @@ Google's treatment of submitted data depends on account, service and region. Unp
 | `docs/CLOUD_COMPOSITION_PROXY.md` | Production authentication, quota, abuse protection, secret handling and retention architecture; not a deployed backend. |
 
 ## Validation
+
+This section records the original experimental implementation. Current personal Codemagic build validation is recorded in [PERSONAL_CLOUD_SCAN_WINDOWS.md](PERSONAL_CLOUD_SCAN_WINDOWS.md).
 
 The new suite adds 34 portable policy/transport tests and three native image-encoding tests. The portable and native totals overlap; they are not distinct additional suites to sum together.
 
