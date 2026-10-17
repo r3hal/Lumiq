@@ -158,8 +158,11 @@ def create_app(settings: Settings, *, google_http=None, drive=None, run_worker=T
     @app.get("/v1/status")
     async def status(request: Request):
         grant = device(request)
+        connected = authorization.connected
+        folder_verified = store.get("folder_status") == "verified"
         return {"destinationId": store.destination, "deviceId": grant["id"], "ownerLabel": settings.owner_label,
-                "driveConnected": authorization.connected and store.get("folder_status") == "verified"}
+                "driveConnected": connected and folder_verified,
+                "error": None if connected and folder_verified else "folder_authorization" if connected else "owner_authorization"}
 
     @app.post("/v1/resources")
     async def reserve(request: Request):

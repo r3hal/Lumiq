@@ -114,7 +114,7 @@ final class PhotoBackupCoordinator:ObservableObject,PhotoBackupRecording {
         do {
             let result = try await api.status(destination)
             guard (await engine.summary()).destination == destination else { return }
-            ownerDriveConnected = result.driveConnected;statusProblem = result.driveConnected ? nil : .ownerAuthorization
+            ownerDriveConnected = result.driveConnected;statusProblem = result.problem
         } catch { statusProblem = Self.problem(error) }
     }
     func enrollment(for photo:SavedPhoto) -> BackupEnrollment? {

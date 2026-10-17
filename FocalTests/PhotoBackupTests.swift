@@ -89,6 +89,10 @@ private final class BackupFixture {
 
 final class PhotoBackupTests:XCTestCase {
     func testFolderPermissionLossWaitsForOwnerWithoutClaimingCompletion() async throws {
+        let disconnected = Data("{\"destinationId\":\"fixture\",\"deviceId\":\"phone\",\"ownerLabel\":\"Owner\",\"driveConnected\":false,\"error\":\"folder_authorization\"}".utf8)
+        XCTAssertEqual(try OwnerBackupAPI.decode(BackendDeviceStatus.self,disconnected).problem,.folderAuthorization)
+        let legacy = Data("{\"destinationId\":\"fixture\",\"deviceId\":\"phone\",\"ownerLabel\":\"Owner\",\"driveConnected\":false}".utf8)
+        XCTAssertEqual(try OwnerBackupAPI.decode(BackendDeviceStatus.self,legacy).problem,.ownerAuthorization)
         let f = try BackupFixture();try await f.start();let capture = try f.capture();try await f.enable(capture)
         let transfer = await f.transfers.latest()!
         let receipt = try await f.receipt(transfer)

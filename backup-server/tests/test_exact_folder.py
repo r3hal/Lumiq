@@ -185,7 +185,8 @@ class OwnerFolderTests(Base):
         headers = self.session(); self.authorize(); self.app.state.drive.http = ScriptHTTP([(404, {}, {})])
         reply = await self.client.post("/admin/folder/confirm", headers=headers, json={"folderId": TARGET_FOLDER_ID})
         self.assertEqual(reply.status_code, 503); self.assertEqual(self.store.get("folder_status"), "unavailable")
-        self.assertFalse((await self.client.get("/v1/status", headers=self.headers)).json()["driveConnected"])
+        status = (await self.client.get("/v1/status", headers=self.headers)).json()
+        self.assertFalse(status["driveConnected"]); self.assertEqual(status["error"], "folder_authorization")
 
     async def test_owner_session_expires_and_stores_only_hashes(self):
         headers = self.session()

@@ -38,6 +38,10 @@ struct BackendDeviceStatus:Decodable,Sendable {
     let deviceId:String
     let ownerLabel:String
     let driveConnected:Bool
+    let error:String?
+    var problem:BackupProblem? {
+        driveConnected ? nil : error == "folder_authorization" ? .folderAuthorization : .ownerAuthorization
+    }
 }
 
 struct BackendEnrollment:Decodable,Sendable {

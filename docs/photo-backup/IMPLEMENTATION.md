@@ -29,6 +29,7 @@ App and native tests:
 - `Focal/Backup/BackupEngine.swift` — folder errors and durable rate-limit deferral.
 - `Focal/Backup/BackupModels.swift` — safe Settings explanations for folder access/rate limits.
 - `Focal/Backup/BackupNetworking.swift` — distinguish HTTP 429 from generic service failure.
+- `Focal/Backup/PhotoBackupCoordinator.swift` — keep the exact-folder error visible in Settings instead of masking it with a generic OAuth message.
 - `FocalTests/PhotoBackupTests.swift` — folder failure receipt and extended rate-limit recovery tests.
 - `Focal.xcodeproj/project.pbxproj` and `scripts/generate_project.py` — version 2.12.1 (40).
 
