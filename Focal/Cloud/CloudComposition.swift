@@ -134,10 +134,25 @@ protocol CloudCompositionService {
 final class CloudScanRequestGate: @unchecked Sendable {
     private let lock = NSLock()
     private var request: UUID?
-    func begin() -> UUID { lock.lock(); defer { lock.unlock() }; let id = UUID(); request = id; return id }
-    func invalidate() { lock.lock(); defer { lock.unlock() }; request = nil }
+    private var cancellation: (@Sendable () -> Void)?
+    func begin() -> UUID {
+        lock.lock(); let old = cancellation; cancellation = nil
+        let id = UUID(); request = id; lock.unlock(); old?(); return id
+    }
+    func invalidate() {
+        lock.lock(); request = nil; let old = cancellation; cancellation = nil; lock.unlock(); old?()
+    }
+    func registerCancellation(_ id:UUID,action:@escaping @Sendable () -> Void) {
+        lock.lock()
+        if request == id { cancellation = action; lock.unlock() }
+        else { lock.unlock(); action() }
+    }
     func accepts(_ id:UUID) -> Bool { lock.lock(); defer { lock.unlock() }; return request == id }
-    func finish(_ id:UUID) -> Bool { lock.lock(); defer { lock.unlock() }; guard request == id else { return false }; request = nil; return true }
+    func finish(_ id:UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard request == id else { return false }
+        request = nil; cancellation = nil; return true
+    }
 }
 
 struct CloudCompositionLock {

@@ -109,7 +109,15 @@ final class CloudCompositionTests: XCTestCase {
         let gate = CloudScanRequestGate(); let old = gate.begin(); let newer = gate.begin()
         XCTAssertFalse(gate.accepts(old)); XCTAssertFalse(gate.finish(old)); XCTAssertTrue(gate.accepts(newer)); XCTAssertTrue(gate.finish(newer)); XCTAssertFalse(gate.finish(newer))
     }
-    func testInvalidationRejectsPendingResponse() { let gate = CloudScanRequestGate(); let id = gate.begin(); gate.invalidate(); XCTAssertFalse(gate.accepts(id)) }
+    func testInvalidationRejectsPendingResponse() {
+        let gate = CloudScanRequestGate(), id = gate.begin()
+        let cancelled = expectation(description:"Context change cancels transport")
+        gate.registerCancellation(id) { cancelled.fulfill() }
+        gate.invalidate(); XCTAssertFalse(gate.accepts(id))
+        let stale = expectation(description:"Late registration cancels immediately")
+        gate.registerCancellation(id) { stale.fulfill() }
+        wait(for:[cancelled,stale],timeout:0.1)
+    }
     func testLockRetainsIdentityTargetAndTechniqueAcrossGoodFrames() throws {
         var held = try locked(); let id = held.id
         for t in [10.2,10.4,10.6] { XCTAssertEqual(held.observe(try evidence(at:t),at:t),.retained); let plan = held.plan(at:t,zoom:1); XCTAssertEqual(plan.id,id); XCTAssertEqual(plan.selected.technique,.thirds); XCTAssertEqual(plan.target,held.target) }

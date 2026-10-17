@@ -2277,6 +2277,9 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         },onCancel:{ self.cancelCloudScan(requestID:ticket.id) })
     }
+    func registerCloudScanCancellation(requestID:UUID,action:@escaping @Sendable () -> Void) {
+        cloudScanGate.registerCancellation(requestID,action:action)
+    }
     func cancelCloudScan(requestID:UUID) {
         _ = cloudScanGate.finish(requestID)
         analysisQueue.async {

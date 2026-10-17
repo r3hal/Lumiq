@@ -14,7 +14,7 @@ import SwiftUI
         guard let ticket = camera.beginCloudScan() else { message = CloudCompositionError.unsupportedSource.message; return }
         self.ticket = ticket
         busy = true; message = "Preparing one camera frame…"
-        task = Task { [weak self] in
+        let running = Task { [weak self] in
             defer { self?.busy = false; self?.task = nil }
             do {
                 let capture = try await camera.captureCloudScan(ticket:ticket)
@@ -30,6 +30,8 @@ import SwiftUI
                 self?.message = (error as? CloudCompositionError ?? (error is CancellationError ? .cancelled : .serviceUnavailable)).message
             }
         }
+        task = running
+        camera.registerCloudScanCancellation(requestID:ticket.id) { running.cancel() }
     }
     func cancel(camera:CameraController) { task?.cancel(); if let ticket { camera.cancelCloudScan(requestID:ticket.id) }; message = CloudCompositionError.cancelled.message }
 }

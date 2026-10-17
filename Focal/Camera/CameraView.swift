@@ -84,7 +84,7 @@ struct CameraView: View {
     private var lifecycleCamera: some View {
         cameraLayout
             .onAppear(perform: configureCamera)
-            .onDisappear { visible = false; pauseActiveSource() }
+            .onDisappear { if !showCloudScan { visible = false; pauseActiveSource() } }
             .onChange(of: scenePhase) { _, phase in handleScenePhase(phase) }
             .onChange(of: source) { _, value in changeSource(to: value) }
             .onChange(of: showCameraPanel) { _, value in camera.setInterfacePaused(value) }
@@ -154,6 +154,7 @@ struct CameraView: View {
     }
 
     private func configureCamera() {
+        guard !visible else { return } // A cloud sheet must not reconfigure the camera on dismissal.
         visible = true
         camera.setPreviewPixelWidth(Double(UIScreen.main.bounds.width * UIScreen.main.scale))
         let analyzer = camera
