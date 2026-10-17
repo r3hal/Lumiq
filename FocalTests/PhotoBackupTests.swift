@@ -101,6 +101,17 @@ final class PhotoBackupTests:XCTestCase {
         XCTAssertGreaterThan(queue.jobs[0].nextAttempt,Date());XCTAssertTrue(FileManager.default.fileExists(atPath:try f.disk.source(queue.jobs[0]).path))
         XCTAssertEqual(try f.disk.load().jobs[0].state,.retry)
     }
+    func testLongOfflineFailureAutomaticallyRecoversOnNetworkOpportunity() async throws {
+        let f = try BackupFixture();try await f.start();await f.http.setFailure(.offline);try await f.enable(f.capture())
+        for step in 0..<40 {
+            await f.engine.pump(now:Date().addingTimeInterval(Double(step+1)*86400))
+            try await Task.sleep(nanoseconds:2_000_000)
+        }
+        let failed = await f.engine.snapshot();XCTAssertTrue(failed.jobs.allSatisfy{$0.state == .failed && $0.problem == .offline})
+        await f.http.setFailure(nil);await f.engine.networkRestored()
+        let transfer = await f.transfers.latest();XCTAssertNotNil(transfer)
+        let recovered = await f.engine.snapshot();XCTAssertEqual(recovered.jobs[0].attempts,0)
+    }
     func testFileBackedUploadUsesExactHEICBytesAndRealRange() async throws {
         let f = try BackupFixture();try await f.start();let bytes = Data([0,1,2,3,4,255]);try await f.enable(f.capture(bytes:bytes,ext:"heic"))
         let transfer = await f.transfers.latest();let t = try XCTUnwrap(transfer)
@@ -177,6 +188,7 @@ final class PhotoBackupTests:XCTestCase {
         let f = try BackupFixture();try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
         await f.engine.enroll(try f.capture()) // New captures must not clear an authorization pause.
         for _ in 0..<10 { await f.engine.pump(now:Date().addingTimeInterval(3600)) }
+        await f.engine.networkRestored() // Reachability is not authorization.
         let count = await f.http.count();XCTAssertEqual(count,1)
         let restarted = BackupEngine(disk:f.disk,api:.init(http:f.http,credentials:f.credentials),transfers:f.transfers)
         await restarted.bootstrap();await restarted.pump(now:Date().addingTimeInterval(7200))

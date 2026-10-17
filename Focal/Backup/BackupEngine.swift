@@ -127,6 +127,23 @@ actor BackupEngine {
         for capture in captures { enroll(capture) }
         await pump()
     }
+    /// A fresh network opportunity releases only connectivity failures, never
+    /// revoked grants, quota, integrity errors, or another destination's queue.
+    func networkRestored() async {
+        guard loaded,usable,let destination = state.destination else { return }
+        var changed = false
+        for i in state.jobs.indices {
+            let job = state.jobs[i]
+            guard job.destinationID == destination.id,job.deviceID == destination.deviceID,job.server == destination.server,
+                  job.problem == .offline,[BackupJobState.failed,.retry].contains(job.state) else { continue }
+            state.jobs[i].state = .retry;state.jobs[i].attempts = 0;state.jobs[i].problem = nil
+            state.jobs[i].nextAttempt = .distantPast;state.jobs[i].needsStatusProbe = true;changed = true
+        }
+        if changed {
+            do { try save() } catch { state.problem = .storage;publish();return }
+        }
+        await pump()
+    }
     func retryFailed() async {
         guard let destination = state.destination,usable else { return }
         let revision = state.revision

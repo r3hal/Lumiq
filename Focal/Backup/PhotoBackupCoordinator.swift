@@ -48,7 +48,14 @@ final class PhotoBackupCoordinator:ObservableObject,PhotoBackupRecording {
             await engine.bootstrap()
         }
         monitor.pathUpdateHandler = { [weak self] path in
-            if path.status == .satisfied { Task { @MainActor in self?.foreground() } }
+            if path.status == .satisfied {
+                Task { @MainActor in
+                    guard let self else { return }
+                    await self.bootstrap?.value
+                    await self.engine.networkRestored()
+                    self.foreground()
+                }
+            }
         }
         monitor.start(queue:DispatchQueue(label:"Focal.backup.connectivity",qos:.utility))
     }
