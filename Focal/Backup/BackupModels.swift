@@ -119,6 +119,7 @@ struct BackupQueue: Codable, Sendable {
     var version = 1
     var destination:BackupDestination?
     var enabled = false
+    var authorizationPaused:Bool? // Additive for queues created before this protection.
     var revision = 0
     var jobs:[BackupJob] = []
     var problem:BackupProblem?

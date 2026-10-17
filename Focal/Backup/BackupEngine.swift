@@ -59,7 +59,7 @@ actor BackupEngine {
     func connect(_ destination:BackupDestination) async throws {
         guard usable,OwnerBackupURLs.validServer(destination.server) else { throw BackupProblem.configuration }
         // Invalidate the persisted generation BEFORE cancelling asynchronous work.
-        state.revision += 1;state.enabled = false;state.destination = destination;state.problem = nil
+        state.revision += 1;state.enabled = false;state.destination = destination;state.problem = nil;state.authorizationPaused = false
         for i in state.jobs.indices where state.jobs[i].state == .uploading || state.jobs[i].state == .preparing {
             state.jobs[i].state = .retry;state.jobs[i].operationID = nil;state.jobs[i].needsStatusProbe = true
         }
@@ -68,6 +68,7 @@ actor BackupEngine {
     func enable(_ enabled:Bool) async throws {
         guard usable,state.destination != nil else { throw BackupProblem.configuration }
         state.revision += 1;state.enabled = enabled;state.problem = nil
+        if enabled { state.authorizationPaused = false }
         for i in state.jobs.indices where state.jobs[i].state == .uploading || state.jobs[i].state == .preparing {
             state.jobs[i].state = .retry;state.jobs[i].operationID = nil;state.jobs[i].needsStatusProbe = true
         }
@@ -100,7 +101,7 @@ actor BackupEngine {
                 deviceID:capture.enrollment.deviceID,server:capture.enrollment.server,captureID:capture.id,createdAt:capture.createdAt,datePath:capture.enrollment.datePath,
                 source:source,inlineMetadata:source.role == .metadata ? capture.metadata : nil))
         }
-        state.problem = nil
+        if state.problem == .queueFull { state.problem = nil }
         do { try save() } catch { state = old;state.problem = BackupProblem.safe(error);publish() }
     }
     static func resourceID(_ capture:UUID,_ role:BackupSource.Role) -> String { capture.uuidString.lowercased()+"-"+role.rawValue }
@@ -129,6 +130,7 @@ actor BackupEngine {
     func retryFailed() async {
         guard let destination = state.destination,usable else { return }
         let revision = state.revision
+        state.authorizationPaused = false;state.problem = nil
         let failed = state.jobs.filter{$0.state == .failed && $0.destinationID == destination.id && $0.deviceID == destination.deviceID && $0.server == destination.server}
         for job in failed {
             do {
@@ -138,12 +140,17 @@ actor BackupEngine {
                     state.jobs[i].state = .retry;state.jobs[i].attempts = 0;state.jobs[i].problem = nil
                     state.jobs[i].nextAttempt = .distantPast;state.jobs[i].needsStatusProbe = true
                 }
-            } catch { state.problem = Self.problem(error);publish() }
+            } catch {
+                state.problem = Self.problem(error);publish()
+                if state.problem == .authorization || state.problem == .destinationMismatch {
+                    state.authorizationPaused = true;try? save();return
+                }
+            }
         }
-        state.problem = nil;try? save();await pump()
+        try? save();await pump()
     }
     func pump(now:Date = Date()) async {
-        guard loaded,usable,state.enabled,state.problem != .authorization,state.problem != .destinationMismatch,let destination = state.destination else { return }
+        guard loaded,usable,state.enabled,state.authorizationPaused != true,let destination = state.destination else { return }
         if running { runAgain = true;return };running = true
         defer { running = false;if runAgain { runAgain = false;Task{await self.pump()} } }
         // One file transfer at a time. Receipt polling cannot starve new captures.
@@ -234,7 +241,7 @@ actor BackupEngine {
     private func fail(_ id:String,error:Error,now:Date) {
         guard let index = state.jobs.firstIndex(where:{$0.id == id}) else { return }
         let problem = Self.problem(error)
-        if problem == .authorization || problem == .destinationMismatch { state.problem = problem }
+        if problem == .authorization || problem == .destinationMismatch { state.problem = problem;state.authorizationPaused = true }
         state.jobs[index].operationID = nil;state.jobs[index].problem = problem;state.jobs[index].needsStatusProbe = true
         state.jobs[index].attempts += 1
         let retry = BackupRetry.retryable(problem) && state.jobs[index].attempts < BackupRetry.maximumAttempts

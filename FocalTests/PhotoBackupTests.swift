@@ -175,6 +175,7 @@ final class PhotoBackupTests:XCTestCase {
     }
     func testRevokedCredentialPausesWholeQueueAcrossRestart() async throws {
         let f = try BackupFixture();try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
+        await f.engine.enroll(try f.capture()) // New captures must not clear an authorization pause.
         for _ in 0..<10 { await f.engine.pump(now:Date().addingTimeInterval(3600)) }
         let count = await f.http.count();XCTAssertEqual(count,1)
         let restarted = BackupEngine(disk:f.disk,api:.init(http:f.http,credentials:f.credentials),transfers:f.transfers)
