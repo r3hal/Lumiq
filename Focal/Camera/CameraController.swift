@@ -1774,12 +1774,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let bottomRight = visibleProjection.imagePoint(.init(x:1,y:1))
         let visibleRegion = CGRect(x:topLeft.x,y:1-bottomRight.y,width:bottomRight.x-topLeft.x,height:bottomRight.y-topLeft.y)
         let keepFramedSubject = analysisSource == .iPhone && latestNativeBounds != nil
-            && ((cloudCompositionLock != nil || framing.shotPlan != nil) && framing.phase.isPreparing
+            && (cloudCompositionLock != nil || framing.shotPlan != nil && framing.phase.isPreparing
                 || framing.phase == .aligning || framing.phase == .settling || zooming || framing.phase == .framed
                 || (subjectAutofocus.identity != nil && subjectAutofocus.identity == tracker.trackingReference))
         let inferenceStarted = ProcessInfo.processInfo.systemUptime
         if let object = tracker.observation(in: buffer, timestamp: now, visibleRegion: visibleRegion, detailBuffer: fullBuffer, trackingOnly: zooming || rapidMovement || ProcessInfo.processInfo.thermalState == .critical, retainSelection:keepFramedSubject,
-                                            reacquisitionGrace:analysisSource == .iPhone && (framing.shotPlan != nil || subjectAutofocus.identity != nil) ? 1.5 : 0,
+                                            reacquisitionGrace:analysisSource == .iPhone && (cloudCompositionLock != nil || framing.shotPlan != nil || subjectAutofocus.identity != nil) ? 1.5 : 0,
                                             canContinue: { self.guidanceSnapshot() == snapshot }) {
             imageBounds = object.boundingBox
             latestNativeBounds = object.boundingBox; latestBoundsZoom = analysisZoom

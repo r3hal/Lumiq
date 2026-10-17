@@ -123,6 +123,10 @@ assert 'x-goog-api-key' in cloud_text and '?key=' not in cloud_text
 assert 'print(' not in cloud_text and 'Logger(' not in cloud_text
 assert 'capturePhoto(' not in cloud_text and 'shoot(' not in cloud_text
 assert 'streamGenerateContent' not in cloud_text and 'service.scan(capture)' not in controller
+# The locked subject must be retained even with Auto Zoom and subject AF off.
+retention=controller.split('let keepFramedSubject =')[1].split('let inferenceStarted =')[0]
+assert '&& (cloudCompositionLock != nil || framing.shotPlan != nil && framing.phase.isPreparing' in retention
+assert 'reacquisitionGrace:analysisSource == .iPhone && (cloudCompositionLock != nil || framing.shotPlan != nil || subjectAutofocus.identity != nil)' in controller
 assert 'Cloud AI Scan (Experimental)' in cameraView
 assert 'CloudComposition.local.json' not in (ROOT/'Focal/Resources/Info.plist').read_text()
 print('PASS: explicit experimental scan integration, tracked-secret exclusion, bounded HTTPS service and user-only shutter source guards.')
