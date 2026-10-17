@@ -78,7 +78,7 @@ struct GeminiCloudConfiguration: Decodable {
     let apiKey: String
     let model: String
     func validate() throws {
-        guard !apiKey.isEmpty, apiKey.count < 256, !apiKey.unicodeScalars.contains(where:{ CharacterSet.controlCharacters.contains($0) }),
+        guard !apiKey.isEmpty, !apiKey.hasPrefix("REPLACE_"), apiKey.count < 256, !apiKey.unicodeScalars.contains(where:{ CharacterSet.controlCharacters.contains($0) }),
               model.count <= 80, model.range(of:"^gemini-[a-z0-9.-]+$",options:.regularExpression) != nil else { throw CloudCompositionError.notConfigured }
     }
     /// Debug-only bundled config is copied from an ignored local developer file.
@@ -155,7 +155,7 @@ actor GeminiCloudCompositionService: CloudCompositionService {
         let local = capture.evidence
         var facts:[String:Any] = ["currentZoom":local.zoom,"minimumZoom":local.minimumZoom,"maximumZoom":local.maximumZoom,"selectedIntent":local.intent.rawValue]
         if local.freshTrack, let bounds = local.bounds {
-            facts["selectedSubject"] = ["id":"selected","label":local.label,"box":["x":bounds.minX,"y":bounds.minY,"width":bounds.width,"height":bounds.height]]
+            facts["selectedSubject"] = ["id":"selected","label":local.label,"box":["x":Double(bounds.minX),"y":Double(bounds.minY),"width":Double(bounds.width),"height":Double(bounds.height)]]
         } else { facts["selectedSubject"] = NSNull() }
         let factsText = String(data:try JSONSerialization.data(withJSONObject:facts,options:.sortedKeys),encoding:.utf8)!
         let prompt = """

@@ -102,8 +102,8 @@ final class CloudCompositionTests: XCTestCase {
         assertError(.stale) { _ = try CloudCompositionMatcher.match(proposal(),capture:capture(local),live:newer,at:51) }
     }
     func testMajorSceneChangeWhileRequestIsInFlightRejectsPlan() throws {
-        let old = try evidence(); let changed = try evidence(brightness:0.9)
-        assertError(.stale) { _ = try CloudCompositionMatcher.match(proposal(),capture:capture(old),live:changed,at:10.1) }
+        let old = try evidence(); let changed = try evidence(at:10.1,brightness:0.9)
+        assertError(.stale) { _ = try CloudCompositionMatcher.match(proposal(),capture:capture(old),live:changed,at:10.2) }
     }
     func testNewScanAndOldCompletionCannotClearCurrentScan() {
         let gate = CloudScanRequestGate(); let old = gate.begin(); let newer = gate.begin()
@@ -138,7 +138,19 @@ final class CloudCompositionTests: XCTestCase {
         XCTAssertFalse(held.plan(at:10.1,zoom:1).permitsZoom); XCTAssertFalse(director.currentFrameVerified); XCTAssertFalse(director.shotVerified)
         let unmeasured = CompositionOption(technique:.thirds,target:held.target,crop:CGRect(x:0,y:0,width:1,height:1),score:1,explanation:"Cloud claims perfect",zoomScale:1.5,measuredImprovement:0)
         XCTAssertFalse(held.useMeasuredMotorOption(unmeasured))
-        director.confirmCurrentFrame(eligible:false,timestamp:10.2,holdDuration:0.5); XCTAssertFalse(director.currentFrameVerified)
+        let original = try evidence()
+        let originalBounds = try XCTUnwrap(original.bounds)
+        let facts = CompositionAssessment.evaluate(bounds:originalBounds,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        let unaligned = ShotReadiness.measuredManualFrame(mode:.thirds,bounds:originalBounds,target:held.target,roll:0,aspect:1,assessment:facts,stable:true)
+        XCTAssertFalse(unaligned)
+        for time in [10.2,10.8] { director.confirmCurrentFrame(eligible:unaligned,timestamp:time,holdDuration:0.5) }
+        XCTAssertFalse(director.currentFrameVerified)
+        let alignedBounds = CGRect(x:held.target.x-0.15,y:held.target.y-0.15,width:0.3,height:0.3)
+        let alignedFacts = CompositionAssessment.evaluate(bounds:alignedBounds,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        let locallyEligible = ShotReadiness.measuredManualFrame(mode:.thirds,bounds:alignedBounds,target:held.target,roll:0,aspect:1,assessment:alignedFacts,stable:true)
+        XCTAssertTrue(locallyEligible)
+        director.confirmCurrentFrame(eligible:locallyEligible,timestamp:11,holdDuration:0.5); XCTAssertFalse(director.currentFrameVerified)
+        director.confirmCurrentFrame(eligible:locallyEligible,timestamp:11.6,holdDuration:0.5); XCTAssertTrue(director.currentFrameVerified)
     }
     func testOfflineLockRemainsUsableOnlyWithFreshLocalEvidence() throws {
         var held = try locked(); XCTAssertEqual(held.observe(try evidence(at:20),at:20),.retained)
@@ -201,7 +213,8 @@ final class CloudCompositionTests: XCTestCase {
         let transport = CloudTestTransport([],delay:true)
         let service = GeminiCloudCompositionService(configuration:.init(apiKey:"unit-test-only",model:"gemini-3.8-flash"),transport:transport)
         let input = capture(try evidence())
-        let task = Task { try await service.scan(input) }; task.cancel()
+        let task = Task { try await service.scan(input) }
+        await transport.waitForRequest(); task.cancel()
         do { _ = try await task.value; XCTFail("Cancelled scan must not succeed") } catch { XCTAssertTrue(error is CancellationError || error as? CloudCompositionError == .cancelled) }
     }
 }
@@ -210,9 +223,14 @@ private actor CloudTestTransport: CloudHTTPTransport {
     var requests:[URLRequest] = []
     var responses:[Result<CloudHTTPResponse,CloudCompositionError>]
     let delay:Bool
+    private var requestObserver: CheckedContinuation<Void,Never>?
+    func waitForRequest() async {
+        if !requests.isEmpty { return }
+        await withCheckedContinuation { requestObserver = $0 }
+    }
     init(_ responses:[Result<CloudHTTPResponse,CloudCompositionError>],delay:Bool = false) { self.responses = responses; self.delay = delay }
     func send(_ request:URLRequest) async throws -> CloudHTTPResponse {
-        requests.append(request)
+        requests.append(request); requestObserver?.resume(); requestObserver = nil
         if delay { try await Task.sleep(nanoseconds:10_000_000_000) }
         guard !responses.isEmpty else { throw CloudCompositionError.serviceUnavailable }
         return try responses.removeFirst().get()

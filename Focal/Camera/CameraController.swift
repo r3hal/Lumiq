@@ -2352,7 +2352,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard analysisSource == .iPhone else { latestCloudEvidence = nil; return }
         let local = CloudLocalEvidence(observedAt:observedAt,sessionRevision:snapshot.revision,isIPhone:true,mode:mode,
             trackingReference:tracker.trackingReference,label:tracker.label,bounds:bounds,confidence:confidence,zoom:analysisZoom,
-            minimumZoom:max(0.5,nativeZoomStops.min() ?? 1),maximumZoom:min(20,min(automaticZoomLimit,detailZoomLimit)),
+            minimumZoom:max(0.5,nativeZoomStops.min() ?? 1),maximumZoom:min(20,max(analysisZoom,min(automaticZoomLimit,detailZoomLimit))),
             previewAspect:previewAspect,scene:compositionEvidence,rollReliable:rollReliable,rollDegrees:roll,intent:photographyIntent)
         latestCloudEvidence = local
         guard var held = cloudCompositionLock else { cloudRecovering = false; return }

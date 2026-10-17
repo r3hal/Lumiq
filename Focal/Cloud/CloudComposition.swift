@@ -185,7 +185,7 @@ struct CloudCompositionLock {
     }
     func plan(at time:TimeInterval,zoom:Double) -> SceneCompositionPlan {
         var option = CompositionOption(technique:result.recommendedCompositionTechnique.local,target:target,
-            crop:CGRect(x:0,y:0,width:1,height:1),score:0,explanation:result.explanation,zoomScale:1,isCurrentFrame:true)
+            crop:CGRect(x:0,y:0,width:1,height:1),score:0,explanation:isWholeScene ? "Keep the selected wide view; local observations verify the frame" : "Track the selected subject toward the locked composition",zoomScale:1,isCurrentFrame:true)
         if !manualZoomOverride, let measuredMotorOption {
             option = measuredMotorOption
             option.zoomScale = max(1,initialZoom*measuredMotorOption.zoomScale/max(0.01,zoom))

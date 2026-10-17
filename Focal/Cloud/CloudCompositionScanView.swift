@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor final class CloudCompositionScanModel: ObservableObject {
     @Published private(set) var busy = false
+    @Published private(set) var suggestion: CloudCompositionResult?
     @Published private(set) var message = "Local AI Guide stays on while a scan runs."
     private let service: (any CloudCompositionService)?
     private var task: Task<Void,Never>?
@@ -22,6 +23,7 @@ import SwiftUI
                 let result = try await service.scan(capture)
                 try Task.checkCancellation()
                 try await camera.applyCloudComposition(result,capture:capture)
+                self?.suggestion = result
                 self?.message = "Composition locked. Return to the camera for local guidance."
             } catch {
                 camera.cancelCloudScan(requestID:ticket.id)
@@ -56,6 +58,16 @@ struct CloudCompositionScanView: View {
                     if model.busy { Button("Cancel scan",role:.cancel) { model.cancel(camera:camera) } }
                     Text(model.message).font(.footnote)
                     Text(camera.cloudCompositionStatus).font(.footnote)
+                }
+                if let suggestion = model.suggestion {
+                    Section("Cloud suggestion") {
+                        Text(suggestion.recommendedCompositionTechnique.local.rawValue)
+                        Text(suggestion.explanation)
+                        Text("Model confidence: \(Int(suggestion.confidence*100))%. Local evidence still decides READY.").font(.footnote)
+                        ForEach(Array(suggestion.alternatives.enumerated()),id:\.offset) { _, alternative in
+                            Text("Alternative: \(alternative.technique.local.rawValue) — \(alternative.explanation)").font(.footnote)
+                        }
+                    }
                 }
                 Section("Composition lock") {
                     Text("A verified suggestion stays selected while local observations remain valid. New attractive candidates do not replace it. Manual zoom keeps priority; untracked features never create directional arrows.").font(.footnote)
