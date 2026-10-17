@@ -1,6 +1,6 @@
 # Exact-folder Google Drive backup implementation
 
-Branch: `codex/focal-exact-drive-folder`, based on the existing owner-backup branch at `6f94c379e21fc2ebf7e6de59e2be2ab9ce0d3b76`. App version **2.12.1 (40)**. Main, the Gemini test branch and the previous backup branch are preserved. See [deployment and Google/Windows setup](SETUP.md) and [validation evidence](VALIDATION.md).
+Branch: `codex/focal-exact-drive-folder`, based on the existing owner-backup branch at `6f94c379e21fc2ebf7e6de59e2be2ab9ce0d3b76`. App version **2.12.1 (40)**. [CI run 39037161938](https://github.com/r3hal/focal-private/actions/runs/39037161938) passed 713 native XCTest tests and an unsigned Release iPhone archive for source `f2e560b5d532c669c66205ab8fce753c3e4b6347`. Main, the Gemini test branch and the previous backup branch are preserved. See [deployment and Google/Windows setup](SETUP.md) and [validation evidence](VALIDATION.md).
 
 ## Audit findings and changes
 
