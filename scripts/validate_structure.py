@@ -154,6 +154,7 @@ assert 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG' not in private_builder
 assert '"x-goog-api-key": configuration.api_key' in private_builder
 assert 'public_environment()' in private_builder and 'NoRedirect' in private_builder
 assert 'wait_for_download(output, sha)' in private_builder
+assert 'CM_EXPORT_DIR' in private_builder and 'CM_TRIGGER_SOURCE' in private_builder
 assert not re.search(r'(?i)(print|logger)\(.*(api_key|configuration\.json)',private_builder)
 assert all('focal_cloud_personal' not in w.get('environment',{}).get('groups',[]) for n,w in config['workflows'].items() if n!='ios-cloud-personal')
 print('PASS: private manual Debug workflow; app-scoped secret group; sanitized child environment; temporary SSH delivery with no artifact/publishing/cache paths.')

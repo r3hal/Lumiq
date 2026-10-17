@@ -71,10 +71,12 @@ class PersonalCloudBuildTests(unittest.TestCase):
         self.assertEqual(child["PATH"], "/usr/bin")
 
     def test_manual_branch_context_excludes_main_tags_and_pull_requests(self):
-        build.check_context({"CM_BRANCH": build.BRANCH})
+        build.check_context({"CM_BRANCH": build.BRANCH, "CM_TRIGGER_SOURCE": "api"})
         for env in [{"CM_BRANCH": "main"}, {"CM_BRANCH": build.BRANCH, "CM_TAG": "test"},
                     {"CM_BRANCH": build.BRANCH, "CM_PULL_REQUEST_NUMBER": "42"}, {}]:
-            self.failure("context", build.check_context, env)
+            self.failure("context", build.check_context, dict(env, CM_TRIGGER_SOURCE="api"))
+        for source in ["webhook", "schedule", ""]:
+            self.failure("context", build.check_context, {"CM_BRANCH": build.BRANCH, "CM_TRIGGER_SOURCE": source})
 
     def test_successful_live_probe_uses_same_model_and_no_images(self):
         client = Client([METADATA, PROBE])
@@ -203,6 +205,13 @@ class PersonalCloudBuildTests(unittest.TestCase):
                 with build.private_output(root):
                     self.fail("Existing directory must not be used")
             self.assertEqual(original.read_text(), "keep")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with mock.patch.dict(os.environ, {"CM_EXPORT_DIR": str(root / "build")}):
+                with self.assertRaises(build.SafeFailure):
+                    with build.private_output(root):
+                        self.fail("Automatic artifact export must not include the IPA")
+            self.assertFalse((root / "build/private-cloud").exists())
 
     def test_release_or_missing_debug_condition_is_rejected(self):
         valid = {"CONFIGURATION": "Debug", "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG",

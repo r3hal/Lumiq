@@ -29,6 +29,7 @@ LIMIT = 131072
 MESSAGES = {
     "context": "Run this workflow manually on codex/focal-cloud-composition-scan, not a tag or pull request.",
     "configuration": "Missing or invalid encrypted GEMINI_API_KEY or explicit GEMINI_MODEL. No credential value is logged.",
+    "export": "Codemagic automatic export overlaps the private IPA workspace. Refusing retained artifact delivery.",
     "tracked": "Developer configuration is tracked or is not ignored by Git. Refusing to build.",
     "exists": "Private output or developer configuration already exists. Refusing to overwrite it.",
     "authorization": "Google rejected this API project's credentials or permissions (401/403). No fallback model was used.",
@@ -75,7 +76,8 @@ def public_environment(environment=None):
     return result
 
 def check_context(environment):
-    if (environment.get("CM_BRANCH") != BRANCH
+    if (environment.get("CM_TRIGGER_SOURCE") != "api"
+            or environment.get("CM_BRANCH") != BRANCH
             or environment.get("CM_TAG")
             or environment.get("CM_PULL_REQUEST_NUMBER")):
         raise SafeFailure("context")
@@ -172,6 +174,13 @@ def private_output(root):
         raise SafeFailure("exists")
     parent.mkdir(exist_ok=True)
     output = parent / "private-cloud"
+    # Codemagic also auto-exports CM_EXPORT_DIR independently of YAML patterns.
+    exported = os.environ.get("CM_EXPORT_DIR")
+    if exported:
+        export_root = Path(exported).resolve()
+        resolved = output.resolve()
+        if resolved == export_root or export_root in resolved.parents:
+            raise SafeFailure("export")
     try:
         output.mkdir(mode=0o700)
     except FileExistsError:
