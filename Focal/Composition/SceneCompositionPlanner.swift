@@ -55,6 +55,8 @@ struct SceneCompositionPlanner {
     private var pendingSince: TimeInterval = 0
     private var previousBounds: CGRect?
     private var lastSeen: TimeInterval?
+    private var selectedReference: String?
+    private var selectedIntent: PhotographyIntent?
     private var evaluatedEvidenceTime: TimeInterval = -.infinity
     private var evaluatedBounds: CGRect?
     private var evaluatedIntent: PhotographyIntent?
@@ -66,7 +68,7 @@ struct SceneCompositionPlanner {
 
     mutating func update(subject: CGRect?, confidence: Float, label: String, evidence: SceneCompositionEvidence?,
                          others: [CompositionContextSubject] = [], enclosingFrames: [CGRect] = [],
-                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, anatomy:SubjectAnatomy? = nil) -> SceneCompositionPlan? {
+                         timestamp: TimeInterval, maximumScale: Double = 1, freeze: Bool = false, intent: PhotographyIntent = .auto, availableScales: [Double]? = nil, anatomy:SubjectAnatomy? = nil, trackingReference:String? = nil) -> SceneCompositionPlan? {
         guard timestamp.isFinite else { reset(); return nil }
         if subject == nil || intent == .landscape {
             let result = outdoor.update(evidence:evidence,at:timestamp)
@@ -79,9 +81,12 @@ struct SceneCompositionPlanner {
             if lastSeen.map({ timestamp < $0 || timestamp-$0 > 0.6 }) ?? true { reset() }
             return nil
         }
-        if plan?.subjectLabel != label || previousBounds.map({ hypot(Double($0.midX-subject.midX),Double($0.midY-subject.midY)) > 0.3 }) == true { reset() }
+        if plan?.subjectLabel != label || selectedReference != trackingReference || selectedIntent != intent
+            || lastSeen.map({ timestamp <= $0 || timestamp-$0 > 1.5 }) == true
+            || previousBounds.map({ hypot(Double($0.midX-subject.midX),Double($0.midY-subject.midY)) > 0.3 }) == true { reset() }
+        selectedReference = trackingReference; selectedIntent = intent
         previousBounds = subject; lastSeen = timestamp
-        if freeze, let retained = plan, !retained.selected.isCurrentFrame { return retained }
+        if freeze, !alternativeRequested, let retained = plan, !retained.selected.isCurrentFrame { return retained }
         guard let evidence, evidence.isFresh(at:timestamp) else {
             if var retained = plan, timestamp >= retained.timestamp, timestamp-retained.timestamp < 2.5 {
                 retained.selected.target = Self.safeTarget(retained.target,subject:subject)
@@ -107,7 +112,11 @@ struct SceneCompositionPlanner {
         }
         guard let best = options.first else { reset(); return nil }
         let chosen: CompositionOption
-        if alternativeRequested, let old = plan, let index = options.firstIndex(where:{$0.technique == old.selected.technique}), options.count > 1 {
+        let explicitlyReplanned = alternativeRequested
+        if freeze, !alternativeRequested, plan?.selected.isCurrentFrame == true,
+           let current = options.first(where: { $0.isCurrentFrame }) {
+            chosen = current; pending = nil
+        } else if alternativeRequested, let old = plan, let index = options.firstIndex(where:{$0.technique == old.selected.technique}), options.count > 1 {
             // Ranked object crops can contain several versions of one rule.
             // Prefer a genuinely different supported layout on explicit request.
             chosen = options.dropFirst(index+1).first{$0.technique != old.selected.technique}
@@ -126,7 +135,11 @@ struct SceneCompositionPlanner {
                 pending = nil; chosen = retainingTarget(stillSupported,from:old,subject:subject)
             }
         } else { chosen = best; pending = nil }
-        let result = SceneCompositionPlan(selected:chosen,alternatives:Array(options.filter { $0.technique != chosen.technique }.prefix(3)),subjectLabel:label,timestamp:timestamp)
+        var result = SceneCompositionPlan(selected:chosen,alternatives:Array(options.filter { $0.technique != chosen.technique }.prefix(3)),subjectLabel:label,timestamp:timestamp)
+        if let old = plan, !explicitlyReplanned, old.selected.technique == chosen.technique,
+           old.selected.isCurrentFrame == chosen.isCurrentFrame, old.target.distance(to:chosen.target) <= 0.08 {
+            result.id = old.id
+        }
         plan = result
         return result
     }

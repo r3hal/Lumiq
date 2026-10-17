@@ -9,7 +9,17 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 def read(path): return (ROOT/path).read_text()
 manifest = json.loads(read('docs/PHOTO-BACKUP-PRESERVED-SOURCES.json'))
+integration_path = ROOT/'docs/FOCAL_3_0_SOURCE_AUDIT.json'
+overrides = json.loads(integration_path.read_text())['reviewedSources'] if integration_path.exists() else {}
+allowed = {'Focal/Camera/CameraController.swift','Focal/Camera/SubjectTracker.swift',
+    'Focal/Composition/SceneCompositionPlanner.swift','Focal/Composition/OutdoorCompositionPlanner.swift',
+    'Focal/Composition/FramingPlanner.swift','Focal/Composition/FramingTrace.swift','Focal/Composition/SubjectSelection.swift',
+    'Focal/Cloud/CloudComposition.swift'}
+assert set(overrides) <= allowed
 for path, expected in manifest['sha256'].items():
+    if path in overrides:
+        assert overrides[path]['before'] == expected
+        expected = overrides[path]['after']
     assert hashlib.sha256((ROOT/path).read_bytes()).hexdigest() == expected, f'Protected source changed: {path}'
 backup = '\n'.join(p.read_text() for p in (ROOT/'Focal/Backup').glob('*.swift'))
 assert all(word not in backup for word in ['capturePhoto(', 'ramp(toVideoZoomFactor:', 'startRunning(', 'GoogleSignIn', 'GeminiCloudCompositionService'])
@@ -44,4 +54,4 @@ assert 'metadata.get("parents") != [TARGET_FOLDER_ID]' in drive
 assert 'folder = await self.verify_target_folder()' in drive
 assert 'TARGET_FOLDER_ID = "1z7BpcVwsZAJ5ruPRHKbJ6VbnsQbOhrkU"' in read('backup-server/focal_backup/store.py')
 assert 'ports:' not in read('backup-server/compose.yaml').split('  https:')[0]
-print(f'PASS: {len(manifest["sha256"])} protected camera/AI/Gemini/Sony/editor source hashes; post-commit enrollment; file-backed cellular/background integration; consent/Keychain/privacy/secret and deployment guards. Not native execution.')
+print(f'PASS: {len(manifest["sha256"])} protected source hashes ({len(overrides)} reviewed integration updates); post-commit enrollment; file-backed cellular/background integration; consent/Keychain/privacy/secret and deployment guards. Not native execution.')

@@ -88,7 +88,7 @@ enum CloudCompositionError: Error, Equatable {
         case .timeout: return "Cloud Scan timed out. Local guidance continues."
         case .offline: return "No internet connection. Local guidance continues."
         case .quota: return "Cloud Scan quota reached. Try again later; local guidance continues."
-        case .unauthorized: return "Cloud Scan authorization failed. Check the local developer configuration."
+        case .unauthorized: return "Cloud Scan authorization expired or was refused. Reauthorize the configured service; local guidance continues."
         case .unavailableModel: return "The configured model is unavailable. Check current Google model documentation."
         case .invalidResponse: return "The cloud suggestion could not be validated. Local guidance continues."
         case .subjectMismatch: return "The suggestion does not match a reliably tracked subject. Select your subject or rescan."

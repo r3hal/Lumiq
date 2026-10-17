@@ -144,6 +144,7 @@ struct FramingPlanner {
     @discardableResult mutating func selectShot(_ plan:AutomaticShotPlan) -> Bool {
         guard phase.isPreparing, !phase.isAutoFraming, !phase.isRecovering, !shotVerified else { return false }
         if let current = shotPlan, current.requiresZoom { return false }
+        if shotPlan?.id == plan.id { return false }
         shotPlan = plan
         retryCount = 0
         return true

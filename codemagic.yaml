@@ -26,11 +26,9 @@ workflows:
       - name: Package unsigned app for AltStore Classic to sign
         script: |
           set -euo pipefail
-          test -d build/Focal.xcarchive/Products/Applications/Focal.app
-          mkdir -p build/sideload/Payload
-          ditto build/Focal.xcarchive/Products/Applications/Focal.app build/sideload/Payload/Focal.app
-          cd build/sideload
-          ditto -c -k --keepParent Payload ../Focal-unsigned.ipa
+          python3 scripts/package_public_ipa.py \
+            --app build/Focal.xcarchive/Products/Applications/Focal.app \
+            --output build/Focal-unsigned.ipa
     artifacts:
       - build/Focal-unsigned.ipa
       - build/FocalTests.xcresult
@@ -79,14 +77,49 @@ workflows:
       - name: Package unsigned app for AltStore Classic to sign
         script: |
           set -euo pipefail
-          test -d build/Focal.xcarchive/Products/Applications/Focal.app
-          mkdir -p build/sideload/Payload
-          ditto build/Focal.xcarchive/Products/Applications/Focal.app build/sideload/Payload/Focal.app
-          cd build/sideload
-          ditto -c -k --keepParent Payload ../Focal-unsigned.ipa
+          python3 scripts/package_public_ipa.py \
+            --app build/Focal.xcarchive/Products/Applications/Focal.app \
+            --output build/Focal-unsigned.ipa
     artifacts:
       - build/Focal-unsigned.ipa
       - build/FocalTests.xcresult
+
+
+  ios-debug-sideload:
+    name: Focal - public Debug test IPA (no embedded credentials)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: "16.4"
+    scripts:
+      - name: Verify public build policy
+        script: |
+          set -euo pipefail
+          test ! -e LocalDeveloper/CloudComposition.local.json
+          python3 -m unittest discover -s scripts/tests -p 'test_public_ipa.py' -v
+      - name: Run native Debug regressions
+        script: |
+          set -euo pipefail
+          SIMULATOR_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project Focal.xcodeproj -scheme Focal -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath build/PublicDebugTests.xcresult CODE_SIGNING_ALLOWED=NO test
+      - name: Archive non-secret Debug iPhone app
+        script: |
+          set -euo pipefail
+          test ! -e LocalDeveloper/CloudComposition.local.json
+          xcodebuild -project Focal.xcodeproj -scheme Focal -configuration Debug \
+            -destination 'generic/platform=iOS' -archivePath build/Focal-PublicDebug.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+      - name: Publish only a validated public Debug IPA
+        script: |
+          set -euo pipefail
+          python3 scripts/package_public_ipa.py \
+            --app build/Focal-PublicDebug.xcarchive/Products/Applications/Focal.app \
+            --output build/Focal-Debug-unsigned.ipa
+    artifacts:
+      - build/Focal-Debug-unsigned.ipa
+      - build/PublicDebugTests.xcresult
 
 
   # PERSONAL ONLY: manual start + Enable SSH/VNC access. Never publish this IPA.
