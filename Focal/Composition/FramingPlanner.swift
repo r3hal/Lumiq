@@ -16,7 +16,8 @@ struct FramingPlanner {
     private(set) var shotPlan: AutomaticShotPlan?
     private(set) var shotVerified = false
     private(set) var currentFrameVerified = false
-    private var currentFrameSince: TimeInterval?
+    private var currentFrameContinuity = ReadyContinuity()
+    private var readyObservedAt: TimeInterval?
     private var completionSince: TimeInterval?
     private var lastVerification: TimeInterval?
     private(set) var blockReason: FramingBlockReason?
@@ -75,7 +76,7 @@ struct FramingPlanner {
         guard continuousRecovery, time.isFinite, phase != .off else { return }
         guard reason != .manualControl && reason != .disabled else { stop(reason:reason); return }
         guard !phase.isRecovering else { return } // Do not restart grace/backoff on each frame.
-        shotVerified = false; currentFrameVerified = false; completionSince = nil; lastVerification = nil
+        shotVerified = false; currentFrameVerified = false; currentFrameContinuity.reset(); readyObservedAt = nil; completionSince = nil; lastVerification = nil
         eligibleHold = 0; lastHoldEligible = false; alignedPreparationSince = nil
         retryCount += 1; recoveryStartedAt = time; noteBlock(reason,at:time)
         if shotPlan == nil || retryCount > 3 { beginRediscovery(at:time); return }
@@ -85,7 +86,7 @@ struct FramingPlanner {
     }
     private mutating func beginRediscovery(at time:TimeInterval) {
         phase = .rediscovering; shotPlan = nil; shotVerified = false; currentFrameVerified = false
-        retryAt = time+2; recoveryStartedAt = time; completionSince = nil; currentFrameSince = nil
+        retryAt = time+2; recoveryStartedAt = time; completionSince = nil; lastVerification = nil; currentFrameContinuity.reset(); readyObservedAt = nil
         ShotFramingDiagnostics.log("REDISCOVERY_SCHEDULED","reason=\(blockReason?.rawValue ?? "unknown") attempts=\(retryCount) retryAt=\(time+2)")
     }
     mutating func advanceRecovery(bounds:CGRect?,label:String,trackingReference:String?,confidence:Float,zoom:Double,
@@ -143,6 +144,7 @@ struct FramingPlanner {
     @discardableResult mutating func selectShot(_ plan:AutomaticShotPlan) -> Bool {
         guard phase.isPreparing, !phase.isAutoFraming, !phase.isRecovering, !shotVerified else { return false }
         if let current = shotPlan, current.requiresZoom { return false }
+        if shotPlan?.id == plan.id { return false }
         shotPlan = plan
         retryCount = 0
         return true
@@ -174,6 +176,7 @@ struct FramingPlanner {
             if !achieved { phase = .zooming; return .resuming }
         }
         if let lastVerification, timestamp <= lastVerification { return completionSince == nil ? .continuing : .holding }
+        if let lastVerification, timestamp-lastVerification > GuidanceObservationPolicy.maximumAge { completionSince = nil }
         lastVerification = timestamp
         if achieved {
             phase = .verifying
@@ -181,7 +184,7 @@ struct FramingPlanner {
             if cameraRamping || !captureStable || !motorAtTarget { completionSince = nil; return .holding }
             if completionSince == nil { completionSince = timestamp }
             let dwell = captureHoldDuration.isFinite ? max(0.2,min(3,captureHoldDuration)) : 3
-            if timestamp-(completionSince ?? timestamp) >= dwell { shotVerified = true; finish(); return .achieved }
+            if timestamp-(completionSince ?? timestamp) >= dwell { shotVerified = true; readyObservedAt = timestamp; finish(); return .achieved }
             return .holding
         }
         completionSince = nil
@@ -200,7 +203,7 @@ struct FramingPlanner {
 
     mutating func reset(enabled: Bool) {
         phase = enabled ? .searching : .off
-        shotPlan = nil; shotVerified = false; currentFrameVerified = false; currentFrameSince = nil; completionSince = nil; lastVerification = nil
+        shotPlan = nil; shotVerified = false; currentFrameVerified = false; currentFrameContinuity.reset(); readyObservedAt = nil; completionSince = nil; lastVerification = nil
         stableSince = nil
         blockReason = nil; blockedSince = nil; recovering = false; recoverySince = nil; recoveryGoodSince = nil
         recoveryAttempts = 0; recoveredSeconds = 0; eligibleHold = 0; lastHoldTime = nil; lastHoldEligible = false
@@ -219,18 +222,36 @@ struct FramingPlanner {
             if continuousRecovery { requestRecovery(reason:bounds == nil ? .tracking : .unsafeCrop,at:timestamp); return }
             stop(reason:.unsafeCrop); return
         }
+        readyObservedAt = timestamp
     }
-    mutating func confirmCurrentFrame(eligible:Bool,timestamp:TimeInterval,holdDuration:Double) {
+    mutating func confirmCurrentFrame(eligible:Bool,timestamp:TimeInterval,holdDuration:Double,
+                                     retaining:Bool = false,identity:String = "current-frame") {
         guard !phase.isAutoFraming, !phase.isRecovering, !shotVerified, phase != .off, shotPlan?.requiresZoom != true else { return }
-        guard eligible, timestamp.isFinite else {
-            if currentFrameVerified { reset(enabled:true) }
-            currentFrameSince = nil; currentFrameVerified = false
-            return
+        let wasReady = currentFrameVerified
+        currentFrameVerified = currentFrameContinuity.update(eligible:eligible,retaining:retaining,
+            identity:identity,timestamp:timestamp,hold:holdDuration)
+        if currentFrameVerified { readyObservedAt = timestamp; finish() }
+        else if wasReady { readyObservedAt = nil; phase = .searching }
+    }
+    /// Preserve the selected shot for recovery, but never preserve its READY proof.
+    mutating func invalidateReadiness(at time:TimeInterval) {
+        let wasShot = shotVerified
+        currentFrameContinuity.reset(); currentFrameVerified = false; readyObservedAt = nil
+        completionSince = nil; lastVerification = nil
+        if wasShot, continuousRecovery { requestRecovery(reason:.staleFrame,at:time) }
+        else {
+            shotVerified = false
+            if phase == .framed { phase = .searching }
         }
-        if currentFrameSince == nil { currentFrameSince = timestamp }
-        if timestamp-(currentFrameSince ?? timestamp) >= max(0.5,min(3,holdDuration)) {
-            currentFrameVerified = true; finish()
-        }
+    }
+    mutating func recordReadyEvidence(at time:TimeInterval) {
+        if time.isFinite, currentFrameVerified || shotVerified { readyObservedAt = time }
+    }
+    @discardableResult mutating func expireReadiness(at time:TimeInterval) -> Bool {
+        guard let readyObservedAt,
+              !GuidanceObservationPolicy.fresh(capturedAt:readyObservedAt,evaluatedAt:time) else { return false }
+        invalidateReadiness(at:time)
+        return true
     }
     func directorState(hasPlan:Bool) -> ShotDirectorState {
         if recovering { return .recovering }

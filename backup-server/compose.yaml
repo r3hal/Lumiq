@@ -1,0 +1,30 @@
+services:
+  backup:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - focal-exact-folder-data:/data
+    expose: ["8000"]
+    read_only: true
+    tmpfs: ["/tmp:size=32m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    networks: [backup]
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      BACKUP_DOMAIN: ${BACKUP_DOMAIN}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [backup]
+networks:
+  backup:
+volumes:
+  focal-exact-folder-data:
+  caddy-data:
+  caddy-config:

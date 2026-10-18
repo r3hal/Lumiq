@@ -1,0 +1,79 @@
+{
+  "baselineCommit": "61753417d76de4571d741412b7f161d72feead5d",
+  "reviewedSources": {
+    "Focal/Camera/CameraController.swift": {
+      "before": "9a0782b2cffb48053455d2e53da23f9b4006227c9bb580cfcf568ffe87c17608",
+      "after": "8cac36dcc1f0289f05889d5bd677a87fd4e5e4cfb2b1a8c986a3c8cd9184d8f4",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Camera/SubjectTracker.swift": {
+      "before": "1f8f7eed881a5a8e14d2ded6574ba2ef0ce3b0ada16554c54b5fe591aec8cc36",
+      "after": "8907a101000d7d031ea0fa556e3de2a9edd1c6991f2ae21ed597a70843645f52",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Cloud/CloudComposition.swift": {
+      "before": "091fc99a6f9c4785f89238be4fef2c8bf59764ac3c77bdb0f6525058b928c449",
+      "after": "3926fc3a191eb51b846e3dacf1b9e9d6b7f8c762844945bc7eceb8f1ad00c208",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Composition/FramingPlanner.swift": {
+      "before": "c5e860be502364f9a4975982a9574134370ccccb3e3e785bee965cefb1189ee8",
+      "after": "f4e16873dc17356c8db865e058251e754876e67ce7679594e4cfba129f44739d",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Composition/FramingTrace.swift": {
+      "before": "3d66393b61199e81e8cf9ab3ff040edcca1d3bcfcec7e31afbfee625cc20b7fc",
+      "after": "723b6835e697f263b17677d02b8864b6cd2535208ec0798d127a811960bb29b0",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Composition/OutdoorCompositionPlanner.swift": {
+      "before": "580f2dd03ba67825c7c5bc09d8c3ca4da252c5c9797cb3f63b0dc45778248755",
+      "after": "11b7502cc725bccecc5af391af2bf7e6dc21523dcbdad2d06d4d0a6955cab22d",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Composition/SceneCompositionPlanner.swift": {
+      "before": "3f100a263ef7a7d9f277ea6ba9687715a39b5aee92d1a878fb8c271bfb795c00",
+      "after": "bf3555f44e9e540d7447778b6a0f50875c08130ae71e3b2b892fd2533199cc4d",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Composition/SubjectSelection.swift": {
+      "before": "e0445bee5368b2025d64d6cfb2c4c18d39494550b9c6a0ebd8de75e71a04dbdd",
+      "after": "b8edc066cebeb0e1b52b1fea3440797bb7bf94a706ebd9c7bb8e0e58ae9f3baf",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    }
+  },
+  "preservedSHA256": {
+    "Focal/Backup/BackupBackgroundSession.swift": "46c5dc6cf60e339843804f7d55ff81ca8fe0091b3f85a8a803a30e61afc265a5",
+    "Focal/Backup/BackupDiskStore.swift": "7a627f3f5dadd47a5149f2551ee6f531315c06a6b99082f8e42cc18da4d0e160",
+    "Focal/Backup/BackupEngine.swift": "776a6379fd8456a72ca3a53600174047fc9a545241b8f268c3079d855ad3cb9d",
+    "Focal/Backup/BackupKeychain.swift": "4827c48d16e350bc387f39853e4a28b072f4ce25a31e4274c695c263073e9e4f",
+    "Focal/Backup/BackupModels.swift": "c1ea23517e4c803fc8e29a1400e9491b4429e25b3becca060262428382b8cc6a",
+    "Focal/Backup/BackupNetworking.swift": "570e5d57f44f3c637b3093d789bbac796e16645c818c2f0d183abe4eafc86ced",
+    "Focal/Backup/PhotoBackupCoordinator.swift": "efd3390b8215507f197142d5276764e3bcf8348a11942128e414cab07494ee0b",
+    "Focal/Backup/PhotoBackupSettingsView.swift": "b721075147d26312c1fa3e6d60180c19a2931237d6f6f9a14b230fa27e213685",
+    "Focal/Library/LibraryView.swift": "cd7465fb32d314dee61e90abfe539510f1b19d69f2471af81078ce68c219680f",
+    "Focal/Library/PhotoDetailView.swift": "7cbba1566bbc52f4d6ce7c4d6a65c38bb05b7bc92de75d2cca209d006bf8244d",
+    "Focal/Library/PhotoLibrary.swift": "480808e3c5324b9c8cbbf563cf2462e6507281e36f2424ad7a63a612b153dc12",
+    "Focal/Library/PhotoMetadata.swift": "9ff9c554da20515f15779684232d1909767fefbf6f7763830738d39873859d6d",
+    "Focal/Library/PhotoViewer.swift": "ad027b4eca56fb627d1c2ccc40e2bd826ad8c70b65a1f5c84cd3cabb02567b5e",
+    "Focal/Sony/SonyAPIClient.swift": "9837ced8e09745666f3c241b67aa71c5472d50e2ca07bece14c32239b6e0d69e",
+    "Focal/Sony/SonyConnectionView.swift": "ff1fbdab74cbfd63f43fc0f236337a077ffaff2b53bd3edfd4e04f0abbb922f3",
+    "Focal/Sony/SonyControlPolicy.swift": "c14b9005a5de2f1248acb96dcdbc9909a6e844615023957ee06a3db3a8c768d4",
+    "Focal/Sony/SonyDiagnostics.swift": "fa7f1d41c2342d738b1787453264855dc1a36184505d48befbf83c1c7370ee44",
+    "Focal/Sony/SonyDiscovery.swift": "2ed666f92d9b4daf06536b9735f573134ec60449916ebf5ce556fa10bf3b8d89",
+    "Focal/Sony/SonyFocusWorkflow.swift": "2aa9489c2ee1300b419432c7bdf8009b9cd034b35cb3a46c9d2a32f1c89327f5",
+    "Focal/Sony/SonyPreviewDelivery.swift": "82e75fe14d9cf5da782a36699ebcf006b9fc00f9a9019dad99341e1597c78713",
+    "Focal/Sony/SonyProtocol.swift": "aaff1924ec296349936837d1bf18f248fbe45e5557e40b1b22e3b849958fb968",
+    "Focal/Sony/SonyRemoteCamera.swift": "edff16baf2f5994609543a2a2af2fc0092accfd2cb63537903039e1df84f1326",
+    "Focal/Sony/SonyRemoteControlsView.swift": "2c3e44e6b7b8479527667c0e1137091bd9701e33731956d2e867c38d774ba350",
+    "Focal/Sony/SonyRemoteSettings.swift": "c2c91310d2f5c7d223cce787ec30322439f184c97b0c35db6572a20277251362",
+    "Focal/Sony/SonyRemoteSnapshot.swift": "d6c115e805c824de8539401fa1a93ba2327a6e703d78f14d8aa47acbed264df4",
+    "backup-server/focal_backup/__init__.py": "18975a0b1b5558e127baf681011bc943ed35d31196588e654601300e92d69712",
+    "backup-server/focal_backup/app.py": "824b12fab09f74686d3b41738d52f2ae33edb74c7dd0740cd3bbde20955e6b5f",
+    "backup-server/focal_backup/cli.py": "c6ea6e564fa27641dde3751a88fe7f4a4ad762f4dd461dfec1c28f71eac9f086",
+    "backup-server/focal_backup/folder.html": "852b55e653967cdc202838384c462042251b87e7ebd5581cf6d65c66170fe9c9",
+    "backup-server/focal_backup/folder.js": "498692aa5680cb60096a05e263bf9029ceaeb7ccdb03ba483215f8044359b397",
+    "backup-server/focal_backup/google_drive.py": "2273e4a67c588bb095c94a9a828007baf5a0273f4eba3d2870de4d96fbab020c",
+    "backup-server/focal_backup/store.py": "3ebb2102022c0391d59cda64c27295f33226b01b213a71bdd23ebcf0b25c99df"
+  }
+}

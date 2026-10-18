@@ -52,7 +52,7 @@ common = dict(SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="17.0", SWIFT_VERSI
 app = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.example.focal",
            INFOPLIST_FILE="Focal/Resources/Info.plist", GENERATE_INFOPLIST_FILE="NO",
            ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", TARGETED_DEVICE_FAMILY="1",
-           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="38", MARKETING_VERSION="2.11.1", VERSIONING_SYSTEM="apple-generic",
+           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="41", MARKETING_VERSION="3.0.0", VERSIONING_SYSTEM="apple-generic",
            SUPPORTED_PLATFORMS="iphoneos iphonesimulator", SUPPORTS_MACCATALYST="NO",
            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"],
            ENABLE_PREVIEWS="YES")
@@ -76,8 +76,12 @@ def configurations(name, settings):
 def phase(name, kind, files):
     return add(name, kind, buildActionMask="2147483647", files=files, runOnlyForDeploymentPostprocessing="0")
 
+cloud_config_phase = add("cloud-developer-config", "PBXShellScriptBuildPhase", buildActionMask="2147483647", files=[],
+                         inputPaths=[], outputPaths=[], runOnlyForDeploymentPostprocessing="0", alwaysOutOfDate="1",
+                         name="Optional local cloud prototype configuration", shellPath="/bin/sh", shellScript="set -eu\nconfig=\"$SRCROOT/LocalDeveloper/CloudComposition.local.json\"\ndestination=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CloudComposition.local.json\"\nif [ \"$CONFIGURATION\" = \"Debug\" ] && [ -f \"$config\" ]; then\n  mkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n  install -m 600 \"$config\" \"$destination\"\nelse\n  rm -f \"$destination\"\nfi\n")
+
 app_target = add("app-target", "PBXNativeTarget", buildConfigurationList=configurations("app", app),
-                 buildPhases=[phase("app-sources", "PBXSourcesBuildPhase", app_sources), phase("app-frameworks", "PBXFrameworksBuildPhase", []), phase("app-resources", "PBXResourcesBuildPhase", resources)],
+                 buildPhases=[phase("app-sources", "PBXSourcesBuildPhase", app_sources), phase("app-frameworks", "PBXFrameworksBuildPhase", []), phase("app-resources", "PBXResourcesBuildPhase", resources), cloud_config_phase],
                  buildRules=[], dependencies=[], name="Focal", productName="Focal", productReference=app_product, productType="com.apple.product-type.application")
 proxy = add("test-proxy", "PBXContainerItemProxy", containerPortal=identifier("project"), proxyType="1", remoteGlobalIDString=app_target, remoteInfo="Focal")
 dependency = add("test-dependency", "PBXTargetDependency", target=app_target, targetProxy=proxy)
@@ -123,16 +127,21 @@ info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplay
             LSRequiresIPhoneOS=True, UILaunchScreen={}, UIAppFonts=["Fonts/EBGaramond-Italic.ttf"],
             UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"],
             UIApplicationSceneManifest=dict(UIApplicationSupportsMultipleScenes=False),
-            NSCameraUsageDescription="Focal uses your camera to help you compose and capture photos. Frames are analyzed only on your iPhone.",
+            NSCameraUsageDescription="Focal uses your camera for local composition and photos. Experimental Cloud Scan sends one camera frame to Google only when you explicitly request it.",
             NSLocationWhenInUseUsageDescription="Focal uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.",
             NSMotionUsageDescription="Focal uses phone motion to wait for a steady hold before automatic framing and to provide an optional level guide.",
             NSPhotoLibraryAddUsageDescription="Save the photos you choose from Focal to your iPhone photo library.")
 (ROOT / "Focal/Resources/Info.plist").write_bytes(plistlib.dumps(info))
-privacy = dict(NSPrivacyTracking=False, NSPrivacyTrackingDomains=[], NSPrivacyCollectedDataTypes=[],
+privacy = dict(NSPrivacyTracking=False, NSPrivacyTrackingDomains=[], NSPrivacyCollectedDataTypes=[dict(NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypePhotosorVideos",
+                    NSPrivacyCollectedDataTypeLinked=True,NSPrivacyCollectedDataTypeTracking=False,
+                    NSPrivacyCollectedDataTypePurposes=["NSPrivacyCollectedDataTypePurposeAppFunctionality"]),
+                    dict(NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypeDeviceID",NSPrivacyCollectedDataTypeLinked=True,
+                         NSPrivacyCollectedDataTypeTracking=False,NSPrivacyCollectedDataTypePurposes=["NSPrivacyCollectedDataTypePurposeAppFunctionality"])],
                NSPrivacyAccessedAPITypes=[
                    dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryUserDefaults", NSPrivacyAccessedAPITypeReasons=["CA92.1"]),
                    dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategorySystemBootTime", NSPrivacyAccessedAPITypeReasons=["35F9.1"]),
-                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryFileTimestamp", NSPrivacyAccessedAPITypeReasons=["C617.1"])
+                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryFileTimestamp", NSPrivacyAccessedAPITypeReasons=["C617.1"]),
+                   dict(NSPrivacyAccessedAPIType="NSPrivacyAccessedAPICategoryDiskSpace", NSPrivacyAccessedAPITypeReasons=["E174.1"])
                ])
 (ROOT / "Focal/Resources/PrivacyInfo.xcprivacy").write_bytes(plistlib.dumps(privacy))
 assets = ROOT / "Focal/Resources/Assets.xcassets"

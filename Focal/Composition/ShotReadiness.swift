@@ -30,13 +30,31 @@ struct CameraZoomObservation {
 
 enum ShotReadiness {
     static func measuredCurrentFrame(plan:SceneCompositionPlan?,assessment:CompositionAssessment,
-                                     label:String,timestamp:TimeInterval,stable:Bool) -> Bool {
+                                     label:String,timestamp:TimeInterval,stable:Bool,retaining:Bool = false) -> Bool {
         guard let plan, plan.subjectLabel == label, plan.selected.isCurrentFrame, abs(plan.selected.zoomScale-1) < 0.001,
               timestamp >= plan.timestamp, timestamp-plan.timestamp <= 2.5,
               stable, assessment.assessmentReliable, assessment.confidence >= 0.65, assessment.subjectArea != nil,
-              !assessment.touchesEdge, assessment.sizePenalty <= 0.15, assessment.positionPenalty <= 0.05,
+              !assessment.touchesEdge, assessment.sizePenalty <= (retaining ? 0.20 : 0.15), assessment.positionPenalty <= (retaining ? 0.075 : 0.05),
               !assessment.cameraMoving else { return false }
         if let light = assessment.exposure, light.highlightFraction > 0.18 || (light.brightness < 0.12 && light.shadowFraction > 0.75) { return false }
+        return true
+    }
+    /// Manual layout completion never grants or requires motor permission.
+    static func measuredManualFrame(mode:CompositionMode,bounds:CGRect?,target:UnitPoint2D,
+                                    roll:Double,aspect:Double,assessment:CompositionAssessment,
+                                    stable:Bool,retaining:Bool = false) -> Bool {
+        guard mode != .automatic, let bounds, AutomaticShotPlan.valid(bounds),
+              [target.x,target.y,roll,aspect].allSatisfy(\.isFinite), aspect > 0,
+              (0...1).contains(target.x), (0...1).contains(target.y), stable,
+              assessment.assessmentReliable, assessment.confidence.isFinite, assessment.confidence >= 0.65,
+              assessment.subjectArea != nil, !assessment.touchesEdge,
+              assessment.sizePenalty <= (retaining ? 0.20 : 0.15), !assessment.cameraMoving,
+              abs(roll) <= (retaining ? 5 : 4),
+              hypot(Double(bounds.midX)-target.x,(Double(bounds.midY)-target.y)/aspect) <= (retaining ? 0.0845 : 0.065) else { return false }
+        if let light = assessment.exposure {
+            guard [light.brightness,light.shadowFraction,light.highlightFraction].allSatisfy(\.isFinite),
+                  light.highlightFraction <= 0.18, !(light.brightness < 0.12 && light.shadowFraction > 0.75) else { return false }
+        }
         return true
     }
     static func measuredSceneFrame(scene:SubjectScene?,evidence:SceneCompositionEvidence?,measurements:PhotoMeasurements?,

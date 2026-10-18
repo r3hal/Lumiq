@@ -9,21 +9,30 @@ struct OutdoorCompositionPlanner {
     private var lockedUntil:TimeInterval = 0
     private var alternativeRequested = false
     private var evidenceTime:TimeInterval = -.infinity
+    private var lastUpdateTime:TimeInterval?
+    private var sceneContinuity = ReadySceneContinuity()
     private var cachedOptions:[CompositionOption] = []
     mutating func requestAlternative() { alternativeRequested = true }
     mutating func reset() { self = Self() }
     mutating func update(evidence:SceneCompositionEvidence?,at time:TimeInterval) -> SceneCompositionPlan? {
-        guard let evidence,evidence.isFresh(at:time) else { return nil }
+        guard time.isFinite else { challenger = nil; lastUpdateTime = nil; return nil }
+        if let lastUpdateTime, time < lastUpdateTime || time-lastUpdateTime > 1.25 { challenger = nil }
+        lastUpdateTime = time
+        guard let evidence,evidence.isFresh(at:time) else { challenger = nil; return nil }
+        if sceneContinuity.changed(evidence:evidence,identity:"outdoor",at:time) {
+            plan = nil; challenger = nil; lockedUntil = 0
+        }
         if evidenceTime != evidence.timestamp {
+            if evidence.timestamp < evidenceTime || evidence.timestamp-evidenceTime > 1.25 { challenger = nil }
             cachedOptions = Self.candidates(evidence); evidenceTime = evidence.timestamp
         }
         let options = cachedOptions
-        guard let best = options.first else { plan = nil; return nil }
+        guard let best = options.first else { plan = nil; challenger = nil; return nil }
         var chosen = best
         if let previous = plan, let retained = options.first(where:{$0.technique == previous.selected.technique}) {
             if alternativeRequested {
                 let index = options.firstIndex(where:{$0.technique == previous.selected.technique}) ?? 0
-                chosen = options[(index+1)%options.count]; lockedUntil = time+4
+                chosen = options[(index+1)%options.count]; lockedUntil = time+4; challenger = nil
             } else if time < lockedUntil || best.score < retained.score+0.06 {
                 chosen = retained; challenger = nil
             } else if best.technique != retained.technique {
@@ -55,7 +64,7 @@ struct OutdoorCompositionPlanner {
     static func instruction(_ plan:SceneCompositionPlan,mirrored:Bool = false) -> (String,GuidanceAction?) {
         guard let anchor = plan.selected.sceneAnchor else { return (plan.selected.explanation,nil) }
         let dx = (anchor.x-plan.target.x)*(mirrored ? -1 : 1),dy = anchor.y-plan.target.y
-        if abs(dx) > 0.10 || abs(dy) > 0.10 {
+        if !aligned(plan) {
             if abs(dx) > abs(dy) { return (dx > 0 ? "Aim slightly right" : "Aim slightly left",dx > 0 ? .panRight : .panLeft) }
             return (dy > 0 ? "Tilt slightly down" : "Tilt slightly up",dy > 0 ? .panDown : .panUp)
         }

@@ -250,3 +250,253 @@ final class ContinuousFramingRecoveryTests: XCTestCase {
         XCTAssertEqual(photos.userCapture(at:3.1,guidanceEnabled:true)?.metadata.startingZoom,original.startingZoom)
     }
 }
+
+
+/// Phase 1 regressions use production policies; no camera or shutter is simulated.
+extension ContinuousFramingRecoveryTests {
+    func testReadyDwellDoesNotCreditMissingObservations() {
+        var p = FramingPlanner(continuousRecovery:true)
+        p.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:10,holdDuration:0.5)
+        XCTAssertFalse(p.currentFrameVerified)
+        p.confirmCurrentFrame(eligible:true,timestamp:10.3,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:10.6,holdDuration:0.5)
+        XCTAssertTrue(p.currentFrameVerified)
+    }
+    func testReadyContinuityRejectsSameLabelReplacement() {
+        var p = ReadyContinuity()
+        XCTAssertFalse(p.update(eligible:true,retaining:true,identity:"cat-A",timestamp:0,hold:0.5))
+        XCTAssertTrue(p.update(eligible:true,retaining:true,identity:"cat-A",timestamp:0.6,hold:0.5))
+        XCTAssertFalse(p.update(eligible:true,retaining:true,identity:"cat-B",timestamp:0.7,hold:0.5))
+    }
+    func testReadyRetentionNeedsGoodGeometryButNotNewEntryDwell() {
+        var p = ReadyContinuity()
+        _ = p.update(eligible:true,retaining:true,identity:"A",timestamp:0,hold:0.5)
+        XCTAssertTrue(p.update(eligible:true,retaining:true,identity:"A",timestamp:0.6,hold:0.5))
+        XCTAssertTrue(p.update(eligible:false,retaining:true,identity:"A",timestamp:0.8,hold:0.5))
+        XCTAssertFalse(p.update(eligible:false,retaining:false,identity:"A",timestamp:1,hold:0.5))
+        XCTAssertFalse(p.update(eligible:false,retaining:true,identity:"A",timestamp:1.2,hold:0.5))
+    }
+    func testReadyExpiresAndReacquiresWithoutDisablingDirector() {
+        var p = FramingPlanner(continuousRecovery:true)
+        p.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5)
+        p.expireReadiness(at:1)
+        XCTAssertTrue(p.currentFrameVerified)
+        p.expireReadiness(at:1.51)
+        XCTAssertFalse(p.currentFrameVerified); XCTAssertEqual(p.phase,.searching)
+        p.confirmCurrentFrame(eligible:true,timestamp:2,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:2.6,holdDuration:0.5)
+        XCTAssertTrue(p.currentFrameVerified)
+    }
+    func testSubjectLossImmediatelyInvalidatesCurrentFrameReady() {
+        var p = FramingPlanner(continuousRecovery:true)
+        p.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:false,timestamp:0.7,holdDuration:0.5)
+        XCTAssertFalse(p.currentFrameVerified); XCTAssertNotEqual(p.phase,.off)
+    }
+    func testReadyDwellCannotAdvanceOnDuplicateOrBackwardsTime() {
+        for t in [0.0,-1.0,Double.nan] {
+            var p = ReadyContinuity()
+            _ = p.update(eligible:true,retaining:true,identity:"A",timestamp:0,hold:0.5)
+            XCTAssertFalse(p.update(eligible:true,retaining:true,identity:"A",timestamp:t,hold:0.5))
+        }
+    }
+    func testCompletedZoomExpiryKeepsPlanAndEntersRecovery() throws {
+        var p = try selected(); aim(&p,0)
+        XCTAssertEqual(verify(&p,0.2),.holding)
+        XCTAssertEqual(verify(&p,0.8),.achieved)
+        let id = p.shotPlan?.id
+        p.recordReadyEvidence(at:0.8); p.expireReadiness(at:1.71)
+        XCTAssertFalse(p.shotVerified); XCTAssertTrue(p.phase.isRecovering)
+        XCTAssertEqual(p.shotPlan?.id,id)
+    }
+    func testFinalZoomDwellCannotSpanStaleGap() throws {
+        var p = try selected(); aim(&p,0)
+        XCTAssertEqual(verify(&p,0.2),.holding)
+        XCTAssertEqual(verify(&p,2),.holding)
+        XCTAssertFalse(p.shotVerified)
+        XCTAssertEqual(verify(&p,2.6),.achieved)
+    }
+    func testManualThirdsCompletesAtEverySelectedCornerWithoutZoomPlan() {
+        for target in CompositionEngine.thirdsTargets {
+            let b = CGRect(x:target.x-0.15,y:target.y-0.15,width:0.3,height:0.3)
+            let a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+            let eligible = ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b,target:target,roll:0,aspect:0.75,assessment:a,stable:true)
+            XCTAssertTrue(eligible)
+            var p = FramingPlanner(continuousRecovery:true)
+            p.confirmCurrentFrame(eligible:eligible,timestamp:0,holdDuration:0.5)
+            p.confirmCurrentFrame(eligible:eligible,timestamp:0.6,holdDuration:0.5)
+            XCTAssertTrue(p.currentFrameVerified); XCTAssertEqual(p.phase,.framed); XCTAssertNil(p.shotPlan)
+        }
+    }
+    func testManualCenterVerifiesWithoutAutomaticZoomPermission() {
+        let b = CGRect(x:0.35,y:0.35,width:0.3,height:0.3)
+        let a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        XCTAssertTrue(ShotReadiness.measuredManualFrame(mode:.centered,bounds:b,target:.init(x:0.5,y:0.5),roll:0,aspect:0.75,assessment:a,stable:true))
+        XCTAssertFalse(ShotReadiness.measuredManualFrame(mode:.automatic,bounds:b,target:.init(x:0.5,y:0.5),roll:0,aspect:0.75,assessment:a,stable:true))
+    }
+    func testManualCompletionRejectsLossWeakEvidenceMotionAndWrongTarget() {
+        let b = CGRect(x:0.35,y:0.35,width:0.3,height:0.3)
+        var a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        func eligible(_ bounds:CGRect?,_ target:UnitPoint2D,_ stable:Bool) -> Bool {
+            ShotReadiness.measuredManualFrame(mode:.thirds,bounds:bounds,target:target,roll:0,aspect:0.75,assessment:a,stable:stable)
+        }
+        XCTAssertFalse(eligible(nil,.init(x:0.5,y:0.5),true))
+        XCTAssertFalse(eligible(b,.init(x:1.0/3,y:1.0/3),true))
+        XCTAssertFalse(eligible(b,.init(x:0.5,y:0.5),false))
+        a.confidence = 0.64
+        XCTAssertFalse(eligible(b,.init(x:0.5,y:0.5),true))
+        a.confidence = 0.95; a.edgeJointCount = 1
+        XCTAssertFalse(eligible(b,.init(x:0.5,y:0.5),true))
+    }
+    func testManualReadyRetainsOnlyWithinExitTolerance() {
+        let b = CGRect(x:0.422,y:0.35,width:0.3,height:0.3)
+        let a = CompositionAssessment.evaluate(bounds:b,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        XCTAssertFalse(ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b,target:.init(x:0.5,y:0.5),roll:4.5,aspect:0.75,assessment:a,stable:true))
+        XCTAssertTrue(ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b,target:.init(x:0.5,y:0.5),roll:4.5,aspect:0.75,assessment:a,stable:true,retaining:true))
+        XCTAssertFalse(ShotReadiness.measuredManualFrame(mode:.thirds,bounds:b.offsetBy(dx:0.03,dy:0),target:.init(x:0.5,y:0.5),roll:4.5,aspect:0.75,assessment:a,stable:true,retaining:true))
+    }
+    func testAlignmentEngineRetainsReadyThroughSmallVariation() {
+        var e = CompositionEngine()
+        for t in [0.0,0.3,0.7] { _ = e.update(subject:.init(x:0.5,y:0.5),rollDegrees:0,mode:.centered,timestamp:t) }
+        let r = e.update(subject:.init(x:0.57,y:0.5),rollDegrees:4.5,mode:.centered,timestamp:0.9)
+        XCTAssertEqual(r.state,.ready)
+        XCTAssertEqual(e.update(subject:.init(x:0.7,y:0.5),rollDegrees:0,mode:.centered,timestamp:1.1).state,.adjusting)
+    }
+    func testAlignmentEngineCannotRemainReadyAcrossStreamGapOrLoss() {
+        var e = CompositionEngine()
+        for t in [0.0,0.3,0.7] { _ = e.update(subject:.init(x:0.5,y:0.5),rollDegrees:0,mode:.centered,timestamp:t) }
+        XCTAssertEqual(e.update(subject:.init(x:0.5,y:0.5),rollDegrees:0,mode:.centered,timestamp:2).state,.settling)
+        XCTAssertEqual(e.update(subject:nil,rollDegrees:0,mode:.centered,timestamp:2.1).state,.searching)
+    }
+    func testOldAnalysisCannotApplyAfterAnyContextSupersession() {
+        for _ in ["subject","mode","zoom","guidance-session","lens","aspect"] {
+            let g = GuidanceResultGate(), old = g.begin(observedAt:1)
+            g.invalidate(at:1.1)
+            XCTAssertFalse(g.apply(old,at:1.2))
+            let next = g.begin(observedAt:1.2)
+            XCTAssertTrue(g.apply(next,at:1.3))
+            XCTAssertFalse(g.expire(old,at:2))
+        }
+    }
+    func testFrameCapturedBeforeContextChangeIsRejectedEvenIfAdmittedLater() {
+        let g = GuidanceResultGate(); g.invalidate(at:2)
+        let old = g.begin(observedAt:1.9)
+        XCTAssertFalse(g.accepts(old,at:2.1)); XCTAssertFalse(g.apply(old,at:2.1))
+    }
+    func testSlowMainQueueRejectsExpiredAnalysis() {
+        let g = GuidanceResultGate(), t = g.begin(observedAt:0)
+        XCTAssertFalse(g.apply(t,at:0.91))
+    }
+    func testOlderResultAndExpiryCannotResetNewerPublishedGuidance() {
+        let g = GuidanceResultGate(), a = g.begin(observedAt:0)
+        XCTAssertTrue(g.apply(a,at:0.1))
+        let b = g.begin(observedAt:0.4)
+        XCTAssertFalse(g.apply(a,at:0.5)); XCTAssertTrue(g.apply(b,at:0.5))
+        XCTAssertFalse(g.expire(a,at:0.92)); XCTAssertTrue(g.accepts(b,at:0.92))
+    }
+    func testDisplayedReadyExpiresEvenWhenNewerFrameIsStillInFlight() {
+        let g = GuidanceResultGate(), a = g.begin(observedAt:0)
+        XCTAssertTrue(g.apply(a,at:0.1))
+        let b = g.begin(observedAt:0.8)
+        XCTAssertTrue(g.expire(a,at:0.91))
+        XCTAssertTrue(g.apply(b,at:1))
+        XCTAssertFalse(g.expire(a,at:1.1)); XCTAssertTrue(g.expire(b,at:1.71))
+    }
+    func testManualZoomSupersessionPreservesEnabledGuideAndGrace() {
+        var activation = GuidanceActivation(); _ = activation.set(true)
+        let old = activation.snapshot
+        let zoom = activation.set(activation.snapshot.enabled)
+        XCTAssertTrue(zoom.enabled); XCTAssertFalse(activation.accepts(old))
+        var grace = ManualZoomGrace(); grace.begin(at:0)
+        XCTAssertFalse(grace.permitsAutomaticZoom(at:10))
+        grace.end(at:10); XCTAssertFalse(grace.permitsAutomaticZoom(at:12.9))
+        XCTAssertTrue(grace.permitsAutomaticZoom(at:13.1))
+    }
+    func testSubjectFocusCapabilityIsIndependentOfZoomAndHonorsManualFocus() {
+        XCTAssertTrue(SubjectAutofocus.permitted(guidance:true,tracking:true,iPhone:true,manualFocus:false))
+        XCTAssertFalse(SubjectAutofocus.permitted(guidance:false,tracking:true,iPhone:true,manualFocus:false))
+        XCTAssertFalse(SubjectAutofocus.permitted(guidance:true,tracking:false,iPhone:true,manualFocus:false))
+        XCTAssertFalse(SubjectAutofocus.permitted(guidance:true,tracking:true,iPhone:false,manualFocus:false))
+        XCTAssertFalse(SubjectAutofocus.permitted(guidance:true,tracking:true,iPhone:true,manualFocus:true))
+    }
+    func testSubjectAutofocusStationaryEvidenceMaintainsWithoutRetargeting() {
+        var af = SubjectAutofocus()
+        let b = CGRect(x:0.3,y:0.3,width:0.3,height:0.3)
+        guard case .target? = af.update(enabled:true,selectedIdentity:"A",observedIdentity:"A",bounds:b,confidence:0.95,observedAt:0,now:0) else { return XCTFail("Initial target") }
+        for t in [0.1,0.25,0.5,0.75] {
+            guard case .maintain? = af.update(enabled:true,selectedIdentity:"A",observedIdentity:"A",bounds:b,confidence:0.95,observedAt:t,now:t) else { return XCTFail("Stationary target must not hunt") }
+        }
+    }
+
+    func testDelayedExpiryCannotInvalidateNewerReadyEvidence() {
+        var p = FramingPlanner(continuousRecovery:true)
+        p.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5)
+        p.confirmCurrentFrame(eligible:true,timestamp:1.2,holdDuration:0.5)
+        XCTAssertFalse(p.expireReadiness(at:1.51))
+        XCTAssertTrue(p.currentFrameVerified)
+        XCTAssertTrue(p.expireReadiness(at:2.11))
+        XCTAssertFalse(p.currentFrameVerified)
+    }
+    func testManualThirdsPipelinePublishesReadyWithEitherZoomPreference() {
+        let target = UnitPoint2D(x:1.0/3,y:1.0/3)
+        let bounds = CGRect(x:target.x-0.15,y:target.y-0.15,width:0.3,height:0.3)
+        let assessment = CompositionAssessment.evaluate(bounds:bounds,confidence:0.95,label:"Person",intent:.portrait,stable:true,exposure:nil,evidence:nil)
+        for autoZoom in [false,true] {
+            var director = FramingPlanner(continuousRecovery:true), engine = CompositionEngine(), guide = AutomaticGuidance()
+            var message = GuidanceMessage()
+            for time in [0.0,0.3,0.6,0.9] {
+                director.confirmCurrentFrame(eligible:ShotReadiness.measuredManualFrame(mode:.thirds,bounds:bounds,target:target,roll:0,aspect:0.75,assessment:assessment,stable:true),timestamp:time,holdDuration:0.5)
+                var reading = engine.update(subject:target,rollDegrees:0,mode:.thirds,timestamp:time,preferredTarget:target)
+                reading.subjectBounds = bounds; reading.guidanceBounds = bounds; reading.subjectConfidence = 0.95
+                message = guide.update(reading:reading,phase:director.phase,stable:true,rollReliable:true,autoEnabled:autoZoom,zoomAvailable:false,timestamp:time,subjectLabel:"Person",intent:.portrait,manualComposition:true,requireShotCompletion:true,currentFrameVerified:director.currentFrameVerified,framingInstruction:director.progressInstruction,continuousFraming:true)
+                XCTAssertEqual(reading.target,target)
+                XCTAssertNil(director.shotPlan)
+            }
+            XCTAssertTrue(director.currentFrameVerified)
+            XCTAssertEqual(message.kind,.ready,"Auto Zoom preference: \(autoZoom)")
+        }
+    }
+
+    private func readyScene(_ brightness:Double,at time:Double) throws -> SceneCompositionEvidence {
+        let pixels = (0..<48*48).map { index -> SubjectImageEvidence.Pixel in
+            let value = min(1,max(0,brightness+(index%7 == 0 ? 0.03 : 0)))
+            return .init(red:value,green:value*0.9,blue:value*0.8)
+        }
+        return try XCTUnwrap(SceneCompositionEvidence(image:.init(pixels:pixels,width:48,height:48),projection:.init(imageAspect:1,previewAspect:1),timestamp:time))
+    }
+    func testWideSceneReadinessIgnoresSmallPixelVariationAndRepeatedEvidence() throws {
+        var scene = ReadySceneContinuity()
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.3,at:0),identity:"landscape",at:0))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.31,at:0.8),identity:"landscape",at:0.8))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.31,at:0.8),identity:"landscape",at:0.9))
+    }
+    func testDifferentWideSceneMustEarnItsOwnReadyHold() throws {
+        var scene = ReadySceneContinuity(), director = FramingPlanner(continuousRecovery:true)
+        _ = scene.changed(evidence:try readyScene(0.2,at:0),identity:"landscape",at:0)
+        director.confirmCurrentFrame(eligible:true,timestamp:0,holdDuration:0.5)
+        director.confirmCurrentFrame(eligible:true,timestamp:0.6,holdDuration:0.5)
+        XCTAssertTrue(director.currentFrameVerified)
+        XCTAssertTrue(scene.changed(evidence:try readyScene(0.8,at:0.8),identity:"landscape",at:0.8))
+        director.invalidateReadiness(at:0.8)
+        director.confirmCurrentFrame(eligible:true,timestamp:0.8,holdDuration:0.5)
+        XCTAssertFalse(director.currentFrameVerified)
+        director.confirmCurrentFrame(eligible:true,timestamp:1.4,holdDuration:0.5)
+        XCTAssertTrue(director.currentFrameVerified)
+    }
+    func testSlowWideSceneDriftIsComparedWithAcquisitionAnchor() throws {
+        var scene = ReadySceneContinuity()
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.2,at:0),identity:"landscape",at:0))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.3,at:0.8),identity:"landscape",at:0.8))
+        XCTAssertTrue(scene.changed(evidence:try readyScene(0.45,at:1.6),identity:"landscape",at:1.6))
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.46,at:2.4),identity:"landscape",at:2.4))
+    }
+    func testWideSceneCategoryChangeResetsEvenWithSimilarPixels() throws {
+        var scene = ReadySceneContinuity()
+        XCTAssertFalse(scene.changed(evidence:try readyScene(0.3,at:0),identity:"landscape",at:0))
+        XCTAssertTrue(scene.changed(evidence:try readyScene(0.3,at:0.8),identity:"architecture",at:0.8))
+    }
+}

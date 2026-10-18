@@ -29,6 +29,7 @@ struct CameraView: View {
     @State private var pendingPanelAction: PanelAction?
     private enum PanelAction { case reference, explore }
     @State private var showLibrary = false
+    @State private var showCloudScan = false
     @State private var mode: CompositionMode = .automatic
     @State private var corner: Int?
     @State private var saving = false
@@ -51,6 +52,7 @@ struct CameraView: View {
     // layout, every observer and every presentation as one enormous expression.
     var body: some View {
         presentedCamera
+            .sheet(isPresented:$showCloudScan) { CloudCompositionScanView(camera:camera) }
             .alert("Camera", isPresented: cameraErrorPresented) {
                 Button("OK") { camera.errorMessage = nil }
             } message: {
@@ -82,7 +84,7 @@ struct CameraView: View {
     private var lifecycleCamera: some View {
         cameraLayout
             .onAppear(perform: configureCamera)
-            .onDisappear { visible = false; pauseActiveSource() }
+            .onDisappear { if !showCloudScan { visible = false; pauseActiveSource() } }
             .onChange(of: scenePhase) { _, phase in handleScenePhase(phase) }
             .onChange(of: source) { _, value in changeSource(to: value) }
             .onChange(of: showCameraPanel) { _, value in camera.setInterfacePaused(value) }
@@ -152,6 +154,7 @@ struct CameraView: View {
     }
 
     private func configureCamera() {
+        guard !visible else { return } // A cloud sheet must not reconfigure the camera on dismissal.
         visible = true
         camera.setPreviewPixelWidth(Double(UIScreen.main.bounds.width * UIScreen.main.scale))
         let analyzer = camera
@@ -629,8 +632,9 @@ struct CameraView: View {
             }
         }.buttonStyle(CameraPressStyle()).accessibilityLabel("Focal Intelligence")
             .accessibilityValue(settings.guide ? "On" : "Off")
-            .accessibilityHint("Toggle composition guidance. Long press for another composition.")
+            .accessibilityHint("Toggle local composition guidance. Long press for composition options and experimental Cloud Scan.")
             .contextMenu {
+                if settings.guide { Button("Cloud AI Scan (Experimental)",systemImage:"cloud") { showCloudScan = true }.disabled(source != .iPhone || demo || mode != .automatic || controlsBusy) }
                 if settings.guide { Button("Try Another Composition",systemImage:"arrow.triangle.2.circlepath") { camera.tryAnotherComposition() } }
             }
             .animation(.easeInOut(duration: 0.18), value: settings.guide)

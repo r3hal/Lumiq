@@ -111,7 +111,7 @@ struct AutomaticGuidance {
             intent:intent,stable:stable && relativeSpeed <= 0.25,exposure:subjectMeasurements,evidence:sceneEvidence,others:others,anatomy:anatomy,timestamp:timestamp)
         if phase.isAutoFraming { return .init(kind:.framing,text:phase == .verifying ? "Checking the final framing…" : "Refining the evaluated crop…") }
         if assessment.confidence < 0.55 || !assessment.assessmentReliable { memory.reset(); return .init(kind:.searching,text:"") }
-        if shotVerified, stable, reading.state == .ready, !assessment.touchesEdge {
+        if shotVerified || currentFrameVerified, stable, reading.state == .ready, !assessment.touchesEdge {
             memory.reset()
             return .init(kind:.ready,text:"Shot ready",action:GuidanceAction.none)
         }

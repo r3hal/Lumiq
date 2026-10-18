@@ -38,6 +38,10 @@ for name in whole:
 (app/'ShotCaptureSession.swift').write_text(source('Focal/Camera/ShotCaptureSession.swift'))
 (app/'CameraTelemetry.swift').write_text(source('Focal/Camera/CameraTelemetry.swift'))
 if not args.baseline:
+ for name in ['CloudComposition','GeminiCloudCompositionService','CloudCompositionProxyService']:
+  (app/(name+'.swift')).write_text(source('Focal/Cloud/'+name+'.swift'))
+ shutil.copyfile(ROOT/'FocalTests/CloudCompositionTests.swift',tests/'CloudCompositionTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/CloudProxyTests.swift',tests/'CloudProxyTests.swift')
  (app/'CameraControls.swift').write_text(source('Focal/Camera/CameraControls.swift'))
  (app/'PhotoCapturePolicy.swift').write_text(source('Focal/Camera/PhotoCapturePolicy.swift'))
  (app/'SubjectAutofocus.swift').write_text(source('Focal/Camera/SubjectAutofocus.swift'))
@@ -57,6 +61,7 @@ if not args.baseline:
  shutil.copyfile(ROOT/'FocalTests/PhotoCapturePolicyTests.swift',tests/'PhotoCapturePolicyTests.swift')
  shutil.copyfile(ROOT/'FocalTests/PersonFramingRegressionTests.swift',tests/'PersonFramingRegressionTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ContinuousFramingRecoveryTests.swift',tests/'ContinuousFramingRecoveryTests.swift')
+ shutil.copyfile(ROOT/'FocalTests/FocalIntegrationTests.swift',tests/'FocalIntegrationTests.swift')
  shutil.copyfile(ROOT/'FocalTests/SubjectAutofocusTests.swift',tests/'SubjectAutofocusTests.swift')
  shutil.copyfile(ROOT/'FocalTests/ShotCaptureSessionTests.swift',tests/'ShotCaptureSessionTests.swift')
  shutil.copyfile(ROOT/'FocalTests/OutdoorGuidanceTests.swift',tests/'OutdoorGuidanceTests.swift')

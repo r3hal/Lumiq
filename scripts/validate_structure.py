@@ -49,7 +49,15 @@ for path,expected in manifest['originalSourceSHA256'].items():
  original=subprocess.check_output(['git','show',baselineRef+':'+path],cwd=ROOT)
  assert hashlib.sha256(original).hexdigest()==expected,path
 manifest30=json.loads((ROOT/'docs/intelligence/BASELINE-30-SOURCES.json').read_text())
-ref30=manifest30['localSnapshotCommit']
+# Historical local snapshots may exist without these paths in a clean clone.
+# Select only a ref containing every exact source hash recorded in the manifest.
+def matches_manifest(ref, hashes):
+ for path,expected in hashes.items():
+  result=subprocess.run(['git','show',ref+':'+path],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+  if result.returncode or hashlib.sha256(result.stdout).hexdigest()!=expected:return False
+ return True
+ref30=next((ref for ref in [manifest30['localSnapshotCommit'],manifest30['commit']] if matches_manifest(ref,manifest30['sha256'])),None)
+assert ref30 is not None,'No available commit matches the original baseline-30 source hashes'
 for path,expected in manifest30['sha256'].items():
  original=subprocess.check_output(['git','show',ref30+':'+path],cwd=ROOT)
  assert hashlib.sha256(original).hexdigest()==expected,path
@@ -57,7 +65,7 @@ for path,expected in manifest30['sha256'].items():
 assert not run('git','diff','HEAD','--name-only','--','Focal/Sony').strip(),'Sony integration changed'
 run('git','diff','--check')
 count=sum(len(re.findall(r'func test\w+\(',p.read_text())) for p in tests)
-assert count==609,count
+assert count==736,count
 print(f'PASS: deterministic project; {len(app)} app/{len(tests)} test Swift references; no duplicate module-level types; lexical delimiters; plist/XML/JSON/assets; YAML/build shell syntax; original baseline hashes; Sony sources unchanged; whitespace.')
 print(f'REGISTERED: {count} XCTest functions. This structural check does not execute tests or establish Swift grammar/type checking or a native build; see VALIDATION.txt for separate execution evidence.')
 
@@ -102,3 +110,51 @@ print('PASS: manual motor grace/gesture-end/capture-resumption/scene-only integr
 assert 'result.sceneFrameVerified = framing.currentFrameVerified && framing.shotPlan?.sceneAnchor == true' in controller
 guide=(ROOT/'Focal/Camera/CameraGuidanceCard.swift').read_text()
 assert 'reading.sceneFrameVerified,message.kind == .ready,reading.state == .ready,phase == .framed' in guide
+
+# Experimental cloud scan must not acquire credentials from tracked files or
+# connect the cloud service to readiness/shutter polling. These are source guards.
+tracked=run('git','ls-files').splitlines()
+assert not any(path.startswith('LocalDeveloper/') or path.endswith('CloudComposition.local.json') for path in tracked)
+example=json.loads((ROOT/'DeveloperExamples/CloudComposition.example.json').read_text())
+assert example['apiKey']=='REPLACE_LOCALLY_DO_NOT_COMMIT'
+cloud_files=list((ROOT/'Focal/Cloud').glob('*.swift'))
+cloud_text='\n'.join(p.read_text() for p in cloud_files)
+assert 'x-goog-api-key' in cloud_text and '?key=' not in cloud_text
+assert 'print(' not in cloud_text and 'Logger(' not in cloud_text
+assert 'capturePhoto(' not in cloud_text and 'shoot(' not in cloud_text
+assert 'streamGenerateContent' not in cloud_text and 'service.scan(capture)' not in controller
+# Accepted old scans must not invalidate a newer scan/camera session.
+cloud_accept=controller.split('func applyCloudComposition(')[1].split('private func publishCloudCompositionStatus(')[0]
+assert 'invalidateGuidanceResults(' not in cloud_accept
+assert 'self.resultGate.invalidate(at:now)' in cloud_accept
+# Cloud recovery cannot accumulate local READY proof against a replacement.
+assert 'framing.confirmCurrentFrame(eligible:!cloudRecovering && (' in controller
+assert 'retaining:!cloudRecovering && (' in controller
+# The locked subject must be retained even with Auto Zoom and subject AF off.
+retention=controller.split('let keepFramedSubject =')[1].split('let inferenceStarted =')[0]
+assert '&& (cloudCompositionLock != nil || framing.shotPlan != nil && framing.phase.isPreparing' in retention
+assert 'reacquisitionGrace:analysisSource == .iPhone && (cloudCompositionLock != nil || framing.shotPlan != nil || subjectAutofocus.identity != nil)' in controller
+assert 'Cloud AI Scan (Experimental)' in cameraView
+assert 'CloudComposition.local.json' not in (ROOT/'Focal/Resources/Info.plist').read_text()
+print('PASS: explicit experimental scan integration, tracked-secret exclusion, bounded HTTPS service and user-only shutter source guards.')
+
+# Personal cloud builds use temporary SSH delivery, never persistent key-bearing artifacts.
+personal=config['workflows']['ios-cloud-personal']
+assert 'artifacts' not in personal
+assert all(key not in personal for key in ('triggering','publishing','cache'))
+assert personal['environment']['groups']==['focal_cloud_personal']
+assert 'GEMINI_API_KEY' not in personal['environment'].get('vars',{})
+assert personal['environment']['vars']['GEMINI_MODEL']=='gemini-3.8-flash'
+personal_scripts='\n'.join(step['script'] for step in personal['scripts'])
+assert 'env -u GEMINI_API_KEY xcodebuild' in personal_scripts
+assert 'python3 scripts/build_personal_cloud_ipa.py build' in personal_scripts
+private_builder=(ROOT/'scripts/build_personal_cloud_ipa.py').read_text()
+assert '"-configuration", "Debug"' in private_builder
+assert 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG' not in private_builder
+assert '"x-goog-api-key": configuration.api_key' in private_builder
+assert 'public_environment()' in private_builder and 'NoRedirect' in private_builder
+assert 'wait_for_download(output, sha)' in private_builder
+assert 'CM_EXPORT_DIR' in private_builder and 'CM_TRIGGER_SOURCE' in private_builder
+assert not re.search(r'(?i)(print|logger)\(.*(api_key|configuration\.json)',private_builder)
+assert all('focal_cloud_personal' not in w.get('environment',{}).get('groups',[]) for n,w in config['workflows'].items() if n!='ios-cloud-personal')
+print('PASS: private manual Debug workflow; app-scoped secret group; sanitized child environment; temporary SSH delivery with no artifact/publishing/cache paths.')

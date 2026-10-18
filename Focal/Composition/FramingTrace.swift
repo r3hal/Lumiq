@@ -8,22 +8,27 @@ struct FramingTransitionTrace {
     private var stateBeganAt: TimeInterval = 0
     private var lastRecord: TimeInterval = -.infinity
     private var lastReason: String?
+    private var lastShotID: String?
     mutating func record(sessionID:Int,shotID:String?,state next:ShotDirectorState,at time:TimeInterval,
                          values:[String:String]) -> String? {
         guard time.isFinite else { return nil }
         if session != sessionID || time < beganAt {
-            session = sessionID; beganAt = time; state = nil; lastRecord = -.infinity; lastReason = nil
+            session = sessionID; beganAt = time; state = nil; lastRecord = -.infinity; lastReason = nil; lastShotID = nil
         }
         let changed = state != next
         let previousState = state
         let previousDuration = state.map { _ in max(0,time-stateBeganAt) }
         if changed { state = next; stateBeganAt = time }
         let reason = values["blockingReason"]
-        guard changed || reason != lastReason || time-lastRecord >= 0.75 else { return nil }
+        let planChanged = shotID != lastShotID
+        let previousShot = lastShotID
+        let cause = planChanged ? (lastShotID == nil ? "plan_selected" : "plan_replaced") : changed ? "state_changed" : reason != lastReason ? "blocking_condition_changed" : "measurement"
+        guard changed || planChanged || reason != lastReason || time-lastRecord >= 0.75 else { return nil }
+        lastShotID = shotID
         lastRecord = time; lastReason = reason
         let fields = values.sorted { $0.key < $1.key }.map { "\($0.key)=\(String(reflecting:$0.value))" }.joined(separator:" ")
         let transition = changed ? " previousState=\(previousState?.rawValue ?? "none") previousStateSeconds=\(Self.number(previousDuration))" : ""
-        return "session=\(sessionID) shot=\(shotID ?? "none") state=\(next.rawValue) sessionSeconds=\(Self.number(time-beganAt)) stateSeconds=\(Self.number(time-stateBeganAt))\(transition) \(fields)"
+        return "session=\(sessionID) shot=\(shotID ?? "none") previousShot=\(previousShot ?? "none") transitionReason=\(cause) state=\(next.rawValue) sessionSeconds=\(Self.number(time-beganAt)) stateSeconds=\(Self.number(time-stateBeganAt))\(transition) \(fields)"
     }
     static func number(_ value:Double?) -> String {
         guard let value, value.isFinite else { return "unknown" }

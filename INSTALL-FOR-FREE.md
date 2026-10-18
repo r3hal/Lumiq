@@ -1,5 +1,7 @@
 # Free personal testing: Windows + AltStore Classic
 
+For the **private Gemini Cloud Scan Debug build**, follow [PERSONAL_CLOUD_SCAN_WINDOWS.md](docs/PERSONAL_CLOUD_SCAN_WINDOWS.md). The Release workflow below intentionally does not include developer credentials or enable Cloud Scan.
+
 You do not need a paid Apple Developer membership to test this app on your own iPhone. This route requires a Windows computer, a USB cable, a regular Apple Account, and periodic refreshes. It does not use TestFlight.
 
 ## Build the IPA in the cloud

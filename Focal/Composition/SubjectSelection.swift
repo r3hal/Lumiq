@@ -1,5 +1,18 @@
 import Foundation
 
+/// Admission for optional inference, not a promise that a synchronous Vision
+/// request can finish before its deadline. Tracking does not consume this token.
+struct SubjectInferenceAdmission {
+    let revision: Int
+    let deadline: TimeInterval?
+    func permits(revision: Int, at time: TimeInterval) -> Bool {
+        guard self.revision == revision, time.isFinite else { return false }
+        guard let deadline else { return true }
+        return deadline.isFinite && time < deadline
+    }
+}
+
+
 struct SubjectAnalysisFeatures: Equatable {
     var petDetection = true
     var subjectTracking = true
