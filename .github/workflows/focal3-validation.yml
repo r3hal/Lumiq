@@ -1,7 +1,9 @@
 name: Focal 3 integration validation
 on:
   push:
-    branches: [codex/focal-3-integration]
+    branches: [main, codex/focal-3-integration]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,7 +28,7 @@ jobs:
         run: |
           /tmp/focal-test-env/bin/python scripts/validate_structure.py
           python3 scripts/validate_backup.py
-          python3 scripts/validate_focal3.py
+          /tmp/focal-test-env/bin/python scripts/validate_focal3.py
           node --check backup-server/focal_backup/folder.js
       - name: Public non-secret IPA policy
         run: python3 -m unittest discover -s scripts/tests -p test_public_ipa.py -v
