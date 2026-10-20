@@ -22,12 +22,12 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-BRANCH = "codex/focal-cloud-composition-scan"
+ALLOWED_BRANCHES = frozenset({"main", "codex/focal-cloud-composition-scan"})
 IPA_NAME = "Focal-CloudScan-Debug-unsigned.ipa"
 CONFIG = Path("LocalDeveloper/CloudComposition.local.json")
 LIMIT = 131072
 MESSAGES = {
-    "context": "Run this workflow manually on codex/focal-cloud-composition-scan, not a tag or pull request.",
+    "context": "Run this workflow manually on main or codex/focal-cloud-composition-scan, not a tag or pull request.",
     "configuration": "Missing or invalid encrypted GEMINI_API_KEY or explicit GEMINI_MODEL. No credential value is logged.",
     "export": "Codemagic automatic export overlaps the private IPA workspace. Refusing retained artifact delivery.",
     "tracked": "Developer configuration is tracked or is not ignored by Git. Refusing to build.",
@@ -99,7 +99,7 @@ def public_environment(environment=None):
 
 def check_context(environment):
     if (environment.get("CM_TRIGGER_SOURCE") != "api"
-            or environment.get("CM_BRANCH") != BRANCH
+            or environment.get("CM_BRANCH") not in ALLOWED_BRANCHES
             or environment.get("CM_TAG")
             or environment.get("CM_PULL_REQUEST_NUMBER")):
         raise SafeFailure("context")

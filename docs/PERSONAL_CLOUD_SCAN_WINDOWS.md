@@ -1,6 +1,6 @@
 # Private Cloud Scan test: Windows, Codemagic and AltStore
 
-This prepares one personal Debug IPA for your iPhone 16 Pro Max. Use branch **codex/focal-cloud-composition-scan** and workflow **ios-cloud-personal**. No Mac, paid Apple Developer membership, distribution certificate or App Store export is required. AltStore/AltServer must still sign and provision the app normally before iOS can run it.
+This prepares one personal Debug IPA for your iPhone 16 Pro Max. Use branch **main** and workflow **ios-cloud-personal**. The older cloud experiment branch is still accepted for compatibility. No Mac, paid Apple Developer membership, distribution certificate or App Store export is required. AltStore/AltServer must still sign and provision the app normally before iOS can run it.
 
 ## First: replace the previously committed credential
 
@@ -42,7 +42,7 @@ The workflow imports only the new group. It disables shell tracing and removes G
 ## 2. Start the correct manual build
 
 1. In Codemagic choose **Start new build**.
-2. Select branch **codex/focal-cloud-composition-scan** and workflow **Focal - PRIVATE Debug Cloud Scan (SSH download only)** / **ios-cloud-personal**.
+2. Select branch **main** and workflow **Focal - PRIVATE Debug Cloud Scan (SSH download only)** / **ios-cloud-personal**.
 3. Select **Enable SSH/VNC access** before starting. It must be enabled for each build. Prepare Git Bash on Windows for Codemagic's generated SSH connection script.
 4. Start the build. No push, PR or tag event automatically starts this workflow. Its credential-bearing builder also refuses main, other branches, tags and PR contexts.
 5. Watch the unit and native regression steps. No developer config exists during native tests.
@@ -188,3 +188,15 @@ The request correction applies to both the Python preflight and GeminiCloudCompo
 The configured model remains gemini-3.8-flash. Its [official model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) lists text/image input and structured output, with a 65,536-token output limit. The existing candidate count of one and 1,024/4,096 output budgets are within documented limits. Endpoint/API version stays v1beta/models/{model}:generateContent; no migration to the distinct interactions API is performed. Matching model metadata and generateContent capability are still mandatory. Only the next manual Codemagic run can verify this project's current key permissions, restrictions, model availability and quota. Fixture-based CI cannot establish live API compatibility or useful image reasoning.
 
 Regression coverage now checks the exact structured-output enum in both languages, unchanged HTTP/JPEG MIME types, GET versus POST failures, status/category output, absence of credential/provider content, unread error bodies, invalid HTTP-200 responses, missing HTTP status, and no retries or model substitution. Private SSH/SCP delivery, cleanup/expiry, credential creation, Debug-only policy, artifact omission and camera/READY/zoom/Sony/shutter behavior are preserved. No real provider call or Codemagic personal build is started by these tests.
+
+## Main-branch iPhone testing (2026-10-20)
+
+The Gemini implementation and Focal 3 camera reliability changes are already integrated into main. The personal builder now accepts an explicit manual run on main as well as the original experiment branch. Tags, pull requests, other branches, webhook and scheduled triggers remain rejected before any Google request or developer configuration is created.
+
+For a live Gemini scan of the main application, select main + ios-cloud-personal and enable SSH/VNC access. Keep GEMINI_API_KEY encrypted in focal_cloud_personal. This builds the ordinary Focal app target and bundle identifier in Debug, including the existing camera, Sony, editor, gallery and effects. It does not create a second demo app. The short-lived IPA still contains the developer key and must use the private SCP/download acknowledgement procedure above; there is no artifacts or publishing section.
+
+The ios-debug-sideload and ios-sideload workflows produce non-secret downloadable IPAs. They do not embed the personal Gemini configuration and cannot make this direct Gemini experiment work merely by switching to main. Do not add the key to their environment or artifacts. A shared Release app still requires the authenticated proxy described in CLOUD_COMPOSITION_PROXY.md; this task neither deploys that service nor enables bundled credentials in Release.
+
+Focal 3 CI now validates pushes to main and pull requests targeting main. It runs the existing local composition/READY/manual-zoom/AF, Gemini, Sony, backup, public-IPA and native device-archive tests using fixtures only. No CI result proves live Google project access or physical iPhone behavior. The private-build regression suite has 32 tests, including a full mocked manual-main build that checks ignored configuration creation, removal before delivery, private IPA lifetime and secret-free diagnostics. On Windows, the symlink test is skipped; public IPA executable-mode and symlink checks require macOS/Linux. See MAIN_IPHONE_TESTING.md for the condensed launch steps and device checklist.
+
+CI also exposed a test-fixture lifecycle defect: backup tests left a deferred pump running after their temporary files were released, and Linux crashed in its OpenSSL-only hash adapter during process teardown despite passing all 34 assertions. Async XCTest teardown now retains each fixture until it disables its engine and cancels mock transfers; restarted engines are also disabled. No production backup, Drive, hashing or camera behavior is changed. The full suite must exit successfully; the crash is not ignored or retried into a pass.

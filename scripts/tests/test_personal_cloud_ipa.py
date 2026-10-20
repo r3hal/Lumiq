@@ -72,13 +72,59 @@ class PersonalCloudBuildTests(unittest.TestCase):
         self.assertNotIn("GEMINI_API_KEY", child)
         self.assertEqual(child["PATH"], "/usr/bin")
 
-    def test_manual_branch_context_excludes_main_tags_and_pull_requests(self):
-        build.check_context({"CM_BRANCH": build.BRANCH, "CM_TRIGGER_SOURCE": "api"})
-        for env in [{"CM_BRANCH": "main"}, {"CM_BRANCH": build.BRANCH, "CM_TAG": "test"},
-                    {"CM_BRANCH": build.BRANCH, "CM_PULL_REQUEST_NUMBER": "42"}, {}]:
-            self.failure("context", build.check_context, dict(env, CM_TRIGGER_SOURCE="api"))
-        for source in ["webhook", "schedule", ""]:
-            self.failure("context", build.check_context, {"CM_BRANCH": build.BRANCH, "CM_TRIGGER_SOURCE": source})
+    def test_manual_main_and_cloud_branch_are_allowed(self):
+        self.assertEqual(build.ALLOWED_BRANCHES, {"main", "codex/focal-cloud-composition-scan"})
+        for branch in ["main", "codex/focal-cloud-composition-scan"]:
+            build.check_context({"CM_BRANCH": branch, "CM_TRIGGER_SOURCE": "api"})
+
+    def test_private_build_rejects_other_branches_tags_prs_and_automatic_triggers(self):
+        for branch in ["main", "codex/focal-cloud-composition-scan"]:
+            for field in ["CM_TAG", "CM_PULL_REQUEST_NUMBER"]:
+                self.failure("context", build.check_context,
+                    {"CM_BRANCH": branch, "CM_TRIGGER_SOURCE": "api", field: "42"})
+            for source in ["webhook", "schedule", ""]:
+                self.failure("context", build.check_context,
+                    {"CM_BRANCH": branch, "CM_TRIGGER_SOURCE": source})
+        for branch in ["", "feature/unreviewed", "refs/heads/main", "Main", "main/other"]:
+            self.failure("context", build.check_context,
+                {"CM_BRANCH": branch, "CM_TRIGGER_SOURCE": "api"})
+        self.failure("context", build.check_context, {})
+
+    def test_manual_main_build_keeps_private_debug_configuration_and_delivery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            output = io.StringIO()
+            expected = {}
+            def package(root, configuration, scratch, private):
+                self.assertEqual(json.loads((root / build.CONFIG).read_text()), FIXTURE.json())
+                ipa = private / build.IPA_NAME
+                self.ipa(ipa)
+                expected["hash"] = build.digest(ipa)
+                return ipa
+            def download(private, checksum):
+                self.assertEqual(checksum, expected["hash"])
+                self.assertTrue((private / build.IPA_NAME).is_file())
+                self.assertFalse((root / build.CONFIG).exists())
+                self.assertEqual([p.name for p in private.iterdir()], [build.IPA_NAME])
+            environment = {"CM_BRANCH": "main", "CM_TRIGGER_SOURCE": "api",
+                "GEMINI_MODEL": FIXTURE.model, "GEMINI_API_KEY": FIXTURE.api_key}
+            with mock.patch.object(build, "ROOT", root), \
+                 mock.patch.dict(os.environ, environment, clear=True), \
+                 mock.patch.object(build.subprocess, "run", side_effect=[
+                     mock.Mock(returncode=0), mock.Mock(returncode=1)]), \
+                 mock.patch.object(build, "GoogleClient") as provider, \
+                 mock.patch.object(build, "verify_model") as verify, \
+                 mock.patch.object(build, "archive_and_package", side_effect=package) as archive, \
+                 mock.patch.object(build, "wait_for_download", side_effect=download) as wait, \
+                 contextlib.redirect_stdout(output):
+                build.build()
+            verify.assert_called_once_with(FIXTURE, provider.return_value)
+            archive.assert_called_once()
+            wait.assert_called_once()
+            self.assertIn("PRIVATE DEBUG IPA READY", output.getvalue())
+            self.assertNotIn(FIXTURE.api_key, output.getvalue())
+            self.assertFalse((root / build.CONFIG).exists())
+            self.assertFalse((root / "build/private-cloud").exists())
 
     def test_successful_live_probe_uses_same_model_and_no_images(self):
         client = Client([METADATA, PROBE])

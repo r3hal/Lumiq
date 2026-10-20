@@ -65,12 +65,20 @@ private final class BackupFixture {
     let transfers = FixtureTransfers()
     let destination = BackupDestination(id:"fixture-owner",deviceID:"fixture-device",label:"Fixture owner",server:URL(string:"https://backup.example")!)
     let engine:BackupEngine
-    init() throws {
+    init(testCase:XCTestCase) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let originals = directory.appendingPathComponent("Originals")
         try FileManager.default.createDirectory(at:originals,withIntermediateDirectories:true)
         disk = .init(root:directory.appendingPathComponent("Queue"),originals:originals)
         engine = .init(disk:disk,api:.init(http:http,credentials:credentials),transfers:transfers)
+        // Retain files until the actor has revoked its generation. Deferred pump
+        // tasks must not hash after fixture deletion or process/OpenSSL teardown.
+        testCase.addTeardownBlock { [self] in
+            try? await engine.enable(false)
+            await transfers.cancelAll()
+            let final = await engine.snapshot()
+            XCTAssertFalse(final.enabled)
+        }
     }
     deinit { try? FileManager.default.removeItem(at:directory) }
     func start() async throws { await engine.bootstrap();try await engine.connect(destination) }
@@ -93,7 +101,7 @@ final class PhotoBackupTests:XCTestCase {
         XCTAssertEqual(try OwnerBackupAPI.decode(BackendDeviceStatus.self,disconnected).problem,.folderAuthorization)
         let legacy = Data("{\"destinationId\":\"fixture\",\"deviceId\":\"phone\",\"ownerLabel\":\"Owner\",\"driveConnected\":false}".utf8)
         XCTAssertEqual(try OwnerBackupAPI.decode(BackendDeviceStatus.self,legacy).problem,.ownerAuthorization)
-        let f = try BackupFixture();try await f.start();let capture = try f.capture();try await f.enable(capture)
+        let f = try BackupFixture(testCase:self);try await f.start();let capture = try f.capture();try await f.enable(capture)
         let transfer = await f.transfers.latest()!
         let receipt = try await f.receipt(transfer)
         var body = try JSONSerialization.jsonObject(with:receipt.data) as! [String:Any]
@@ -105,20 +113,20 @@ final class PhotoBackupTests:XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath:f.disk.originals.appendingPathComponent(job.source.filename).path))
     }
     func testCaptureInsertionIsPersistentAndIdempotent() async throws {
-        let f = try BackupFixture();try await f.start();let capture = try f.capture()
+        let f = try BackupFixture(testCase:self);try await f.start();let capture = try f.capture()
         await f.engine.enroll(capture);await f.engine.enroll(capture)
         let saved = try f.disk.load();XCTAssertEqual(saved.jobs.count,2);XCTAssertEqual(saved.jobs.first?.captureID,capture.id)
         XCTAssertFalse(saved.enabled);let count = await f.http.count();XCTAssertEqual(count,0)
     }
     func testOfflineCapturePersistsWithDelayedRetry() async throws {
-        let f = try BackupFixture();try await f.start();let capture = try f.capture();await f.http.setFailure(.offline)
+        let f = try BackupFixture(testCase:self);try await f.start();let capture = try f.capture();await f.http.setFailure(.offline)
         try await f.enable(capture)
         let queue = await f.engine.snapshot();XCTAssertEqual(queue.jobs[0].state,.retry);XCTAssertEqual(queue.jobs[0].problem,.offline)
         XCTAssertGreaterThan(queue.jobs[0].nextAttempt,Date());XCTAssertTrue(FileManager.default.fileExists(atPath:try f.disk.source(queue.jobs[0]).path))
         XCTAssertEqual(try f.disk.load().jobs[0].state,.retry)
     }
     func testLongOfflineFailureAutomaticallyRecoversOnNetworkOpportunity() async throws {
-        let f = try BackupFixture();try await f.start();await f.http.setFailure(.offline);try await f.enable(f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();await f.http.setFailure(.offline);try await f.enable(f.capture())
         for step in 0..<40 {
             await f.engine.pump(now:Date().addingTimeInterval(Double(step+1)*86400))
             try await Task.sleep(nanoseconds:2_000_000)
@@ -131,26 +139,26 @@ final class PhotoBackupTests:XCTestCase {
         let recovered = await f.engine.snapshot();XCTAssertEqual(recovered.jobs[0].attempts,0);XCTAssertNil(recovered.problem)
     }
     func testFileBackedUploadUsesExactHEICBytesAndRealRange() async throws {
-        let f = try BackupFixture();try await f.start();let bytes = Data([0,1,2,3,4,255]);try await f.enable(f.capture(bytes:bytes,ext:"heic"))
+        let f = try BackupFixture(testCase:self);try await f.start();let bytes = Data([0,1,2,3,4,255]);try await f.enable(f.capture(bytes:bytes,ext:"heic"))
         let transfer = await f.transfers.latest();let t = try XCTUnwrap(transfer)
         XCTAssertEqual(try Data(contentsOf:t.file),bytes);XCTAssertEqual(t.request.value(forHTTPHeaderField:"Content-Range"),"bytes 0-5/6")
         XCTAssertNil(t.request.httpBody);XCTAssertEqual(t.request.url?.host,"backup.example")
     }
     func testRAWIsNotReencodedOrReplacedByPreview() async throws {
-        let f = try BackupFixture();try await f.start();let bytes = Data((0..<8192).map{UInt8($0%255)})
+        let f = try BackupFixture(testCase:self);try await f.start();let bytes = Data((0..<8192).map{UInt8($0%255)})
         try await f.enable(f.capture(bytes:bytes,ext:"dng",role:.raw))
         let transfer = await f.transfers.latest();XCTAssertEqual(try Data(contentsOf:XCTUnwrap(transfer).file),bytes)
         let queue = await f.engine.snapshot();XCTAssertEqual(queue.jobs[0].source.mimeType,"image/x-adobe-dng")
     }
     func testBackendReceiptDoesNotMeanDriveCompleted() async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
         let result = try await f.receipt(t);await f.engine.completed(tag:t.tag,result:result,problem:nil)
         let job = await f.engine.snapshot().jobs.first{$0.id == t.resourceID}!
         XCTAssertEqual(job.state,.verifying);XCTAssertNil(job.completedAt);XCTAssertNil(job.remoteID)
         XCTAssertFalse(FileManager.default.fileExists(atPath:t.file.path))
     }
     func testOnlyVerifiedDriveFileCompletesBackup() async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
         let result = try await f.receipt(t,state:"complete",driveID:"verified-drive-fixture")
         await f.engine.completed(tag:t.tag,result:result,problem:nil)
         let job = await f.engine.snapshot().jobs.first{$0.id == t.resourceID}!
@@ -161,30 +169,32 @@ final class PhotoBackupTests:XCTestCase {
     func testWrongSizeCannotComplete() async throws { try await rejectReceipt(badSize:true,badHash:false) }
     func testWrongHashCannotComplete() async throws { try await rejectReceipt(badSize:false,badHash:true) }
     private func rejectReceipt(badSize:Bool,badHash:Bool) async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
         let result = try await f.receipt(t,state:"complete",badSize:badSize,badHash:badHash,driveID:badSize || badHash ? "fixture-id" : nil)
         await f.engine.completed(tag:t.tag,result:result,problem:nil)
         let job = await f.engine.snapshot().jobs.first{$0.id == t.resourceID}!
         XCTAssertEqual(job.state,.failed);XCTAssertEqual(job.problem,.integrity);XCTAssertNil(job.completedAt)
     }
     func testRestartRecoversInterruptedUploadByProbingServer() async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture());await f.transfers.setTags([])
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture());await f.transfers.setTags([])
         let restarted = BackupEngine(disk:f.disk,api:.init(http:f.http,credentials:f.credentials),transfers:f.transfers)
+        addTeardownBlock { try? await restarted.enable(false) }
         await restarted.bootstrap();let state = await restarted.snapshot()
         XCTAssertEqual(state.jobs[0].state,.retry);XCTAssertTrue(state.jobs[0].needsStatusProbe)
         await restarted.pump();let count = await f.transfers.count();XCTAssertEqual(count,2)
     }
     func testBackgroundTaskIsAdoptedWithoutDuplicateTransfer() async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture())
         let restarted = BackupEngine(disk:f.disk,api:.init(http:f.http,credentials:f.credentials),transfers:f.transfers)
+        addTeardownBlock { try? await restarted.enable(false) }
         await restarted.bootstrap();await restarted.pump();let count = await f.transfers.count();XCTAssertEqual(count,1)
     }
     func testUnexpectedBackgroundTaskIsCancelled() async throws {
-        let f = try BackupFixture();await f.transfers.setTags(["unrecognized-old-task"]);await f.engine.bootstrap()
+        let f = try BackupFixture(testCase:self);await f.transfers.setTags(["unrecognized-old-task"]);await f.engine.bootstrap()
         let tags = await f.transfers.activeTags();XCTAssertTrue(tags.isEmpty)
     }
     func testDisablingCancelsTransferAndRejectsStaleCompletion() async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture());let t = await f.transfers.latest()!
         let result = try await f.receipt(t,state:"complete",driveID:"fixture-id");try await f.engine.enable(false)
         await f.engine.completed(tag:t.tag,result:result,problem:nil)
         let state = await f.engine.snapshot();XCTAssertFalse(state.enabled);XCTAssertNotEqual(state.jobs[0].state,.complete)
@@ -194,27 +204,28 @@ final class PhotoBackupTests:XCTestCase {
     func testDeviceSwitchCannotInheritOldGrantQueue() async throws { try await switchDestination(owner:"fixture-owner",device:"different-device",host:"backup.example") }
     func testServerSwitchCannotInheritOldQueue() async throws { try await switchDestination(owner:"fixture-owner",device:"fixture-device",host:"different.example") }
     private func switchDestination(owner:String,device:String,host:String) async throws {
-        let f = try BackupFixture();try await f.start();await f.engine.enroll(try f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();await f.engine.enroll(try f.capture())
         try await f.engine.connect(.init(id:owner,deviceID:device,label:"Other",server:URL(string:"https://"+host)!));try await f.engine.enable(true)
         let count = await f.transfers.count();XCTAssertEqual(count,0);let summary = await f.engine.summary();XCTAssertEqual(summary.otherDestinationPending,2)
     }
     func testAuthorizationFailureStopsRatherThanRetryLoop() async throws {
-        let f = try BackupFixture();try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
         let queue = await f.engine.snapshot();XCTAssertEqual(queue.jobs[0].state,.failed);XCTAssertEqual(queue.jobs[0].problem,.authorization)
     }
     func testRevokedCredentialPausesWholeQueueAcrossRestart() async throws {
-        let f = try BackupFixture();try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();await f.http.setStatus(401);try await f.enable(f.capture())
         await f.engine.enroll(try f.capture()) // New captures must not clear an authorization pause.
         for _ in 0..<10 { await f.engine.pump(now:Date().addingTimeInterval(3600)) }
         await f.engine.networkRestored() // Reachability is not authorization.
         let count = await f.http.count();XCTAssertEqual(count,1)
         let restarted = BackupEngine(disk:f.disk,api:.init(http:f.http,credentials:f.credentials),transfers:f.transfers)
+        addTeardownBlock { try? await restarted.enable(false) }
         await restarted.bootstrap();await restarted.pump(now:Date().addingTimeInterval(7200))
         let after = await f.http.count();XCTAssertEqual(after,1)
         let summary = await restarted.summary();XCTAssertEqual(summary.problem,.authorization)
     }
     func testOptOutPersistenceFailureCancelsAndRemovesCredential() async throws {
-        let f = try BackupFixture();try await f.start();try await f.enable(f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();try await f.enable(f.capture())
         let bytes = try Data(contentsOf:f.disk.manifest)
         try FileManager.default.removeItem(at:f.disk.manifest)
         try FileManager.default.createDirectory(at:f.disk.manifest,withIntermediateDirectories:false)
@@ -225,7 +236,7 @@ final class PhotoBackupTests:XCTestCase {
         let state = await f.engine.snapshot();XCTAssertFalse(state.enabled)
     }
     func testQuotaResponseHonorsRetryAfter() async throws {
-        let f = try BackupFixture();try await f.start();await f.http.setStatus(429);try await f.enable(f.capture())
+        let f = try BackupFixture(testCase:self);try await f.start();await f.http.setStatus(429);try await f.enable(f.capture())
         let state = await f.engine.snapshot();XCTAssertEqual(state.jobs[0].state,.retry);XCTAssertGreaterThan(state.jobs[0].nextAttempt.timeIntervalSinceNow,110)
         for step in 0..<40 {
             await f.engine.pump(now:Date().addingTimeInterval(Double(step+1)*86400))
@@ -237,36 +248,36 @@ final class PhotoBackupTests:XCTestCase {
         let transfer = await f.transfers.latest();XCTAssertNotNil(transfer)
     }
     func testDuplicateCaptureReconciliationDoesNotResetProgress() async throws {
-        let f = try BackupFixture();try await f.start();let c = try f.capture();try await f.enable(c);let before = await f.engine.snapshot()
+        let f = try BackupFixture(testCase:self);try await f.start();let c = try f.capture();try await f.enable(c);let before = await f.engine.snapshot()
         await f.engine.enroll(c);let after = await f.engine.snapshot();XCTAssertEqual(before.jobs,after.jobs)
     }
     func testDeletingCaptureRemovesQueueAndKeepsUnrelatedOriginals() async throws {
-        let f = try BackupFixture();try await f.start();let c = try f.capture();await f.engine.enroll(c);await f.engine.removeCapture(c.id)
+        let f = try BackupFixture(testCase:self);try await f.start();let c = try f.capture();await f.engine.enroll(c);await f.engine.removeCapture(c.id)
         let state = await f.engine.snapshot();XCTAssertTrue(state.jobs.isEmpty);XCTAssertTrue(FileManager.default.fileExists(atPath:f.disk.originals.appendingPathComponent(c.enrollment.sources[0].filename).path))
     }
     func testDeletedPhotoCannotBeReenrolledByDelayedSaveTask() async throws {
-        let f = try BackupFixture();try await f.start();let capture = try f.capture()
+        let f = try BackupFixture(testCase:self);try await f.start();let capture = try f.capture()
         await f.engine.removeCapture(capture.id);await f.engine.enroll(capture)
         let state = await f.engine.snapshot();XCTAssertTrue(state.jobs.isEmpty)
     }
     func testCorruptQueueIsPreservedAndCannotBeOverwrittenByConnect() async throws {
-        let f = try BackupFixture();try f.disk.prepare();let bytes = Data("{broken".utf8);try bytes.write(to:f.disk.manifest)
+        let f = try BackupFixture(testCase:self);try f.disk.prepare();let bytes = Data("{broken".utf8);try bytes.write(to:f.disk.manifest)
         await f.engine.bootstrap();do { try await f.engine.connect(f.destination);XCTFail("Must fail closed") } catch {}
         XCTAssertEqual(try Data(contentsOf:f.disk.manifest),bytes)
     }
     func testSourcePathCannotEscapeOriginalDirectory() throws {
-        let f = try BackupFixture();let c = try f.capture();var job = BackupJob(id:"fixture",destinationID:"owner",deviceID:"device",server:f.destination.server,captureID:c.id,createdAt:c.createdAt,datePath:"2026/10/17",source:.init(role:.photo,filename:"../secret.jpg"))
+        let f = try BackupFixture(testCase:self);let c = try f.capture();var job = BackupJob(id:"fixture",destinationID:"owner",deviceID:"device",server:f.destination.server,captureID:c.id,createdAt:c.createdAt,datePath:"2026/10/17",source:.init(role:.photo,filename:"../secret.jpg"))
         XCTAssertThrowsError(try f.disk.source(job));let outside = f.directory.appendingPathComponent("outside.jpg");try Data([1]).write(to:outside)
         let link = f.disk.originals.appendingPathComponent("link.jpg");try FileManager.default.createSymbolicLink(at:link,withDestinationURL:outside)
         job = .init(id:"fixture",destinationID:"owner",deviceID:"device",server:f.destination.server,captureID:c.id,createdAt:c.createdAt,datePath:"2026/10/17",source:.init(role:.photo,filename:"link.jpg"))
         XCTAssertThrowsError(try f.disk.source(job))
     }
     func testSHA256MatchesKnownDigest() throws {
-        let f = try BackupFixture();let url = f.directory.appendingPathComponent("hash");try Data("abc".utf8).write(to:url)
+        let f = try BackupFixture(testCase:self);let url = f.directory.appendingPathComponent("hash");try Data("abc".utf8).write(to:url)
         let hash = try BackupHash.file(url);XCTAssertEqual(hash.size,3);XCTAssertEqual(hash.sha256,"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
     func testLargeRAWUsesBoundedChunksAndResumesAtAcknowledgedOffset() async throws {
-        let f = try BackupFixture();try await f.start()
+        let f = try BackupFixture(testCase:self);try await f.start()
         let bytes = Data(repeating:0xA7,count:Int(BackupQueue.chunkBytes)+123)
         try await f.enable(f.capture(bytes:bytes,ext:"dng",role:.raw))
         let first = await f.transfers.latest()!
@@ -281,7 +292,7 @@ final class PhotoBackupTests:XCTestCase {
         let queue = await f.engine.snapshot();XCTAssertEqual(queue.jobs[0].attempts,0)
     }
     func testLostAcknowledgementProbesAcceptedOffsetInsteadOfDuplicatingChunk() async throws {
-        let f = try BackupFixture();try await f.start()
+        let f = try BackupFixture(testCase:self);try await f.start()
         try await f.enable(f.capture(bytes:Data(repeating:0x5A,count:Int(BackupQueue.chunkBytes)+17),ext:"dng",role:.raw))
         let first = await f.transfers.latest()!
         _ = try await f.http.setRecord(id:first.resourceID,state:"uploading",offset:BackupQueue.chunkBytes)
@@ -306,7 +317,7 @@ final class PhotoBackupTests:XCTestCase {
         XCTAssertEqual(try Data(contentsOf:next.file).count,17)
     }
     func testMissingOriginalFailsWithoutDeletingOtherResources() async throws {
-        let f = try BackupFixture();try await f.start();let capture = try f.capture()
+        let f = try BackupFixture(testCase:self);try await f.start();let capture = try f.capture()
         try FileManager.default.removeItem(at:f.disk.originals.appendingPathComponent(capture.enrollment.sources[0].filename))
         try await f.enable(capture)
         let queue = await f.engine.snapshot();XCTAssertEqual(queue.jobs[0].state,.failed)

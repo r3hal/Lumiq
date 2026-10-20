@@ -122,7 +122,7 @@ workflows:
       - build/PublicDebugTests.xcresult
 
 
-  # PERSONAL ONLY: manual start + Enable SSH/VNC access. Never publish this IPA.
+  # PERSONAL ONLY: select main + manual start + Enable SSH/VNC access. Never publish this IPA.
   # GEMINI_API_KEY must be Secret in the app-scoped focal_cloud_personal group.
   ios-cloud-personal:
     name: Focal - PRIVATE Debug Cloud Scan (SSH download only)
