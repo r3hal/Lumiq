@@ -90,6 +90,28 @@ final class AutomaticGuidanceTests: XCTestCase {
                                   autoEnabled: true, zoomAvailable: true, timestamp: 0)
         XCTAssertEqual(result.kind, .searching); XCTAssertEqual(result.text, "Scanning the scene…")
     }
+    func testAimInstructionStatesDirectionSecondAxisAndDistance() throws {
+        var far = reading(x: 0.85, y: 0.52, state: .adjusting); far.alignmentTolerance = 0.05
+        let horizontal = try XCTUnwrap(CompositionCue(reading: far, previewAspect: 0.75))
+        XCTAssertEqual(horizontal.aimInstruction, "Aim your phone right") // A small vertical residue is not a diagonal.
+        XCTAssertEqual(horizontal.direction, "right")
+        var diagonal = reading(x: 0.25, y: 0.25, state: .adjusting); diagonal.alignmentTolerance = 0.05
+        XCTAssertEqual(try XCTUnwrap(CompositionCue(reading: diagonal, previewAspect: 0.75)).aimInstruction, "Aim your phone up & left")
+        var near = reading(x: 0.56, y: 0.5, state: .adjusting); near.alignmentTolerance = 0.05
+        let close = try XCTUnwrap(CompositionCue(reading: near, previewAspect: 0.75))
+        XCTAssertFalse(close.aligned); XCTAssertEqual(close.aimInstruction, "Aim slightly right")
+        var mirrored = far; mirrored.mirrored = true
+        XCTAssertEqual(try XCTUnwrap(CompositionCue(reading: mirrored, previewAspect: 0.75)).aimInstruction, "Aim your phone left")
+    }
+    func testContinuousAimingCardUsesTheSameGeometryAsTheArrow() throws {
+        var offset = reading(x: 0.85, y: 0.52, state: .adjusting); offset.alignmentTolerance = 0.05
+        let cue = try XCTUnwrap(CompositionCue(reading: offset, previewAspect: 0.75))
+        var guide = AutomaticGuidance()
+        let message = guide.update(reading: offset, phase: .aligning, stable: true, rollReliable: true, autoEnabled: true,
+                                   zoomAvailable: true, timestamp: 0, continuousFraming: true)
+        XCTAssertEqual(message.kind, .adjustment); XCTAssertEqual(message.action, .panRight)
+        XCTAssertEqual(message.text, cue.aimInstruction); XCTAssertTrue(message.showsDirection)
+    }
     func testPhonePanCombinesBothPhysicalDirectionsFromActualBounds() throws {
         let cue = try XCTUnwrap(CompositionCue(reading: reading(x: 0.3, y: 0.3), previewAspect: 0.75))
         XCTAssertEqual(cue.phoneInstruction, "Move your phone left & up")

@@ -52,7 +52,7 @@ common = dict(SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="17.0", SWIFT_VERSI
 app = dict(PRODUCT_NAME="$(TARGET_NAME)", PRODUCT_BUNDLE_IDENTIFIER="com.example.focal",
            INFOPLIST_FILE="Focal/Resources/Info.plist", GENERATE_INFOPLIST_FILE="NO",
            ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", TARGETED_DEVICE_FAMILY="1",
-           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="41", MARKETING_VERSION="3.0.0", VERSIONING_SYSTEM="apple-generic",
+           CODE_SIGN_STYLE="Automatic", CURRENT_PROJECT_VERSION="42", MARKETING_VERSION="3.1.0", VERSIONING_SYSTEM="apple-generic",
            SUPPORTED_PLATFORMS="iphoneos iphonesimulator", SUPPORTS_MACCATALYST="NO",
            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks"],
            ENABLE_PREVIEWS="YES")
@@ -116,21 +116,21 @@ scheme_path = project_path / "xcshareddata/xcschemes"
 scheme_path.mkdir(parents=True, exist_ok=True)
 (scheme_path / "Focal.xcscheme").write_text(scheme)
 
-info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplayName="Focal",
+info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplayName="Lumiq",
             CFBundleExecutable="$(EXECUTABLE_NAME)", CFBundleIdentifier="$(PRODUCT_BUNDLE_IDENTIFIER)",
             CFBundleInfoDictionaryVersion="6.0", CFBundleName="$(PRODUCT_NAME)", CFBundlePackageType="APPL",
             CFBundleShortVersionString="$(MARKETING_VERSION)", CFBundleVersion="$(CURRENT_PROJECT_VERSION)",
-            NSLocalNetworkUsageDescription="Focal checks Sony camera descriptors on your joined Wi-Fi when you request discovery, then connects to the camera you choose for real live view and advertised controls.",
+            NSLocalNetworkUsageDescription="Lumiq checks Sony camera descriptors on your joined Wi-Fi when you request discovery, then connects to the camera you choose for real live view and advertised controls.",
             NSAppTransportSecurity=dict(NSAllowsLocalNetworking=True,
                 NSExceptionDomains={address:dict(NSExceptionAllowsInsecureHTTPLoads=True)
                     for address in ["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16"]}),
             LSRequiresIPhoneOS=True, UILaunchScreen={}, UIAppFonts=["Fonts/EBGaramond-Italic.ttf"],
             UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"],
             UIApplicationSceneManifest=dict(UIApplicationSupportsMultipleScenes=False),
-            NSCameraUsageDescription="Focal uses your camera for local composition and photos. Experimental Cloud Scan sends one camera frame to Google only when you explicitly request it.",
-            NSLocationWhenInUseUsageDescription="Focal uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.",
-            NSMotionUsageDescription="Focal uses phone motion to wait for a steady hold before automatic framing and to provide an optional level guide.",
-            NSPhotoLibraryAddUsageDescription="Save the photos you choose from Focal to your iPhone photo library.")
+            NSCameraUsageDescription="Lumiq uses your camera for local composition and photos. Experimental Cloud Scan sends one camera frame to Google only when you explicitly request it.",
+            NSLocationWhenInUseUsageDescription="Lumiq uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.",
+            NSMotionUsageDescription="Lumiq uses phone motion to wait for a steady hold before automatic framing and to provide an optional level guide.",
+            NSPhotoLibraryAddUsageDescription="Save the photos you choose from Lumiq to your iPhone photo library.")
 (ROOT / "Focal/Resources/Info.plist").write_bytes(plistlib.dumps(info))
 privacy = dict(NSPrivacyTracking=False, NSPrivacyTrackingDomains=[], NSPrivacyCollectedDataTypes=[dict(NSPrivacyCollectedDataType="NSPrivacyCollectedDataTypePhotosorVideos",
                     NSPrivacyCollectedDataTypeLinked=True,NSPrivacyCollectedDataTypeTracking=False,

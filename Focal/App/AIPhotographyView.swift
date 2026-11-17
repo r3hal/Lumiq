@@ -7,7 +7,7 @@ struct AIPhotographyView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(spacing: 0) {
-                    Picker("Focal Intent",selection:$settings.intent) {
+                    Picker("Lumiq Intent",selection:$settings.intent) {
                         ForEach(PhotographyIntent.allCases) { Text($0.rawValue).tag($0) }
                     }.padding(15)
                     Text(settings.intent.description).font(.caption).foregroundStyle(Palette.muted).padding(.horizontal,15).padding(.bottom,12)

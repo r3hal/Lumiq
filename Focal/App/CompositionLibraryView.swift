@@ -4,7 +4,7 @@ struct CompositionLibraryView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment:.leading,spacing:16) {
-                Text("Explore different ways to frame a scene. Focal compares layouts supported by what it can measure; you choose the photograph.")
+                Text("Explore different ways to frame a scene. Lumiq compares layouts supported by what it can measure; you choose the photograph.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 ForEach(CompositionTechnique.allCases) { technique in
                     VStack(alignment:.leading,spacing:8) {

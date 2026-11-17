@@ -38,6 +38,84 @@ enum CameraGuideState: Equatable {
     }
 }
 
+/// Keeps the guidance card readable. The service measures at several frames
+/// per second and its wording can legitimately change between phases faster
+/// than a photographer can read it, which showed up on device as the card
+/// flashing between "Finding", "Framing" and "Aim" lines. Ordinary wording
+/// changes must persist briefly and the shown line stays up for a minimum
+/// time. Honest state changes are never delayed: guidance off, active zoom,
+/// entering READY and leaving READY are shown at once, so the card cannot
+/// claim a ready frame the camera has stopped measuring. Showing a card from
+/// hidden is immediate; hiding one needs the same short persistence.
+struct GuidancePresentationStabilizer {
+    struct Presentation: Equatable {
+        var state: CameraGuideState
+        var instruction: String
+        var visible: Bool { state != .off && !instruction.isEmpty }
+    }
+    static let minimumDisplay: TimeInterval = 0.7
+    static let candidateDwell: TimeInterval = 0.3
+    private(set) var shown: Presentation?
+    private var shownAt: TimeInterval = -.infinity
+    private var candidate: Presentation?
+    private var candidateSince: TimeInterval = -.infinity
+
+    mutating func reset() { self = Self() }
+
+    /// Returns what to display and, while a change is pending, when to ask again.
+    mutating func update(_ next: Presentation, at time: TimeInterval) -> (presentation: Presentation, recheckAt: TimeInterval?) {
+        guard time.isFinite else { reset(); return (next, nil) }
+        guard let current = shown, time >= shownAt else { return commit(next, at: time) }
+        if next == current { candidate = nil; return (current, nil) }
+        if Self.isImmediate(from: current, to: next) { return commit(next, at: time) }
+        if candidate != next { candidate = next; candidateSince = time }
+        let due = max(shownAt + Self.minimumDisplay, candidateSince + Self.candidateDwell)
+        if time >= due { return commit(next, at: time) }
+        return (current, due)
+    }
+
+    static func isImmediate(from current: Presentation, to next: Presentation) -> Bool {
+        let honest: [CameraGuideState] = [.off, .ready, .zooming]
+        if honest.contains(next.state) || current.state == .off || current.state == .ready { return true }
+        return !current.visible && next.visible
+    }
+
+    private mutating func commit(_ next: Presentation, at time: TimeInterval) -> (presentation: Presentation, recheckAt: TimeInterval?) {
+        shown = next; shownAt = time; candidate = nil
+        return (next, nil)
+    }
+}
+
+/// Main-thread driver for `GuidancePresentationStabilizer`. It re-evaluates a
+/// pending change once its dwell expires even if no newer reading arrives.
+@MainActor
+final class GuidanceCardPresenter: ObservableObject {
+    @Published private(set) var presentation = GuidancePresentationStabilizer.Presentation(state: .off, instruction: "")
+    private var stabilizer = GuidancePresentationStabilizer()
+    private var latest: GuidancePresentationStabilizer.Presentation?
+    private var recheck: Task<Void, Never>?
+
+    func submit(_ next: GuidancePresentationStabilizer.Presentation) {
+        latest = next
+        evaluate()
+    }
+
+    private func evaluate() {
+        guard let latest else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let result = stabilizer.update(latest, at: now)
+        if presentation != result.presentation { presentation = result.presentation }
+        recheck?.cancel(); recheck = nil
+        guard let due = result.recheckAt else { return }
+        let delay = UInt64(max(0.02, due - now) * 1_000_000_000)
+        recheck = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            self?.evaluate()
+        }
+    }
+}
+
 struct CameraGuidanceCard: View {
     let state: CameraGuideState
     let instruction: String

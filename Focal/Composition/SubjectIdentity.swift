@@ -82,6 +82,10 @@ struct CompositionCue {
     let aligned: Bool
     let direction: String
     let mirrored: Bool
+    /// Aspect-scaled screen error and the tolerance it is judged against.
+    let offsetX: Double
+    let offsetY: Double
+    let tolerance: Double
     init?(reading: CompositionReading, previewAspect: Double) {
         guard reading.subjectConfidence >= 0.4, let bounds = reading.guidanceBounds ?? reading.subjectBounds,
               !bounds.isNull, bounds.width > 0, bounds.height > 0,
@@ -89,8 +93,21 @@ struct CompositionCue {
               (0...1).contains(reading.target.x), (0...1).contains(reading.target.y) else { return nil }
         subject = UnitPoint2D(x: bounds.midX, y: bounds.midY); target = reading.target; mirrored = reading.mirrored
         let dx = (subject.x - target.x) * (reading.mirrored ? -1 : 1), dy = (subject.y - target.y) / max(0.1, previewAspect)
+        offsetX = dx; offsetY = dy
+        tolerance = reading.alignmentTolerance.isFinite ? max(0.01, reading.alignmentTolerance) : 0.065
         aligned = hypot(dx, dy) <= reading.alignmentTolerance
         direction = abs(dx) > abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")
+    }
+    /// Aiming advice that says which way and roughly how far. The dominant
+    /// axis always matches `direction` (and therefore the overlay arrow); the
+    /// other axis is named only when it is a real share of the remaining error,
+    /// so a nearly horizontal correction does not read as a diagonal.
+    var aimInstruction: String {
+        let horizontalFirst = abs(offsetX) > abs(offsetY)
+        let major = max(abs(offsetX), abs(offsetY)), minor = min(abs(offsetX), abs(offsetY))
+        let secondary = horizontalFirst ? (offsetY > 0 ? "down" : "up") : (offsetX > 0 ? "right" : "left")
+        let path = minor > max(tolerance * 0.6, 0.02) && minor >= major * 0.45 ? "\(direction) & \(secondary)" : direction
+        return hypot(offsetX, offsetY) <= tolerance * 2.5 ? "Aim slightly \(path)" : "Aim your phone \(path)"
     }
     func instruction(subjectName: String) -> String {
         "Pan \(direction) · place the \(subjectName.lowercased()) on the mark"

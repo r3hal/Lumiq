@@ -14,7 +14,8 @@ overrides = json.loads(integration_path.read_text())['reviewedSources'] if integ
 allowed = {'Focal/Camera/CameraController.swift','Focal/Camera/SubjectTracker.swift',
     'Focal/Composition/SceneCompositionPlanner.swift','Focal/Composition/OutdoorCompositionPlanner.swift',
     'Focal/Composition/FramingPlanner.swift','Focal/Composition/FramingTrace.swift','Focal/Composition/SubjectSelection.swift',
-    'Focal/Cloud/CloudComposition.swift'}
+    'Focal/Cloud/CloudComposition.swift',
+    'Focal/Camera/CameraGuidanceCard.swift','Focal/Camera/CameraView.swift','Focal/Composition/AutomaticGuidance.swift','Focal/Composition/PreviewFramePolicy.swift','Focal/Composition/SubjectIdentity.swift'}
 assert set(overrides) <= allowed
 for path, expected in manifest['sha256'].items():
     if path in overrides:

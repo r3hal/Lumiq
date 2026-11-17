@@ -49,6 +49,7 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var precisionReading: PrecisionReading?
     @Published private(set) var autoTuneRecommendations: [AutoTuneRecommendation] = []
     @Published var errorMessage: String?
+    private var interruptionMessage: String? // Main thread only.
 
     let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "app.focal.camera", qos: .userInitiated)
@@ -206,14 +207,28 @@ final class CameraController: NSObject, ObservableObject {
         framing.reset(enabled: false)
         observers.append(NotificationCenter.default.addObserver(
             forName: .AVCaptureSessionWasInterrupted, object: session, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             self?.handleSessionInterruption()
             self?.isRunning = false
-            self?.errorMessage = "The camera was interrupted. Close other camera apps, then return to Focal."
+            // Backgrounding, calls and Siri resume on their own; only explain
+            // interruptions the photographer can act on, and clear that
+            // explanation when the camera comes back.
+            let raw = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+            if let message = CameraInterruptionPolicy.message(for: raw.flatMap(AVCaptureSession.InterruptionReason.init(rawValue:))) {
+                self?.interruptionMessage = message
+                self?.errorMessage = message
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .AVCaptureSessionInterruptionEnded, object: session, queue: nil
-        ) { [weak self] _ in self?.resumeIfWanted() })
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, let shown = self.interruptionMessage else { return }
+                self.interruptionMessage = nil
+                if self.errorMessage == shown { self.errorMessage = nil }
+            }
+            self?.resumeIfWanted()
+        })
         observers.append(NotificationCenter.default.addObserver(
             forName: .AVCaptureSessionRuntimeError, object: session, queue: .main
         ) { [weak self] notification in
@@ -290,7 +305,7 @@ final class CameraController: NSObject, ObservableObject {
                 self.position = previous
                 self.discardConfiguration()
                 self.configureAndStart()
-                DispatchQueue.main.async { self.errorMessage = "That camera is unavailable. Focal kept the previous camera." }
+                DispatchQueue.main.async { self.errorMessage = "That camera is unavailable. Lumiq kept the previous camera." }
             }
         }
     }
@@ -453,6 +468,7 @@ final class CameraController: NSObject, ObservableObject {
         let snapshot = guidanceSnapshot()
         guard snapshot.enabled, snapshot.source == .sony else { return }
         externalLock.lock()
+        externalScheduler.interval = Self.analysisInterval
         guard externalScheduler.admit(at: ProcessInfo.processInfo.systemUptime, enabled: true) else { externalLock.unlock(); return }
         externalLock.unlock()
         let observedAt = ProcessInfo.processInfo.systemUptime
@@ -1664,7 +1680,7 @@ final class CameraController: NSObject, ObservableObject {
             switch self {
             case .configuration: return "This device could not configure a camera. You can still explore the demo."
             case .missingPhoto: return "The camera did not return a photo. Please try again."
-            case .timeout: return "The camera did not finish the capture. Retry or restart Focal."
+            case .timeout: return "The camera did not finish the capture. Retry or restart Lumiq."
             case .notRunning: return "The camera is paused. Return to the camera and try again."
             }
         }
@@ -1690,7 +1706,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
             return
         }
-        previewScheduler.interval = PreviewAnalysisScheduler.thermalInterval(ProcessInfo.processInfo.thermalState)
+        previewScheduler.interval = Self.analysisInterval
         guard previewScheduler.admit(at: now, enabled: true) else { return }
         guard let native = CMSampleBufferGetImageBuffer(sampleBuffer), let copy = previewAnalysisCopy(native) else {
             previewScheduler.finish(); return
@@ -1707,6 +1723,14 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
         // No CMSampleBuffer/native pixel buffer is retained by the async closure.
+    }
+
+    /// Shared Vision cadence for phone and Sony frames: thermal state first,
+    /// then Low Power Mode, which slows guidance rather than disabling it.
+    fileprivate static var analysisInterval: TimeInterval {
+        let info = ProcessInfo.processInfo
+        return PreviewAnalysisScheduler.powerAdjusted(PreviewAnalysisScheduler.thermalInterval(info.thermalState),
+                                                      lowPowerMode: info.isLowPowerModeEnabled)
     }
 
     private func publishManualLevel(_ snapshot: GuidanceActivation.Snapshot) {
@@ -1752,7 +1776,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard GuidanceObservationPolicy.fresh(capturedAt:observationTime,evaluatedAt:now) else {
             discardStaleGuidance(snapshot,observedAt:observationTime); return
         }
-        guard now >= ignoreFramesUntil,now-lastAnalysis > min(1.5,PreviewAnalysisScheduler.thermalInterval(ProcessInfo.processInfo.thermalState)*0.8) else { return }
+        guard now >= ignoreFramesUntil,now-lastAnalysis > min(1.5,Self.analysisInterval*0.8) else { return }
         lastAnalysis = now
         if !snapshot.enabled || !guidanceEnabled {
             let gravity = analysisSource == .iPhone ? motion.deviceMotion?.gravity : nil
@@ -2641,6 +2665,22 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
                 self.isCapturing = false
                 completion(result)
             }
+        }
+    }
+}
+
+/// Which capture-session interruptions deserve an on-screen explanation.
+/// Backgrounding, calls, Siri and similar system interruptions resume by
+/// themselves and must not leave a stale alert over a working camera.
+enum CameraInterruptionPolicy {
+    static func message(for reason: AVCaptureSession.InterruptionReason?) -> String? {
+        switch reason {
+        case .videoDeviceInUseByAnotherClient?:
+            return "Another app is using the camera. Close it, then return to Lumiq."
+        case .videoDeviceNotAvailableDueToSystemPressure?:
+            return "The camera paused because the iPhone is too warm. Let it cool for a moment."
+        default:
+            return nil
         }
     }
 }

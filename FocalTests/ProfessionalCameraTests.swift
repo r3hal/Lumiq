@@ -1,7 +1,15 @@
+import AVFoundation
 import XCTest
 @testable import Focal
 
 final class ProfessionalCameraTests:XCTestCase {
+    func testOnlyActionableCameraInterruptionsShowAnAlert() {
+        XCTAssertNotNil(CameraInterruptionPolicy.message(for: .videoDeviceInUseByAnotherClient))
+        XCTAssertNotNil(CameraInterruptionPolicy.message(for: .videoDeviceNotAvailableDueToSystemPressure))
+        XCTAssertNil(CameraInterruptionPolicy.message(for: .videoDeviceNotAvailableInBackground))
+        XCTAssertNil(CameraInterruptionPolicy.message(for: .audioDeviceInUseByAnotherClient))
+        XCTAssertNil(CameraInterruptionPolicy.message(for: nil))
+    }
     func testAutoResetClearsAllManualLocks() {
         var state = ManualCameraState(mode:.pro,iso:400,seconds:1/125.0,temperature:4300,tint:12,focus:0.6)
         state.reset()

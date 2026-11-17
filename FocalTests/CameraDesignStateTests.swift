@@ -13,6 +13,40 @@ final class CameraDesignStateTests: XCTestCase {
     func testShortWindowsDoNotStretchTheStandardPreview() {
         XCTAssertEqual(CameraViewportLayout.aspect(source: .iPhone, capture: .standard, sonyFullFrame: false, sonyAspect: 1.5, width: 375, height: 400), 0.75)
     }
+    private func card(_ state: CameraGuideState, _ text: String) -> GuidancePresentationStabilizer.Presentation {
+        GuidancePresentationStabilizer.Presentation(state: state, instruction: text)
+    }
+    func testGuidanceCardHoldsWordingLongEnoughToRead() throws {
+        var stabilizer = GuidancePresentationStabilizer()
+        XCTAssertEqual(stabilizer.update(card(.guiding, "Aim your phone left"), at: 0).presentation.instruction, "Aim your phone left")
+        // One analysis frame of competing wording never reaches the screen.
+        let flash = stabilizer.update(card(.searching, "Finding your shot"), at: 0.25)
+        XCTAssertEqual(flash.presentation.instruction, "Aim your phone left")
+        XCTAssertEqual(try XCTUnwrap(flash.recheckAt), 0.7, accuracy: 0.0001)
+        XCTAssertEqual(stabilizer.update(card(.guiding, "Aim your phone left"), at: 0.5).presentation.instruction, "Aim your phone left")
+        // A sustained change appears once minimum display and dwell have both elapsed.
+        XCTAssertEqual(stabilizer.update(card(.guiding, "Aim slightly left"), at: 0.6).presentation.instruction, "Aim your phone left")
+        XCTAssertEqual(stabilizer.update(card(.guiding, "Aim slightly left"), at: 0.9).presentation.instruction, "Aim slightly left")
+    }
+    func testGuidanceCardNeverDelaysReadyOffOrZoom() {
+        var stabilizer = GuidancePresentationStabilizer()
+        _ = stabilizer.update(card(.guiding, "Aim your phone left"), at: 0)
+        XCTAssertEqual(stabilizer.update(card(.ready, "Ready to shoot"), at: 0.05).presentation.state, .ready)
+        // Leaving READY is immediate so the card never claims a frame that is no longer measured.
+        XCTAssertEqual(stabilizer.update(card(.holding, "Hold steady"), at: 0.1).presentation.state, .holding)
+        XCTAssertEqual(stabilizer.update(card(.zooming, "Framing your shot"), at: 0.15).presentation.state, .zooming)
+        XCTAssertEqual(stabilizer.update(card(.off, ""), at: 0.2).presentation.state, .off)
+        let resumed = stabilizer.update(card(.searching, "Scanning the scene"), at: 0.25)
+        XCTAssertEqual(resumed.presentation.state, .searching); XCTAssertNil(resumed.recheckAt)
+    }
+    func testGuidanceCardAppearsAtOnceButDoesNotBlinkOut() {
+        var stabilizer = GuidancePresentationStabilizer()
+        _ = stabilizer.update(card(.searching, ""), at: 0)
+        XCTAssertEqual(stabilizer.update(card(.guiding, "Aim your phone up"), at: 0.1).presentation.instruction, "Aim your phone up")
+        XCTAssertEqual(stabilizer.update(card(.searching, ""), at: 0.3).presentation.instruction, "Aim your phone up")
+        XCTAssertTrue(stabilizer.update(card(.searching, ""), at: 1.0).presentation.instruction.isEmpty)
+        XCTAssertEqual(stabilizer.update(card(.guiding, "Aim"), at: .nan).presentation.instruction, "Aim")
+    }
     private var subject: CompositionReading {
         CompositionReading(state: .adjusting, subjectBounds: CGRect(x: 0.4, y: 0.4, width: 0.2, height: 0.2), subjectConfidence: 0.9)
     }

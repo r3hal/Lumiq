@@ -63,7 +63,7 @@ struct CameraOptionsSheet: View {
             divider
             Button { path.append(.ai) } label: { row("AI Settings", symbol: "sparkles") }
             divider
-            Button { path.append(.precision) } label: { row("Focal Precision",symbol:"waveform.path") }
+            Button { path.append(.precision) } label: { row("Lumiq Precision",symbol:"waveform.path") }
             divider
             Button { path.append(.help) } label: { row("Help & Guides", symbol: "questionmark.circle") }
         }.background(Palette.panel, in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(.white)
