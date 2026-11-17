@@ -27,7 +27,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     Button { showGuide = true } label: {
                         HStack {
-                            Text("Focal · Personal camera").foregroundStyle(Palette.yellow)
+                            Text("Lumiq · Personal camera").foregroundStyle(Palette.yellow)
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
                         }.padding(.horizontal, 15).frame(height: 44).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
@@ -55,7 +55,7 @@ struct SettingsView: View {
                                     ForEach(CaptionStyle.allCases) { style in
                                         Button { settings.caption = style } label: {
                                             VStack(spacing: 9) {
-                                                Text("Focal · field note").font(style.font).foregroundStyle(Palette.yellow)
+                                                Text("Lumiq · field note").font(style.font).foregroundStyle(Palette.yellow)
                                                 Text(style.rawValue).font(.caption).foregroundStyle(settings.caption == style ? .white : .secondary)
                                             }
                                             .frame(width: 100, height: 65)
@@ -90,10 +90,10 @@ struct SettingsView: View {
                     section("PHOTO BACKUP") {
                         PhotoBackupSettingsView(backup:PhotoBackupCoordinator.shared)
                     }
-                    section("FOCAL") {
-                        Button { showGuide = true } label: { navigationRow("How to use Focal") }
+                    section("LUMIQ") {
+                        Button { showGuide = true } label: { navigationRow("How to use Lumiq") }
                         separator
-                        Link(destination: URL(string: "https://github.com/r3hal/focal-private/issues/new")!) { navigationRow("Send Feedback") }
+                        Link(destination: URL(string: "https://github.com/r3hal/Lumiq/issues/new")!) { navigationRow("Send Feedback") }
                         separator
                         Button { showPrivacy = true } label: { navigationRow("Privacy Policy") }
                         #if DEBUG || FOCAL_EVALUATION
@@ -101,7 +101,7 @@ struct SettingsView: View {
                         NavigationLink { EvaluationLabView(camera:camera).toolbar(.visible,for:.navigationBar) } label: { navigationRow("Developer Intelligence Lab") }
                         #endif
                     }
-                    Text("Focal 2.9.0 · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
+                    Text("Lumiq \(appVersion) · Personal build\nRAW capture requires a compatible camera. RAW originals retain the full sensor frame.")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(4).padding(.horizontal, 15)
                 }
                 .padding(.horizontal, 15).padding(.bottom, 32)
@@ -112,7 +112,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showPrivacy) {
             NavigationStack {
                 ScrollView {
-                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Focal has no analytics. Optional Photo Backup enrolls this device with an owner-controlled HTTPS server; when enabled it sends new original photos and associated resources to that server and the owner's Google Drive. Device credentials are kept in the iOS Keychain; Google credentials stay on the backend. Disable backup or disconnect in Settings. Server and Drive copies can remain after local deletion. Local AI guidance stays on-device; experimental Gemini Cloud Composition remains a separate, explicitly requested frame upload. Focal Link can check a bounded set of addresses on your joined Wi-Fi subnet for real Sony descriptors when you request discovery. Streaming and controls then communicate only with the camera address you select. Analysis still runs on your iPhone. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nOptional histogram, zebra and approximate peaking analyze preview pixels locally. AutoTune does not silently change PRO controls. Insights and Compare analyze stored image files locally without modifying originals. Subject labels and composition suggestions can be inaccurate. Focal is an independent personal app.")
+                    Text("Camera frames, subject classification and tracking are processed on your iPhone using Apple Vision. Lumiq has no analytics. Optional Photo Backup enrolls this device with an owner-controlled HTTPS server; when enabled it sends new original photos and associated resources to that server and the owner's Google Drive. Device credentials are kept in the iOS Keychain; Google credentials stay on the backend. Disable backup or disconnect in Settings. Server and Drive copies can remain after local deletion. Local AI guidance stays on-device; experimental Gemini Cloud Composition remains a separate, explicitly requested frame upload. Focal Link can check a bounded set of addresses on your joined Wi-Fi subnet for real Sony descriptors when you request discovery. Streaming and controls then communicate only with the camera address you select. Analysis still runs on your iPhone. Photos, optional scans, and RAW originals are stored locally. Device backups may include this library.\n\nAlso Save to Photos requests add-only Photos access and saves new captures automatically when enabled. Sharing and feedback happen only when you initiate them. Reference photos are imported locally through the system photo picker. Recipes, collections, practice counts and technical measurements are stored locally. Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos.\n\nOptional histogram, zebra and approximate peaking analyze preview pixels locally. AutoTune does not silently change PRO controls. Insights and Compare analyze stored image files locally without modifying originals. Subject labels and composition suggestions can be inaccurate. Lumiq (formerly Focal) is an independent personal app.")
                         .padding(24).lineSpacing(5)
                 }.navigationTitle("Privacy Policy").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showPrivacy = false } } }
@@ -154,6 +154,13 @@ struct SettingsView: View {
     private func navigationRow(_ title: String) -> some View {
         HStack { Text(title); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary) }
             .padding(.horizontal, 15).frame(height: 44).foregroundStyle(.white)
+    }
+    /// Read from the bundle so the footer cannot drift from the shipped build.
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(version) (\($0))" } ?? version
     }
     private var previewDiagnosticText: String {
         if source == .sony {

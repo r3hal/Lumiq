@@ -1829,8 +1829,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "41";
-				"MARKETING_VERSION" = "3.0.0";
+				"CURRENT_PROJECT_VERSION" = "42";
+				"MARKETING_VERSION" = "3.1.0";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
@@ -1852,8 +1852,8 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "41";
-				"MARKETING_VERSION" = "3.0.0";
+				"CURRENT_PROJECT_VERSION" = "42";
+				"MARKETING_VERSION" = "3.1.0";
 				"VERSIONING_SYSTEM" = "apple-generic";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";

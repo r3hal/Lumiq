@@ -70,7 +70,7 @@ struct AutomaticGuidance {
            let cue = CompositionCue(reading:reading,previewAspect:previewAspect) {
             if !cue.aligned {
                 let action:GuidanceAction = cue.direction == "left" ? .panLeft : cue.direction == "right" ? .panRight : cue.direction == "up" ? .panUp : .panDown
-                return .init(kind:.adjustment,text:"Aim your phone \(cue.direction)",action:action)
+                return .init(kind:.adjustment,text:cue.aimInstruction,action:action)
             }
             return .init(kind:.framing,text:"Framing your shot…")
         }

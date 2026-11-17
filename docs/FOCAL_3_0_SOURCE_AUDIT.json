@@ -3,8 +3,8 @@
   "reviewedSources": {
     "Focal/Camera/CameraController.swift": {
       "before": "9a0782b2cffb48053455d2e53da23f9b4006227c9bb580cfcf568ffe87c17608",
-      "after": "8cac36dcc1f0289f05889d5bd677a87fd4e5e4cfb2b1a8c986a3c8cd9184d8f4",
-      "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+      "after": "9f94de7c92c6c093a03a4ac21c13932e74c57d1ec6ff4e06eb213539fafa0fa3",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report; Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
     },
     "Focal/Camera/SubjectTracker.swift": {
       "before": "1f8f7eed881a5a8e14d2ded6574ba2ef0ce3b0ada16554c54b5fe591aec8cc36",
@@ -40,6 +40,31 @@
       "before": "e0445bee5368b2025d64d6cfb2c4c18d39494550b9c6a0ebd8de75e71a04dbdd",
       "after": "b8edc066cebeb0e1b52b1fea3440797bb7bf94a706ebd9c7bb8e0e58ae9f3baf",
       "reason": "Reviewed Focal 3 reliability integration; see engineering report"
+    },
+    "Focal/Camera/CameraGuidanceCard.swift": {
+      "before": "001cf49a4b14bc12f83af38148a0c7448bf7d05987ca9aec41cfb4cc3c9c53a1",
+      "after": "4b3a90f91e8d51b981c946e68bda1d95211b1d47b608d3e5d0422ef4a14e1643",
+      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
+    },
+    "Focal/Camera/CameraView.swift": {
+      "before": "cd2a9f94dd1f95f756254754688d0aebcd1eb925e3e514b0fa591720faa5b536",
+      "after": "2e32761f1eea881c807fee7607a5444245fcf243a87bda0a4226dc4ed80d3bae",
+      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
+    },
+    "Focal/Composition/AutomaticGuidance.swift": {
+      "before": "52b3b09703eb6c9cb48c4fc0f9c03acf1d148b20367a934c6646e8d88488127a",
+      "after": "b967a95122bd4a8abfdce6189f40749be88a59e8c9e0765246bf5c82627db370",
+      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
+    },
+    "Focal/Composition/PreviewFramePolicy.swift": {
+      "before": "cf611617d82861e72c3d556b6682bfa26733b25c13ba1071c181980f7f0f618a",
+      "after": "df08b8976e53ba8d42214e707e308e4324d9f3a581bb611a4999aa92f527965d",
+      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
+    },
+    "Focal/Composition/SubjectIdentity.swift": {
+      "before": "cb891e856e0f8b807452a82321930a60560dc791469e47c8e547115412e59b1b",
+      "after": "dbd37f70a95833b7b59af34adb291d923f5c5e2636198f483408029a92ee61e2",
+      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
     }
   },
   "preservedSHA256": {

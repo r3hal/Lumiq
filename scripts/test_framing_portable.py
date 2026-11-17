@@ -47,6 +47,7 @@ if not args.baseline:
  (app/'SubjectAutofocus.swift').write_text(source('Focal/Camera/SubjectAutofocus.swift'))
  (app/'CameraGuideState.swift').write_text('import Foundation\n'+declaration('Focal/Camera/CameraGuidanceCard.swift','CameraGuideState'))
  (app/'CameraViewportLayout.swift').write_text('import Foundation\n'+declaration('Focal/Camera/CameraGuidanceCard.swift','CameraViewportLayout'))
+ (app/'GuidancePresentationStabilizer.swift').write_text('import Foundation\n'+declaration('Focal/Camera/CameraGuidanceCard.swift','GuidancePresentationStabilizer'))
  (app/'PhotoAspect.swift').write_text('import Foundation\n'+declaration('Focal/App/CameraSettings.swift','PhotoAspect'))
  # Run the native design-state assertions unchanged. Only the Vision-backed
  # tracker method and separate Apple-observable persistence class are excluded.

@@ -17,6 +17,13 @@ final class PreviewFramePolicyTests: XCTestCase {
         XCTAssertTrue(scheduler.admit(at: 0.25, enabled: true)); scheduler.finish()
         XCTAssertFalse(scheduler.admit(at: .nan, enabled: true))
     }
+    func testLowPowerModeSlowsButNeverStopsAnalysis() {
+        XCTAssertEqual(PreviewAnalysisScheduler.powerAdjusted(0.25, lowPowerMode: false), 0.25)
+        XCTAssertEqual(PreviewAnalysisScheduler.powerAdjusted(0.25, lowPowerMode: true), 0.4)
+        XCTAssertEqual(PreviewAnalysisScheduler.powerAdjusted(0.8, lowPowerMode: true), 0.8)
+        XCTAssertEqual(PreviewAnalysisScheduler.powerAdjusted(.nan, lowPowerMode: false), 0.8)
+        XCTAssertEqual(PreviewAnalysisScheduler.powerAdjusted(0, lowPowerMode: true), 0.8)
+    }
     func testPinchRequestsCoalesceToLatestAndStopClearsOldTarget() {
         var requests = ZoomRequestCoalescer()
         XCTAssertTrue(requests.enqueue(1))

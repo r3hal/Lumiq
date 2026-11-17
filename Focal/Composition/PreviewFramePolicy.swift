@@ -11,6 +11,15 @@ struct PreviewAnalysisScheduler {
         busy = true; lastAdmission = timestamp; return true
     }
     mutating func finish() { busy = false }
+    /// Low Power Mode asks apps to cut periodic work. Guidance keeps running
+    /// at a slower cadence (never faster than the thermal interval) instead of
+    /// being disabled; an invalid input falls back to a conservative rate.
+    static func powerAdjusted(_ interval: TimeInterval, lowPowerMode: Bool) -> TimeInterval {
+        guard interval.isFinite, interval > 0 else { return 0.8 }
+        return lowPowerMode ? max(interval, 0.4) : interval
+    }
+    // Keep thermalInterval last: the Linux portable harness strips from it to
+    // the end of this type because Linux Foundation lacks ThermalState.
     static func thermalInterval(_ state:ProcessInfo.ThermalState) -> TimeInterval {
         switch state {
         case .nominal: return 0.25

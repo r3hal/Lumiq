@@ -1,4 +1,6 @@
-# Focal — professional camera and photography tools
+# Lumiq (formerly Focal) — professional camera and photography tools
+
+**Lumiq 3.1.0 / build 42.** Steadier guidance card (no more flicker between Finding/Framing/Aim), two-axis "how far" aiming advice, Low Power Mode–aware analysis for iPhone and Sony, no more stale camera-interruption alerts after backgrounding, capture progress visible with AI off, and the Lumiq name on the home screen. Bundle ID, project and library storage are unchanged, so AltStore updates in place. 743 XCTest functions are registered. Details and what still needs device testing: [docs/LUMIQ_3_1_IMPROVEMENTS.md](docs/LUMIQ_3_1_IMPROVEMENTS.md). Code and project identifiers below still use the Focal name.
 
 A native SwiftUI camera with original charcoal/amber identity, optional Focal Intelligence, real AUTO/PRO controls, photography intents, live precision tools, captured-image Insights and read-only Compare. Existing capture/gallery/editor and Sony services are preserved. Apple frameworks only; no account, API key or backend. The app opens directly to the iPhone camera. AI and precision tools start off; the photographer controls automation.
 

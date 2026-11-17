@@ -3,6 +3,7 @@ import SwiftUI
 struct CameraView: View {
     @StateObject private var camera = CameraController()
     @StateObject private var sony = SonyRemoteCamera()
+    @StateObject private var guidancePresenter = GuidanceCardPresenter()
     @State private var source: CameraSource = .iPhone
     @State private var immersivePreviewAspect = 0.75
     @State private var sonyFullFrame = true
@@ -129,6 +130,7 @@ struct CameraView: View {
     private var instrumentedCamera: some View {
         compositionCamera
             .onChange(of:precisionOptions) { _,value in camera.setPrecisionOptions(value) }
+            .onChange(of:guidanceCardInput, initial:true) { _,value in guidancePresenter.submit(value) }
     }
 
     private var presentedCamera: some View {
@@ -221,7 +223,7 @@ struct CameraView: View {
     private var toolbar: some View {
         HStack(spacing: 20) {
             VStack(alignment:.leading,spacing:2) {
-                Text("FOCAL").font(.system(size:18,weight:.semibold)).tracking(4)
+                Text("LUMIQ").font(.system(size:18,weight:.semibold)).tracking(4)
                 if source == .sony { Text(sony.hasFrame ? sony.model : "SONY LINK").font(.system(size:9,design:.monospaced)).foregroundStyle(Palette.muted).lineLimit(1) }
             }
             Spacer(minLength: 8)
@@ -320,20 +322,46 @@ struct CameraView: View {
         .overlay(alignment: .topLeading) { aspectOverlay }
         .overlay(alignment: .bottom) {
             VStack(spacing: 12) {
+                if let status = captureStatus { captureStatusBadge(status) }
                 if source == .iPhone && camera.controls.mode == .pro && hasLivePreview {
                     ProfessionalControlsView(camera:camera,busy:controlsBusy)
                 } else if showExposure && hasLivePreview {
                     exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if hasLivePreview && settings.guide {
-                    CameraGuidanceCard(state: guideState, instruction: instruction, holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
+                    CameraGuidanceCard(state: guidancePresenter.presentation.state, instruction: guidancePresenter.presentation.instruction,
+                                       holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
                                        composition:camera.compositionPlan.flatMap { $0.selected.isCurrentFrame && $0.selected.sceneAnchor == nil ? nil : $0.selected.technique.rawValue })
                         .allowsHitTesting(false)
+                        .animation(.easeInOut(duration: 0.22), value: guidancePresenter.presentation)
                 }
                 if source == .iPhone && (demo || camera.access == .available) { lensButtons }
             }.padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 24)
                 .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
         }
         .animation(.easeInOut(duration: 0.2), value: showExposure)
+        .animation(.easeInOut(duration: 0.2), value: captureStatus)
+    }
+
+    /// Capture progress is shown whether or not AI guidance is on, and never
+    /// replaces the live guidance line while a photo is being saved.
+    private var captureStatus: String? {
+        if !seriesProgress.isEmpty { return seriesProgress }
+        return saved ? "Saved to your library" : nil
+    }
+
+    private func captureStatusBadge(_ text: String) -> some View {
+        let done: Bool = saved && seriesProgress.isEmpty
+        return HStack(spacing: 6) {
+            Image(systemName: done ? "checkmark.circle.fill" : "arrow.down.circle")
+                .foregroundStyle(done ? Palette.mint : Palette.yellow)
+            Text(text).foregroundStyle(Color.white)
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(.black.opacity(0.72), in: Capsule())
+        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder private var previewContent: some View {
@@ -568,6 +596,9 @@ struct CameraView: View {
     private var guideState: CameraGuideState {
         CameraGuideState.resolve(enabled: settings.guide, reading: reading, phase: camera.framingPhase, message: camera.guidance)
     }
+    private var guidanceCardInput: GuidancePresentationStabilizer.Presentation {
+        GuidancePresentationStabilizer.Presentation(state: guideState, instruction: instruction)
+    }
     private var footer: some View {
         VStack(spacing: 3) {
             if source == .sony && sony.hasFrame { SonyTelemetryStrip(telemetry: sony.telemetry).padding(.horizontal, 20) }
@@ -630,7 +661,7 @@ struct CameraView: View {
                     .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.4),lineWidth:1))
                 Text(settings.guide ? "AI ON" : "AI OFF").font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(Palette.muted)
             }
-        }.buttonStyle(CameraPressStyle()).accessibilityLabel("Focal Intelligence")
+        }.buttonStyle(CameraPressStyle()).accessibilityLabel("Lumiq Intelligence")
             .accessibilityValue(settings.guide ? "On" : "Off")
             .accessibilityHint("Toggle local composition guidance. Long press for composition options and experimental Cloud Scan.")
             .contextMenu {
@@ -649,8 +680,6 @@ struct CameraView: View {
     }
 
     private var instruction: String {
-        if !seriesProgress.isEmpty { return seriesProgress }
-        if saved { return "Saved to your library." }
         if demo { return "Demo scene. Enable AI Guidance to return to the camera." }
         if source == .sony && sony.state != .streaming { return (sony.state == .connecting || sony.state == .reconnecting) ? (sony.message ?? "Connecting to Sony…") : "Connect a Sony camera for guidance" }
         if !settings.guide { return "" }
@@ -733,7 +762,7 @@ struct CameraView: View {
                 if autoSave && !wantsReview {
                     for photo in added {
                         do { try await library.saveToPhotos(photo) }
-                        catch { camera.errorMessage = "Saved in Focal. Photos export: \(error.localizedDescription)"; break }
+                        catch { camera.errorMessage = "Saved in Lumiq. Photos export: \(error.localizedDescription)"; break }
                     }
                 }
                 if operation == captureGeneration {
