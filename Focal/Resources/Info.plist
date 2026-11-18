@@ -51,7 +51,7 @@
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Lumiq uses your camera for local composition and photos. Experimental Cloud Scan sends one camera frame to Google only when you explicitly request it.</string>
+	<string>Lumiq uses your camera for local composition and photos. AI Shot and Cloud Scan send one camera frame to your chosen AI service only when you tap to request it.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Lumiq checks Sony camera descriptors on your joined Wi-Fi when you request discovery, then connects to the camera you choose for real live view and advertised controls.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -70,7 +70,14 @@
 		<false/>
 	</dict>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<false/>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

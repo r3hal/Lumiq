@@ -124,10 +124,10 @@ info = dict(CFBundleDevelopmentRegion="$(DEVELOPMENT_LANGUAGE)", CFBundleDisplay
             NSAppTransportSecurity=dict(NSAllowsLocalNetworking=True,
                 NSExceptionDomains={address:dict(NSExceptionAllowsInsecureHTTPLoads=True)
                     for address in ["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16"]}),
-            LSRequiresIPhoneOS=True, UILaunchScreen={}, UIAppFonts=["Fonts/EBGaramond-Italic.ttf"],
+            LSRequiresIPhoneOS=True, UILaunchScreen=dict(UIColorName="LaunchBackground", UIImageName="LaunchLogo", UIImageRespectsSafeAreaInsets=False), UIAppFonts=["Fonts/EBGaramond-Italic.ttf"],
             UISupportedInterfaceOrientations=["UIInterfaceOrientationPortrait"],
             UIApplicationSceneManifest=dict(UIApplicationSupportsMultipleScenes=False),
-            NSCameraUsageDescription="Lumiq uses your camera for local composition and photos. Experimental Cloud Scan sends one camera frame to Google only when you explicitly request it.",
+            NSCameraUsageDescription="Lumiq uses your camera for local composition and photos. AI Shot and Cloud Scan send one camera frame to your chosen AI service only when you tap to request it.",
             NSLocationWhenInUseUsageDescription="Lumiq uses your location only when you request it to estimate golden-hour light. Location is not uploaded or added to photos.",
             NSMotionUsageDescription="Lumiq uses phone motion to wait for a steady hold before automatic framing and to provide an optional level guide.",
             NSPhotoLibraryAddUsageDescription="Save the photos you choose from Lumiq to your iPhone photo library.")

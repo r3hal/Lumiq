@@ -1,0 +1,18 @@
+name = "lumiq-ai"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# Free Cloudflare Workers AI fallback: no API key needed.
+[ai]
+binding = "AI"
+
+# Optional overrides (uncomment to change):
+# [vars]
+# GEMINI_MODELS = "gemini-flash-latest,gemini-flash-lite-latest"
+# GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+#
+# Secrets (never commit these):
+#   npx wrangler secret put APP_TOKEN        # any long random string, also typed into the app
+#   npx wrangler secret put GEMINI_API_KEY   # free key from https://aistudio.google.com/apikey
+#   npx wrangler secret put GROQ_API_KEY     # optional, free key from https://console.groq.com/keys

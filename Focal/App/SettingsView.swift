@@ -33,7 +33,9 @@ struct SettingsView: View {
                         }.padding(.horizontal, 15).frame(height: 44).background(Palette.panel, in: RoundedRectangle(cornerRadius: 12))
                     }
                     section("CAMERA") {
-                        settingToggle("AI Guidance", value: $settings.guide)
+                        settingToggle("Classic live guide", value: $settings.guide)
+                        separator
+                        NavigationLink { AIShotSettingsView() } label: { navigationRow("AI Shot (free AI setup)") }
                         separator
                         NavigationLink { AIPhotographyView(source: source) } label: { navigationRow("AI Photography") }
                         separator
