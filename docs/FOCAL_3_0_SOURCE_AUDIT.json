@@ -3,8 +3,8 @@
   "reviewedSources": {
     "Focal/Camera/CameraController.swift": {
       "before": "9a0782b2cffb48053455d2e53da23f9b4006227c9bb580cfcf568ffe87c17608",
-      "after": "9f94de7c92c6c093a03a4ac21c13932e74c57d1ec6ff4e06eb213539fafa0fa3",
-      "reason": "Reviewed Focal 3 reliability integration; see engineering report; Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
+      "after": "12dd2e795c1148917ff4eefe945611775a8f0aaee3a6f2655048731ecb1904ef",
+      "reason": "Reviewed Focal 3 reliability integration; see engineering report; Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md; Reviewed AI Shot (Framed-style one-tap shot, frame handler, cancel/rescan button); see README AI Shot"
     },
     "Focal/Camera/SubjectTracker.swift": {
       "before": "1f8f7eed881a5a8e14d2ded6574ba2ef0ce3b0ada16554c54b5fe591aec8cc36",
@@ -48,8 +48,8 @@
     },
     "Focal/Camera/CameraView.swift": {
       "before": "cd2a9f94dd1f95f756254754688d0aebcd1eb925e3e514b0fa591720faa5b536",
-      "after": "2e32761f1eea881c807fee7607a5444245fcf243a87bda0a4226dc4ed80d3bae",
-      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md"
+      "after": "df5f22e1c1f11fc72d8d151eca54720634057ec325330054147e7205862b726c",
+      "reason": "Reviewed Lumiq 3.1 guidance presentation, aiming, power and lifecycle update; see docs/LUMIQ_3_1_IMPROVEMENTS.md; Reviewed AI Shot (Framed-style one-tap shot, frame handler, cancel/rescan button); see README AI Shot"
     },
     "Focal/Composition/AutomaticGuidance.swift": {
       "before": "52b3b09703eb6c9cb48c4fc0f9c03acf1d148b20367a934c6646e8d88488127a",
