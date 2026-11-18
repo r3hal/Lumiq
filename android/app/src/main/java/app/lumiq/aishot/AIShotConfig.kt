@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import app.lumiq.BuildConfig
 import java.net.URI
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -31,7 +32,12 @@ class AIShotConfig(context: Context) {
 
     fun appToken(): String? = tokenText.trim().ifEmpty { null }
 
-    fun geminiKey(): String? = prefs.getString(GEMINI, null)?.let { SecretBox.open(it) }?.trim()?.ifEmpty { null }
+    /** A key typed in Settings wins; otherwise the key built into this APK (if any). */
+    fun geminiKey(): String? = personalGeminiKey() ?: builtInGeminiKey()
+
+    fun personalGeminiKey(): String? = prefs.getString(GEMINI, null)?.let { SecretBox.open(it) }?.trim()?.ifEmpty { null }
+
+    fun builtInGeminiKey(): String? = BuildConfig.BUILT_IN_GEMINI_KEY.trim().ifEmpty { null }
 
     fun setGeminiKey(value: String?) {
         val key = value?.trim().orEmpty()

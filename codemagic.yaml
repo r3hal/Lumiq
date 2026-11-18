@@ -165,6 +165,8 @@ workflows:
     max_build_duration: 30
     environment:
       java: 17
+      groups:
+        - lumiq_android   # holds the LUMIQ_GEMINI_KEY secret (built into the APK)
     scripts:
       - name: Run Android unit tests
         script: |
@@ -176,6 +178,7 @@ workflows:
         script: |
           set -euo pipefail
           cd android
+          test -n "${LUMIQ_GEMINI_KEY:-}" || echo "WARNING: LUMIQ_GEMINI_KEY is not set; AI Shot will need setup in the app."
           ./gradlew --no-daemon assembleRelease
           mkdir -p ../build
           cp app/build/outputs/apk/release/app-release.apk ../build/Lumiq-android.apk

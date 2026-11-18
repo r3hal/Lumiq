@@ -15,11 +15,12 @@ struct AIShotSuggestion: Equatable, Sendable {
 }
 
 enum AIShotError: Error, Equatable {
-    case notConfigured, noFrame, offline, timeout, unauthorized, quota, invalidResponse, server(Int)
+    case notConfigured, noFrame, offline, timeout, unauthorized, quota, busy, invalidResponse, server(Int)
     var message: String {
         switch self {
         case .notConfigured: return "Add a free AI server or Gemini key in Settings › AI Shot."
         case .noFrame: return "No camera frame yet. Try again."
+        case .busy: return "The AI is busy right now. Tap ↻ to retry."
         case .offline: return "No internet connection."
         case .timeout: return "The AI took too long. Tap ↻ to retry."
         case .unauthorized: return "The AI key or app token was refused. Check Settings › AI Shot."
@@ -88,23 +89,28 @@ enum AIShotService {
     // MARK: Direct Gemini (free key from aistudio.google.com) — no server needed
     private static func viaGemini(_ key:String,_ request:AIShotRequest) async throws -> AIShotSuggestion {
         var lastError: Error = AIShotError.invalidResponse
-        for model in ["gemini-flash-latest","gemini-flash-lite-latest"] {
+        // Google models are often overloaded (503) or slow: a busy model falls through to the next, the open
+        // Gemma 4 vision model on the same key is a fast backup, and the last entry retries after a short pause.
+        let models: [(String,TimeInterval)] = [("gemini-flash-latest",8),("gemma-4-26b-a4b-it",12),("gemini-flash-lite-latest",10),("gemma-4-26b-a4b-it",12)]
+        for (index,(model,timeout)) in models.enumerated() {
+            if index == models.count-1 { try await Task.sleep(nanoseconds:1_500_000_000) }
             var http = URLRequest(url:URL(string:"https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent")!,
-                                  cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:25)
+                                  cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:timeout)
             http.httpMethod = "POST"
             http.setValue("application/json",forHTTPHeaderField:"Content-Type")
             http.setValue(key,forHTTPHeaderField:"x-goog-api-key")
             http.httpBody = try JSONSerialization.data(withJSONObject:[
                 "contents":[["role":"user","parts":[["text":prompt(request)],["inlineData":["mimeType":"image/jpeg","data":request.jpeg.base64EncodedString()]]]]],
-                "generationConfig":["temperature":0.3,"maxOutputTokens":1024,"responseMimeType":"application/json","thinkingConfig":["thinkingBudget":0]]])
+                // No thinkingConfig: current models reject thinkingBudget = 0 with HTTP 400.
+                "generationConfig":["temperature":0.3,"maxOutputTokens":2048,"responseMimeType":"application/json"]])
             do {
                 let data = try await send(http)
                 guard let root = try? JSONSerialization.jsonObject(with:data) as? [String:Any],
                       let candidate = (root["candidates"] as? [[String:Any]])?.first,
                       let parts = (candidate["content"] as? [String:Any])?["parts"] as? [[String:Any]] else { throw AIShotError.invalidResponse }
                 let text = parts.filter { ($0["thought"] as? Bool) != true }.compactMap { $0["text"] as? String }.joined()
-                return try parseModelJSON(text,request:request,provider:"gemini")
-            } catch let error as AIShotError where error == .quota || error == .server(404) || error == .invalidResponse {
+                return try parseModelJSON(text,request:request,provider:model.hasPrefix("gemma") ? "gemma" : "gemini")
+            } catch let error as AIShotError where ([.quota,.busy,.timeout,.invalidResponse,.server(400),.server(404)] as [AIShotError]).contains(error) {
                 lastError = error; continue
             }
         }
@@ -170,6 +176,7 @@ enum AIShotService {
             case 401,403: throw AIShotError.unauthorized
             case 429: throw AIShotError.quota
             case 408,504: throw AIShotError.timeout
+            case 500,502,503: throw AIShotError.busy
             default: throw AIShotError.server(status)
             }
         } catch let error as URLError {

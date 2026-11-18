@@ -11,6 +11,17 @@ This is a native Android version of Lumiq, written in Kotlin with Jetpack Compos
 
 Every APK is signed with the same sideload key (`app/lumiq-sideload.keystore`), so a newer build installs over the old one and keeps your photos and settings. This key is only for personal sideloading. Do not use it for a Play Store release.
 
+## Built-in Gemini key (AI Shot works with no setup)
+
+The APK can include one Gemini key, so everyone who installs it can use AI Shot right away. The key never goes in git:
+
+- **Codemagic:** in the Lumiq app settings, open Environment variables. Add `LUMIQ_GEMINI_KEY` with your key, mark it **Secret** and put it in the group **`lumiq_android`**. Create the group before running `android-apk`.
+- **Local builds:** add `lumiq.geminiKey=YOUR_KEY` to `android/local.properties`. That file is gitignored.
+
+A server URL or a key typed in Settings › AI Shot overrides the built-in key. Anyone holding the APK can extract a built-in key from it. For a wider release, use the [Lumiq AI server](../ai-server/README.md) so the key stays on the server.
+
+Google's Gemini models are often overloaded (HTTP 503). The app therefore tries `gemini-flash-latest` first, then the Gemma 4 vision model on the same key, then `gemini-flash-lite-latest`, and finally retries once after a short pause.
+
 ## Build locally
 
 You need JDK 17 and the Android SDK (platform 36). Android Studio includes both.

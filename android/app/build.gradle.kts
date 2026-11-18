@@ -1,7 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Built-in Gemini key for AI Shot. Never committed: it comes from android/local.properties
+// (lumiq.geminiKey=...) or the LUMIQ_GEMINI_KEY environment variable (Codemagic secret).
+val builtInGeminiKey: String = run {
+    val local = Properties()
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { local.load(it) }
+    (local.getProperty("lumiq.geminiKey") ?: System.getenv("LUMIQ_GEMINI_KEY") ?: "").trim()
 }
 
 android {
@@ -12,8 +23,9 @@ android {
         applicationId = "app.lumiq"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "3.2-android"
+        versionCode = 2
+        versionName = "3.2.1-android"
+        buildConfigField("String", "BUILT_IN_GEMINI_KEY", "\"${builtInGeminiKey.replace("\"", "")}\"")
     }
 
     // Fixed sideload key so each new APK installs over the previous one.
@@ -42,7 +54,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlin { jvmToolchain(17) }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

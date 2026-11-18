@@ -40,6 +40,7 @@ sealed class AIShotError(val userMessage: String) : Exception(userMessage) {
     object Timeout : AIShotError("The AI took too long. Tap ↻ to retry.")
     object Unauthorized : AIShotError("The AI key or app token was refused. Check Settings › AI Shot.")
     object Quota : AIShotError("Free AI limit reached for now. Try again in a minute.")
+    object Busy : AIShotError("The AI is busy right now. Tap ↻ to retry.")
     object InvalidResponse : AIShotError("The AI answer could not be used. Tap ↻ to retry.")
     class Server(val code: Int) : AIShotError("AI server error $code. Tap ↻ to retry.")
 }
@@ -159,11 +160,29 @@ object AIShotLogic {
         401, 403 -> AIShotError.Unauthorized
         429 -> AIShotError.Quota
         408, 504 -> AIShotError.Timeout
+        500, 502, 503 -> AIShotError.Busy
         else -> AIShotError.Server(status)
     }
+
+    /** Errors where another model (or a moment later) may still succeed. */
+    fun tryNextModel(e: AIShotError): Boolean =
+        e is AIShotError.Quota || e is AIShotError.Busy || e is AIShotError.Timeout || e is AIShotError.InvalidResponse ||
+            (e is AIShotError.Server && (e.code == 400 || e.code == 404))
 }
 
-/** Calls the Lumiq AI server if set, otherwise Gemini directly with the user's free key. */
+/**
+ * Models tried in order with their read timeouts (ms). Google's models are often overloaded (HTTP 503) or
+ * slow, so a busy model falls through to the next; the open Gemma 4 vision model on the same key is a
+ * fast backup. After a short pause, the last entry retries once.
+ */
+val GEMINI_MODELS = listOf(
+    "gemini-flash-latest" to 8_000,
+    "gemma-4-26b-a4b-it" to 12_000,
+    "gemini-flash-lite-latest" to 10_000,
+    "gemma-4-26b-a4b-it" to 12_000,
+)
+
+/** Calls the Lumiq AI server if set, otherwise Gemini directly with the configured key. */
 class AIShotService(private val config: AIShotConfig) {
 
     /** Blocking network call; run it on a background dispatcher. */
@@ -186,7 +205,9 @@ class AIShotService(private val config: AIShotConfig) {
 
     private fun viaGemini(key: String, r: AIShotRequest): AIShotSuggestion {
         var last: AIShotError = AIShotError.InvalidResponse
-        for (model in listOf("gemini-flash-latest", "gemini-flash-lite-latest")) {
+        for ((index, entry) in GEMINI_MODELS.withIndex()) {
+            val (model, timeout) = entry
+            if (index == GEMINI_MODELS.size - 1) Thread.sleep(1500)
             val parts = JSONArray()
                 .put(JSONObject().put("text", AIShotLogic.prompt(r)))
                 .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", base64(r.jpeg))))
@@ -194,26 +215,25 @@ class AIShotService(private val config: AIShotConfig) {
                 .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
                 .put(
                     "generationConfig",
-                    JSONObject().put("temperature", 0.3).put("maxOutputTokens", 1024)
-                        .put("responseMimeType", "application/json")
-                        .put("thinkingConfig", JSONObject().put("thinkingBudget", 0)),
+                    // No thinkingConfig: current models reject thinkingBudget = 0 with HTTP 400.
+                    JSONObject().put("temperature", 0.3).put("maxOutputTokens", 2048)
+                        .put("responseMimeType", "application/json"),
                 )
             try {
                 val response = post(
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent",
-                    body.toString(), mapOf("x-goog-api-key" to key),
+                    body.toString(), mapOf("x-goog-api-key" to key), readTimeoutMs = timeout,
                 )
-                return AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, "gemini")
+                return AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, if (model.startsWith("gemma")) "gemma" else "gemini")
             } catch (e: AIShotError) {
-                val retry = e is AIShotError.Quota || e is AIShotError.InvalidResponse || (e is AIShotError.Server && e.code == 404)
-                if (!retry) throw e
+                if (!AIShotLogic.tryNextModel(e)) throw e
                 last = e
             }
         }
         throw last
     }
 
-    private fun post(url: String, json: String, headers: Map<String, String>): String {
+    private fun post(url: String, json: String, headers: Map<String, String>, readTimeoutMs: Int = 25_000): String {
         val connection = try {
             URL(url).openConnection() as HttpURLConnection
         } catch (_: Exception) {
@@ -222,7 +242,7 @@ class AIShotService(private val config: AIShotConfig) {
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
-            connection.readTimeout = 25_000
+            connection.readTimeout = readTimeoutMs
             connection.doOutput = true
             connection.useCaches = false
             connection.setRequestProperty("Content-Type", "application/json")
