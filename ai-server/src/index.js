@@ -144,7 +144,7 @@ function providers(env) {
 }
 
 async function gemini(input, env) {
-  const models = (env.GEMINI_MODELS || "gemini-flash-latest,gemini-flash-lite-latest").split(",").map((m) => m.trim()).filter(Boolean);
+  const models = (env.GEMINI_MODELS || "gemini-flash-latest,gemma-4-26b-a4b-it,gemini-flash-lite-latest").split(",").map((m) => m.trim()).filter(Boolean);
   let last;
   for (const model of models) {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -154,8 +154,8 @@ async function gemini(input, env) {
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: promptFor(input) }, { inlineData: { mimeType: "image/jpeg", data: input.image } }] }],
         generationConfig: {
-          temperature: 0.3, maxOutputTokens: 1024, responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 0 },
+          // No thinkingConfig: current models reject thinkingBudget = 0 with HTTP 400.
+          temperature: 0.3, maxOutputTokens: 2048, responseMimeType: "application/json",
         },
       }),
     });

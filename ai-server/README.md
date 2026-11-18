@@ -16,7 +16,7 @@ Everything here runs on free tiers. The server tries these providers in order:
 
 | Provider | Needs | Notes |
 |---|---|---|
-| Google Gemini (`gemini-flash-latest`, then `gemini-flash-lite-latest`) | free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Best framing quality |
+| Google Gemini (`gemini-flash-latest`, then Gemma 4 and `gemini-flash-lite-latest` when busy) | free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Best framing quality |
 | Groq (`llama-4-scout`) | free key from [console.groq.com/keys](https://console.groq.com/keys) | Very fast; optional |
 | Cloudflare Workers AI (`llama-4-scout`) | nothing, it's built in | Always-on fallback (free daily allowance) |
 

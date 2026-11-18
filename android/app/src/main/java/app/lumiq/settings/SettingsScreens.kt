@@ -135,7 +135,7 @@ fun AIShotSettingsScreen(app: AppState, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var server by remember { mutableStateOf(config.serverText) }
     var token by remember { mutableStateOf(config.tokenText) }
-    var gemini by remember { mutableStateOf(config.geminiKey() ?: "") }
+    var gemini by remember { mutableStateOf(config.personalGeminiKey() ?: "") }
     var testing by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
 
@@ -172,6 +172,12 @@ fun AIShotSettingsScreen(app: AppState, onClose: () -> Unit) {
             }
             Text("OR: GEMINI KEY ON THIS PHONE", color = Palette.muted, fontSize = 11.sp, letterSpacing = 2.sp, modifier = Modifier.padding(top = 10.dp))
             Field("Gemini API key (aistudio.google.com/apikey)", gemini, KeyboardType.Password, secret = true) { gemini = it }
+            if (config.builtInGeminiKey() != null) {
+                Text(
+                    "✓ This build includes Lumiq's Gemini key, so AI Shot works without any setup. A server URL or a key typed here is used instead.",
+                    color = Palette.mint, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
             Text(
                 "The server is better: your key stays off the phone and it falls back to Groq and Cloudflare Workers AI when Gemini's free quota runs out. " +
                     "A key typed here is encrypted with the Android Keystore. See ai-server/README.md to deploy the free server in about 5 minutes.",

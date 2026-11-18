@@ -66,6 +66,20 @@ class AIShotLogicTest {
         }
     }
 
+    @Test fun busyModelsFallThroughButBadKeysStop() {
+        assertTrue(AIShotLogic.errorFor(503) is AIShotError.Busy)
+        assertTrue(AIShotLogic.tryNextModel(AIShotLogic.errorFor(503)))
+        assertTrue(AIShotLogic.tryNextModel(AIShotLogic.errorFor(429)))
+        assertTrue(AIShotLogic.tryNextModel(AIShotLogic.errorFor(400)))
+        assertTrue(!AIShotLogic.tryNextModel(AIShotLogic.errorFor(403)))
+        assertEquals("gemini-flash-latest", app.lumiq.aishot.GEMINI_MODELS.first().first)
+    }
+
+    @Test fun modelAnswerWrappedInArrayIsAccepted() {
+        val s = AIShotLogic.parseModelJson("""[{"subject":"boat","box_2d":[500,0,645,1000]}]""", request, "gemma")
+        assertEquals(1.0, s.frame.width, 1e-9) // 1000 wide → full frame
+    }
+
     @Test fun geminiThoughtsAreSkipped() {
         val text = AIShotLogic.geminiText("""{"candidates":[{"content":{"parts":[{"text":"thinking","thought":true},{"text":"{\"a\":1}"}]}}]}""")
         assertEquals("""{"a":1}""", text)
