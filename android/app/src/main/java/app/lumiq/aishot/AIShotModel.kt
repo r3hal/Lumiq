@@ -95,7 +95,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         if (!config.isConfigured) { fail(AIShotError.NotConfigured.userMessage); return }
         camera.setAIShotTracker(tracker)
         phase = Phase.Finding
-        instruction = "Hold still for a moment"
+        instruction = "Finding your shot…"
         suggestion = null; frame = null; direction = null
         haptics.soft()
         val zoom = camera.zoom
@@ -182,9 +182,13 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         val offset = max(abs(dx), abs(dy))
         val needsZoom = s.zoom / max(0.01, camera.zoom) > 1.1 && camera.zoom < camera.maximumZoom - 0.05
 
-        if (needsZoom && !zoomRequested && offset < zoomWhenWithin) {
+        // Zoom scales the remaining offset by the zoom ratio, so only zoom once it stays
+        // centered afterwards (otherwise the target jumps back off-center, as seen on device).
+        val zoomStep = min(s.zoom, camera.maximumZoom) / max(0.01, camera.zoom)
+        val zoomWithin = max(0.025, min(zoomWhenWithin, readyExit * 0.8 / max(1.0, zoomStep)))
+        if (needsZoom && !zoomRequested && offset < zoomWithin) {
             zoomRequested = true; zoomStartedAt = now
-            phase = Phase.Zooming; instruction = "Zooming in…"; direction = null
+            phase = Phase.Zooming; direction = null
             camera.setZoom(min(s.zoom, camera.maximumZoom))
             return
         }
@@ -206,17 +210,16 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         if (phase == Phase.Aiming) updateDirection(dx, dy, now)
     }
 
+    /**
+     * Like Framed, the text stays the AI's tip; direction is only an arrow (plus the box and
+     * dashed line on the image). The arrow turns at most ~4×/s so it does not flicker.
+     */
     private fun updateDirection(dx: Double, dy: Double, now: Double) {
         val length = hypot(dx, dy)
-        if (length <= 0.02) { direction = null; instruction = "Hold steady"; return }
+        if (length <= 0.025) { direction = null; return }
+        if (now - lastGuidanceChange <= 0.25 && direction != null) return
         direction = Vec(dx / length, dy / length)
-        // Text changes at most ~3×/s so it is readable.
-        if (now - lastGuidanceChange <= 0.33) return
-        val parts = ArrayList<String>()
-        if (abs(dx) > 0.03) parts.add(if (dx > 0) "right" else "left")
-        if (abs(dy) > 0.03) parts.add(if (dy > 0) "down" else "up")
-        val text = if (parts.isEmpty()) "Almost there" else "Aim " + (if (length > 0.2) "" else "slightly ") + parts.joinToString(" & ")
-        if (text != instruction) { instruction = text; lastGuidanceChange = now }
+        lastGuidanceChange = now
     }
 
     private fun fail(message: String) {
@@ -235,8 +238,8 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     companion object {
         /** The tracker follows the middle of the shot; a box that fills the view after zooming cannot be tracked itself. */
         fun trackedPart(frame: NRect): NRect {
-            val w = max(0.08, frame.width * 0.5)
-            val h = max(0.08, frame.height * 0.5)
+            val w = max(0.12, frame.width * 0.65)
+            val h = max(0.12, frame.height * 0.65)
             return NRect(frame.midX - w / 2, frame.midY - h / 2, w, h)
         }
 

@@ -15,7 +15,7 @@ Every APK is signed with the same sideload key (`app/lumiq-sideload.keystore`), 
 
 The APK can include one Gemini key, so everyone who installs it can use AI Shot right away. The key never goes in git:
 
-- **Codemagic:** in the Lumiq app settings, open Environment variables. Add `LUMIQ_GEMINI_KEY` with your key, mark it **Secret** and put it in the group **`lumiq_android`**. Create the group before running `android-apk`.
+- **Codemagic:** in the Lumiq app settings, open Environment variables. Add `LUMIQ_GEMINI_KEY` with your key, mark it **Secret** and put it in the group **`lumiq_ai`**. Create the group before running `android-apk`. The same group feeds the iPhone workflow `ios-sideload-ai`.
 - **Local builds:** add `lumiq.geminiKey=YOUR_KEY` to `android/local.properties`. That file is gitignored.
 
 A server URL or a key typed in Settings › AI Shot overrides the built-in key. Anyone holding the APK can extract a built-in key from it. For a wider release, use the [Lumiq AI server](../ai-server/README.md) so the key stays on the server.

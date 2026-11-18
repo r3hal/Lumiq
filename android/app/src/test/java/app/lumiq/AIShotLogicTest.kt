@@ -97,7 +97,7 @@ class AIShotLogicTest {
         assertEquals(NRect(0.7, 0.7, 0.4, 0.4), r)
         val part = AIShotModel.trackedPart(NRect(0.2, 0.2, 0.4, 0.4))
         assertEquals(0.4, part.midX, 1e-9)
-        assertEquals(0.2, part.width, 1e-9)
+        assertEquals(0.26, part.width, 1e-9)
     }
 }
 

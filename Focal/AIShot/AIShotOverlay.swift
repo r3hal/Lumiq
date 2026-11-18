@@ -9,6 +9,14 @@ struct AIShotOverlay: View {
             let size = geometry.size
             let center = CGPoint(x:size.width/2,y:size.height/2)
             ZStack {
+                // Thirds grid while AI Shot is active, as in Framed.
+                Path { path in
+                    for k in 1...2 {
+                        let x = size.width*CGFloat(k)/3, y = size.height*CGFloat(k)/3
+                        path.move(to:CGPoint(x:x,y:0)); path.addLine(to:CGPoint(x:x,y:size.height))
+                        path.move(to:CGPoint(x:0,y:y)); path.addLine(to:CGPoint(x:size.width,y:y))
+                    }
+                }.stroke(Color.white.opacity(0.3),lineWidth:0.7)
                 if model.phase == .finding { FindingBrackets().frame(width:size.width*0.42,height:size.width*0.42).position(center) }
                 if model.phase.isLocked, let f = model.frame {
                     let rect = CGRect(x:f.minX*size.width,y:f.minY*size.height,width:f.width*size.width,height:f.height*size.height)

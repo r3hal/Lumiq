@@ -6,7 +6,7 @@ import SwiftUI
 struct AIShotSettingsView: View {
     @AppStorage(AIShotConfiguration.serverKey) private var server = ""
     @AppStorage(AIShotConfiguration.tokenKey) private var token = ""
-    @State private var geminiKey = AIShotConfiguration.geminiKey ?? ""
+    @State private var geminiKey = AIShotConfiguration.personalGeminiKey ?? ""
     @State private var status: String?
     @State private var testing = false
 
@@ -30,7 +30,7 @@ struct AIShotSettingsView: View {
                     .onChange(of:geminiKey) { _,value in AIShotKeychain.write(value,account:AIShotConfiguration.geminiKeychainAccount) }
                 Link("Get a free key at aistudio.google.com",destination:URL(string:"https://aistudio.google.com/apikey")!)
             } header: { Text("Or: direct Gemini key") } footer: {
-                Text("Used only when no server is set. The key is stored in this iPhone's Keychain.")
+                Text(AIShotConfiguration.builtInGeminiKey == nil ? "Used only when no server is set. The key is stored in this iPhone's Keychain." : "This build includes Lumiq's Gemini key, so AI Shot works without setup. A server or a key typed here is used instead. Typed keys are stored in this iPhone's Keychain.")
             }
             if let status { Section { Text(status).font(.footnote) } }
             Section {

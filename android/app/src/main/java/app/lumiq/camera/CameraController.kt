@@ -361,6 +361,6 @@ class CameraController(private val context: Context) : AIShotCamera {
     }
 
     companion object {
-        const val TRACK_WIDTH = 160
+        const val TRACK_WIDTH = 200
     }
 }

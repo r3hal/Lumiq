@@ -53,7 +53,7 @@ import UIKit
         guard AIShotConfiguration.isConfigured else { fail(AIShotError.notConfigured.message); return }
         let handlerTracker = tracker
         camera.setAIShotFrameHandler { handlerTracker.ingest($0) }
-        phase = .finding; instruction = "Hold still for a moment"; suggestion = nil; frame = nil; direction = nil
+        phase = .finding; instruction = "Finding your shot…"; suggestion = nil; frame = nil; direction = nil
         UIImpactFeedbackGenerator(style:.soft).impactOccurred()
         let request = (zoom:camera.zoom,minimum:camera.minimumZoom,maximum:min(camera.maximumZoom,6))
         task = Task { [weak self] in
@@ -147,8 +147,11 @@ import UIKit
         let offset = max(abs(dx),abs(dy))
         let needsZoom = suggestion.zoom/max(0.01,camera.zoom) > 1.1 && camera.zoom < camera.maximumZoom-0.05
 
-        if needsZoom && !zoomRequested && offset < zoomWhenWithin {
-            zoomRequested = true; zoomStartedAt = now; phase = .zooming; instruction = "Zooming in…"; direction = nil
+        // Zoom multiplies the remaining offset by the zoom step, so only zoom once it will stay centered.
+        let zoomStep = min(suggestion.zoom,camera.maximumZoom)/max(0.01,camera.zoom)
+        let zoomWithin = max(0.025,min(zoomWhenWithin,readyExit*0.8/max(1,zoomStep)))
+        if needsZoom && !zoomRequested && offset < zoomWithin {
+            zoomRequested = true; zoomStartedAt = now; phase = .zooming; direction = nil
             camera.setZoom(min(suggestion.zoom,camera.maximumZoom))
             return
         }
@@ -168,17 +171,14 @@ import UIKit
         if phase == .aiming { updateDirection(dx:dx,dy:dy,now:now) }
     }
 
+    /// Like Framed, the text stays the AI's tip; direction is only the arrow (plus the box and
+    /// dashed line on the image). The arrow turns at most ~4×/s so it does not flicker.
     private func updateDirection(dx:Double,dy:Double,now:TimeInterval) {
         let length = hypot(dx,dy)
-        guard length > 0.02 else { direction = nil; instruction = "Hold steady"; return }
+        guard length > 0.025 else { direction = nil; return }
+        if now-lastGuidanceChange <= 0.25 && direction != nil { return }
         direction = CGVector(dx:dx/length,dy:dy/length)
-        // Text changes at most ~3×/s so it is readable.
-        guard now-lastGuidanceChange > 0.33 else { return }
-        var parts = [String]()
-        if abs(dx) > 0.03 { parts.append(dx > 0 ? "right" : "left") }
-        if abs(dy) > 0.03 { parts.append(dy > 0 ? "down" : "up") }
-        let text = parts.isEmpty ? "Almost there" : "Aim " + (length > 0.2 ? "" : "slightly ") + parts.joined(separator:" & ")
-        if text != instruction { instruction = text; lastGuidanceChange = now }
+        lastGuidanceChange = now
     }
 
     private func fail(_ message:String) {

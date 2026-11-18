@@ -163,14 +163,18 @@ fun CameraScreen(
         }
     }
 
+    // ✕ cancels until the shot is Ready (like Framed); ↻ then finds a new one.
     fun aiShotTapped() {
-        if (aiShot.phase == AIShotModel.Phase.Finding) { aiShot.stop(); return }
+        val phase = aiShot.phase
+        if (phase == AIShotModel.Phase.Finding || phase == AIShotModel.Phase.Aiming || phase == AIShotModel.Phase.Zooming) {
+            aiShot.stop(); return
+        }
         if (!app.aiConfig.isConfigured) { onOpenAIShotSettings(); return }
         aiShot.start(camera, aspect)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Palette.ink).systemBarsPadding()) {
-        val footerHeight = 120.dp
+        val footerHeight = 168.dp
         val available = (maxHeight - 94.dp - footerHeight).coerceAtLeast(160.dp)
         val width = min(maxWidth.value, (available.value * aspect).toFloat()).dp
         val height = (width.value / aspect).toFloat().dp
@@ -243,9 +247,13 @@ fun CameraScreen(
                     }
                 }
             }
-            // Footer
+            // Footer, like Framed: one guidance line, the lens row, then library · shutter · ✦.
+            FooterLine(app, Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 20.dp))
+            Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.Center) {
+                if (camera.isRunning) LensButtons(camera)
+            }
             Row(
-                Modifier.fillMaxWidth().height(footerHeight).padding(horizontal = 30.dp),
+                Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 30.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LibraryThumbnail(app, enabled = !busy, onClick = onOpenLibrary)
@@ -295,30 +303,24 @@ private fun Viewfinder(app: AppState, showExposure: Boolean, saved: Boolean) {
                     }
                 },
         )
-        if (settings.grid) GridOverlay()
-        if (settings.level) LevelOverlay()
-        if (aiShot.phase.isActive) AIShotOverlay(aiShot) else if (settings.guide) ClassicGuideOverlay(camera.guide)
+        if (settings.grid || aiShot.phase.isActive) GridOverlay()
+        val roll = rememberDeviceRoll(settings.level || aiShot.phase.isActive)
+        if (settings.level && !aiShot.phase.isActive) LevelOverlay(roll)
+        if (aiShot.phase.isActive) AIShotOverlay(aiShot, roll) else if (settings.guide) ClassicGuideOverlay(camera.guide)
         focusPoint?.let { p ->
             Canvas(Modifier.fillMaxSize()) {
                 val s = 64.dp.toPx()
                 drawRect(Palette.yellow, Offset(p.x - s / 2, p.y - s / 2), Size(s, s), style = Stroke(1.5.dp.toPx()))
             }
         }
-        // Bottom controls inside the viewfinder.
+        // Only transient things sit on the image; guidance text and lenses are in the footer (like Framed).
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
-                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 24.dp),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             AnimatedVisibility(saved, enter = fadeIn(), exit = fadeOut()) { SavedBadge() }
-            when {
-                showExposure -> ExposureStrip(camera)
-                aiShot.phase.isActive -> AIShotInstruction(aiShot)
-                settings.guide -> GuidanceCard(camera.guide)
-            }
-            if (camera.isRunning) LensButtons(camera)
+            if (showExposure) ExposureStrip(camera)
         }
         if (!camera.isRunning) {
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(28.dp), color = Palette.yellow, strokeWidth = 2.dp)
@@ -339,10 +341,26 @@ private fun GridOverlay() {
 }
 
 @Composable
-private fun LevelOverlay() {
+private fun LevelOverlay(roll: Float) {
+    Canvas(Modifier.fillMaxSize()) {
+        val level = abs(roll) < 1f
+        val color = if (level) Palette.yellow else Color.White.copy(alpha = 0.8f)
+        val c = Offset(size.width / 2, size.height / 2)
+        val half = size.width * 0.18f
+        rotate(if (level) 0f else roll, c) {
+            drawLine(color, Offset(c.x - half, c.y), Offset(c.x - 10.dp.toPx(), c.y), 1.5.dp.toPx())
+            drawLine(color, Offset(c.x + 10.dp.toPx(), c.y), Offset(c.x + half, c.y), 1.5.dp.toPx())
+        }
+    }
+}
+
+/** Phone tilt (roll) in degrees while `active`; 0 when level or lying flat. */
+@Composable
+private fun rememberDeviceRoll(active: Boolean): Float {
     val context = LocalContext.current
     var roll by remember { mutableFloatStateOf(0f) }
-    DisposableEffect(Unit) {
+    DisposableEffect(active) {
+        if (!active) return@DisposableEffect onDispose { }
         val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val listener = object : SensorEventListener {
@@ -359,16 +377,7 @@ private fun LevelOverlay() {
         if (sensor != null) manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
         onDispose { manager.unregisterListener(listener) }
     }
-    Canvas(Modifier.fillMaxSize()) {
-        val level = abs(roll) < 1f
-        val color = if (level) Palette.yellow else Color.White.copy(alpha = 0.8f)
-        val c = Offset(size.width / 2, size.height / 2)
-        val half = size.width * 0.18f
-        rotate(if (level) 0f else roll, c) {
-            drawLine(color, Offset(c.x - half, c.y), Offset(c.x - 10.dp.toPx(), c.y), 1.5.dp.toPx())
-            drawLine(color, Offset(c.x + 10.dp.toPx(), c.y), Offset(c.x + half, c.y), 1.5.dp.toPx())
-        }
-    }
+    return roll
 }
 
 /** Classic guide: subject box, the thirds target and a line between them. */
@@ -403,15 +412,25 @@ private fun ClassicGuideOverlay(reading: GuideReading?) {
     }
 }
 
+/** The single guidance line under the viewfinder: AI Shot status/tip, classic guide, or the idle hint. */
 @Composable
-private fun GuidanceCard(reading: GuideReading?) {
-    val text = reading?.instruction ?: "Looking for a subject…"
-    Row(
-        Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(if (reading?.ready == true) Palette.yellow else Palette.mint))
-        Text(text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+private fun FooterLine(app: AppState, modifier: Modifier) {
+    val aiShot = app.aiShot
+    Box(modifier, contentAlignment = Alignment.Center) {
+        when {
+            aiShot.phase.isActive -> AIShotInstruction(aiShot)
+            app.settings.guide -> {
+                val reading = app.camera.guide
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(if (reading?.ready == true) Palette.yellow else Palette.mint))
+                    Text(
+                        reading?.instruction ?: "Looking for a subject…", color = Color.White, fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 2,
+                    )
+                }
+            }
+            app.camera.isRunning -> Text("Point your camera and tap the ✦ button", color = Palette.muted, fontSize = 13.sp, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -531,12 +550,16 @@ private fun AIShotButton(phase: AIShotModel.Phase, enabled: Boolean, onClick: ()
         ) {
             when (phase) {
                 AIShotModel.Phase.Idle -> LumiqMark(Modifier.size(28.dp), starColor = Palette.yellow, bracketColor = Palette.yellow)
-                AIShotModel.Phase.Finding -> GlyphIcon(Glyph.Close, Color.White, 18.dp)
+                AIShotModel.Phase.Finding, AIShotModel.Phase.Aiming, AIShotModel.Phase.Zooming -> GlyphIcon(Glyph.Close, Color.White, 18.dp)
                 else -> GlyphIcon(Glyph.Rescan, Palette.yellow, 20.dp)
             }
         }
         Text(
-            when (phase) { AIShotModel.Phase.Idle -> "AI SHOT"; AIShotModel.Phase.Finding -> "CANCEL"; else -> "RESCAN" },
+            when (phase) {
+                AIShotModel.Phase.Idle -> "AI SHOT"
+                AIShotModel.Phase.Finding, AIShotModel.Phase.Aiming, AIShotModel.Phase.Zooming -> "CANCEL"
+                else -> "RESCAN"
+            },
             color = Palette.muted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace,
         )
     }

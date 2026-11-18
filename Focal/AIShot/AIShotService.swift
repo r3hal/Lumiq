@@ -56,7 +56,16 @@ enum AIShotConfiguration {
         let token = UserDefaults.standard.string(forKey:tokenKey)?.trimmingCharacters(in:.whitespacesAndNewlines)
         return token?.isEmpty == false ? token : nil
     }
-    static var geminiKey: String? { AIShotKeychain.read(geminiKeychainAccount) }
+    /// A key typed in Settings wins; otherwise the key built into this app (if any).
+    static var geminiKey: String? { personalGeminiKey ?? builtInGeminiKey }
+    static var personalGeminiKey: String? { AIShotKeychain.read(geminiKeychainAccount) }
+    /// Injected at build time from the LUMIQ_GEMINI_KEY Codemagic secret via Info.plist; never in git.
+    static var builtInGeminiKey: String? {
+        guard let value = (Bundle.main.object(forInfoDictionaryKey:"LumiqGeminiKey") as? String)?
+                .trimmingCharacters(in:.whitespacesAndNewlines),
+              !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+        return value
+    }
     static var isConfigured: Bool { serverURL != nil || geminiKey != nil }
 }
 
