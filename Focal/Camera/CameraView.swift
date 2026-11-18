@@ -4,6 +4,8 @@ struct CameraView: View {
     @StateObject private var camera = CameraController()
     @StateObject private var sony = SonyRemoteCamera()
     @StateObject private var guidancePresenter = GuidanceCardPresenter()
+    @StateObject private var aiShot = AIShotModel()
+    @State private var showAIShotSettings = false
     @State private var source: CameraSource = .iPhone
     @State private var immersivePreviewAspect = 0.75
     @State private var sonyFullFrame = true
@@ -54,6 +56,8 @@ struct CameraView: View {
     var body: some View {
         presentedCamera
             .sheet(isPresented:$showCloudScan) { CloudCompositionScanView(camera:camera) }
+            .sheet(isPresented:$showAIShotSettings) { NavigationStack { AIShotSettingsView().toolbar { ToolbarItem(placement:.confirmationAction) { Button("Done") { showAIShotSettings = false } } } } }
+            .onChange(of:aiShot.phase.isActive) { _, active in camera.setGuidance(active ? false : settings.guide) }
             .alert("Camera", isPresented: cameraErrorPresented) {
                 Button("OK") { camera.errorMessage = nil }
             } message: {
@@ -193,7 +197,7 @@ struct CameraView: View {
     }
 
     private func changeGuidance(to enabled: Bool) {
-        camera.setGuidance(enabled)
+        camera.setGuidance(enabled && !aiShot.phase.isActive)
         if enabled && demo { demo = false; camera.start() }
     }
 
@@ -223,7 +227,7 @@ struct CameraView: View {
     private var toolbar: some View {
         HStack(spacing: 20) {
             VStack(alignment:.leading,spacing:2) {
-                Text("LUMIQ").font(.system(size:18,weight:.semibold)).tracking(4)
+                LumiqLogo(height:20)
                 if source == .sony { Text(sony.hasFrame ? sony.model : "SONY LINK").font(.system(size:9,design:.monospaced)).foregroundStyle(Palette.muted).lineLimit(1) }
             }
             Spacer(minLength: 8)
@@ -315,7 +319,7 @@ struct CameraView: View {
             referenceOverlay
             PrecisionOverlayView(reading:camera.precisionReading,options:precisionOptions,recommendations:camera.autoTuneRecommendations,apply:camera.applyAutoTune,canApply:camera.isCurrentAutoTuneRecommendation)
                 .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
-            subjectOverlay
+            if aiShot.phase.isActive { AIShotOverlay(model:aiShot) } else { subjectOverlay }
             coachOverlay
         }
         .clipShape(RoundedRectangle(cornerRadius: 9))
@@ -327,6 +331,8 @@ struct CameraView: View {
                     ProfessionalControlsView(camera:camera,busy:controlsBusy)
                 } else if showExposure && hasLivePreview {
                     exposureStrip.transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if hasLivePreview && aiShot.phase.isActive {
+                    AIShotInstruction(model:aiShot).allowsHitTesting(false)
                 } else if hasLivePreview && settings.guide {
                     CameraGuidanceCard(state: guidancePresenter.presentation.state, instruction: guidancePresenter.presentation.instruction,
                                        holdProgress: camera.framingHoldProgress, showHoldProgress: source == .iPhone && camera.framingPhase == .settling,
@@ -652,23 +658,46 @@ struct CameraView: View {
         }.buttonStyle(CameraPressStyle()).disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
     }
 
+    /// ✦ = AI Shot (one tap, like Framed). While finding: ✕ cancels.
+    /// Once a shot is marked: ↻ finds a new one. Long press for more.
     private var guidanceButton: some View {
-        Button { settings.guide.toggle(); UIImpactFeedbackGenerator(style: .soft).impactOccurred() } label: {
+        Button(action:aiShotTapped) {
             VStack(spacing:4) {
-                FocalIntelligenceMark().stroke(settings.guide ? Palette.ink : Palette.yellow,style:StrokeStyle(lineWidth:1.7,lineCap:.round,lineJoin:.round))
-                    .frame(width:27,height:27).frame(width:50,height:50)
-                    .background(settings.guide ? Palette.yellow : Palette.panel,in:Circle())
-                    .overlay(Circle().stroke(Palette.yellow.opacity(settings.guide ? 1 : 0.4),lineWidth:1))
-                Text(settings.guide ? "AI ON" : "AI OFF").font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(Palette.muted)
+                ZStack {
+                    switch aiShot.phase {
+                    case .idle:
+                        LumiqMark(starColor:Palette.yellow,bracketColor:Palette.yellow).frame(width:28,height:28)
+                    case .finding:
+                        Image(systemName:"xmark").font(.system(size:18,weight:.semibold)).foregroundStyle(.white)
+                    default:
+                        Image(systemName:"arrow.clockwise").font(.system(size:18,weight:.semibold)).foregroundStyle(Palette.yellow)
+                    }
+                }
+                .frame(width:50,height:50)
+                .background(Palette.panel,in:Circle())
+                .overlay(Circle().stroke(Palette.yellow.opacity(aiShot.phase.isActive ? 1 : 0.45),lineWidth:1))
+                Text(aiShot.phase == .idle ? "AI SHOT" : (aiShot.phase == .finding ? "CANCEL" : "RESCAN"))
+                    .font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(Palette.muted)
             }
-        }.buttonStyle(CameraPressStyle()).accessibilityLabel("Lumiq Intelligence")
-            .accessibilityValue(settings.guide ? "On" : "Off")
-            .accessibilityHint("Toggle local composition guidance. Long press for composition options and experimental Cloud Scan.")
+        }.buttonStyle(CameraPressStyle()).accessibilityLabel("AI Shot")
+            .accessibilityHint("Finds the best shot in view and guides you to it. Long press for more options.")
+            .disabled(source != .iPhone || demo || controlsBusy || !camera.isRunning)
             .contextMenu {
-                if settings.guide { Button("Cloud AI Scan (Experimental)",systemImage:"cloud") { showCloudScan = true }.disabled(source != .iPhone || demo || mode != .automatic || controlsBusy) }
-                if settings.guide { Button("Try Another Composition",systemImage:"arrow.triangle.2.circlepath") { camera.tryAnotherComposition() } }
+                if aiShot.phase.isActive { Button("Exit AI Shot",systemImage:"xmark.circle") { aiShot.stop() } }
+                Button("AI Shot Setup",systemImage:"key") { showAIShotSettings = true }
+                Toggle(isOn:$settings.guide) { Label("Classic live guide",systemImage:"viewfinder") }
+                if settings.guide && !aiShot.phase.isActive {
+                    Button("Cloud AI Scan (Experimental)",systemImage:"cloud") { showCloudScan = true }.disabled(source != .iPhone || demo || mode != .automatic || controlsBusy)
+                    Button("Try Another Composition",systemImage:"arrow.triangle.2.circlepath") { camera.tryAnotherComposition() }
+                }
             }
-            .animation(.easeInOut(duration: 0.18), value: settings.guide)
+            .animation(.easeInOut(duration: 0.18), value: aiShot.phase)
+    }
+
+    private func aiShotTapped() {
+        if aiShot.phase == .finding { aiShot.stop(); return }
+        guard AIShotConfiguration.isConfigured else { showAIShotSettings = true; return }
+        aiShot.start(camera:camera,previewAspect:viewfinderAspect,mirrored:camera.isFrontCamera)
     }
 
     private var libraryThumbnail: some View {
@@ -701,7 +730,7 @@ struct CameraView: View {
         }.padding(24).multilineTextAlignment(.center)
     }
 
-    private func pauseActiveSource() { camera.stop(); sony.pause() }
+    private func pauseActiveSource() { aiShot.stop(); camera.stop(); sony.pause() }
     private func resume() {
         guard visible,scenePhase == .active,reviewPhoto == nil,!showCameraPanel else { return }
         if source == .iPhone { if !demo { camera.start() } }
@@ -767,6 +796,7 @@ struct CameraView: View {
                 }
                 if operation == captureGeneration {
                     saved = !added.isEmpty
+                    if !added.isEmpty { aiShot.stop() }
                     if wantsReview, let photo = added.first {
                         reviewAutoSave = autoSave; pauseActiveSource(); reviewPhoto = photo
                     }

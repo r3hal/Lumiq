@@ -8,6 +8,7 @@ struct FocalApp: App {
     @StateObject private var library: PhotoLibrary
     @StateObject private var settings = CameraSettings()
     @StateObject private var recipes = RecipeStore()
+    @State private var showSplash = true
 
     init() {
         let library = PhotoLibrary()
@@ -27,6 +28,15 @@ struct FocalApp: App {
                     else if phase == .background { PhotoBackupCoordinator.shared.backgrounded() }
                 }
                 .task { PhotoBackupCoordinator.shared.foreground() }
+                .overlay {
+                    if showSplash {
+                        LumiqSplashView().transition(.opacity).zIndex(1)
+                            .task {
+                                try? await Task.sleep(for:.milliseconds(1100))
+                                withAnimation(.easeInOut(duration:0.35)) { showSplash = false }
+                            }
+                    }
+                }
         }
     }
 }

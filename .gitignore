@@ -15,3 +15,7 @@ LocalDeveloper/
 backup-server/.env
 backup-server/data/
 .venv/
+
+# AI server
+ai-server/node_modules/
+ai-server/.wrangler/

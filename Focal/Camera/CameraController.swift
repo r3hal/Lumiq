@@ -118,6 +118,14 @@ final class CameraController: NSObject, ObservableObject {
     private var latestCloudEvidence: CloudLocalEvidence?
     private var cloudRecovering = false
     @Published private(set) var cloudCompositionStatus = "Local composition guidance"
+    // AI Shot (Framed-style one-tap shot). Video queue reads, any thread writes.
+    private let aiShotLock = NSLock()
+    private var aiShotFrameHandler: ((CMSampleBuffer) -> Void)?
+    /// Receives every iPhone preview frame on the video queue, independent of
+    /// the classic live guidance. The handler must return quickly.
+    func setAIShotFrameHandler(_ handler: ((CMSampleBuffer) -> Void)?) {
+        aiShotLock.lock(); aiShotFrameHandler = handler; aiShotLock.unlock()
+    }
     private var subjectMeasurements: PhotoMeasurements?
     private var subjectMeasurementLabel: String?
     private var lastSubjectMeasurement: TimeInterval = -.infinity
@@ -1692,6 +1700,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
                        from connection: AVCaptureConnection) {
         let snapshot = guidanceSnapshot()
         guard snapshot.source == .iPhone else { return }
+        aiShotLock.lock(); let aiShot = aiShotFrameHandler; aiShotLock.unlock()
+        aiShot?(sampleBuffer)
         analyzePhonePrecision(sampleBuffer)
         let now = ProcessInfo.processInfo.systemUptime
         let timestamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
