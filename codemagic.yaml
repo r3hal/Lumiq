@@ -156,3 +156,28 @@ workflows:
           set -euo pipefail
           python3 scripts/build_personal_cloud_ipa.py build
     # No key-bearing IPA, app, archive, logs or test bundle goes into artifact storage.
+
+  # ANDROID: installable APK for Samsung and other Android phones (no Apple tools needed).
+  # Start it manually in Codemagic, then download Lumiq-android.apk from the build artifacts.
+  android-apk:
+    name: Lumiq - Android APK (install on Samsung)
+    instance_type: linux_x2
+    max_build_duration: 30
+    environment:
+      java: 17
+    scripts:
+      - name: Run Android unit tests
+        script: |
+          set -euo pipefail
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon testReleaseUnitTest
+      - name: Build signed, installable release APK
+        script: |
+          set -euo pipefail
+          cd android
+          ./gradlew --no-daemon assembleRelease
+          mkdir -p ../build
+          cp app/build/outputs/apk/release/app-release.apk ../build/Lumiq-android.apk
+    artifacts:
+      - build/Lumiq-android.apk
