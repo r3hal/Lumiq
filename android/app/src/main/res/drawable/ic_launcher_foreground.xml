@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lumiq mark: porcelain viewfinder brackets and a soft-iris spark (135-unit design box). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.4444"
+        android:scaleY="0.4444"
+        android:translateX="24"
+        android:translateY="24">
+        <path
+            android:pathData="M72,7 H24 A17,17 0 0 0 7,24 V70 M128,65 V100 A28,28 0 0 1 100,128 H63"
+            android:strokeColor="@color/lumiq_porcelain"
+            android:strokeWidth="16"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M68,35 Q71,64 100,67 Q71,70 68,99 Q65,70 36,67 Q65,64 68,35 Z"
+            android:fillColor="@color/lumiq_soft_iris" />
+    </group>
+</vector>
