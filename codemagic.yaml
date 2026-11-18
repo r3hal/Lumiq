@@ -166,7 +166,7 @@ workflows:
     environment:
       java: 17
       groups:
-        - lumiq_android   # holds the LUMIQ_GEMINI_KEY secret (built into the APK)
+        - lumiq_ai   # holds the LUMIQ_GEMINI_KEY secret (built into the APK)
     scripts:
       - name: Run Android unit tests
         script: |
@@ -184,3 +184,37 @@ workflows:
           cp app/build/outputs/apk/release/app-release.apk ../build/Lumiq-android.apk
     artifacts:
       - build/Lumiq-android.apk
+
+  # IPHONE WITH BUILT-IN AI KEY: same app as ios-sideload, but AI Shot works with no setup because
+  # the owner's Gemini key (LUMIQ_GEMINI_KEY secret, group lumiq_ai) is built into Info.plist.
+  # Anyone with this IPA can extract the key; share it only with people you trust.
+  ios-sideload-ai:
+    name: Lumiq - unsigned IPA with built-in AI Shot key
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: "16.4"
+      groups:
+        - lumiq_ai
+    scripts:
+      - name: Require the AI key
+        script: |
+          set -euo pipefail
+          test -n "${LUMIQ_GEMINI_KEY:-}" || { echo "Add LUMIQ_GEMINI_KEY (Secret) to the lumiq_ai group first."; exit 1; }
+      - name: Build native iPhone app with the key in Info.plist
+        script: |
+          set -euo pipefail
+          xcodebuild -project Focal.xcodeproj -scheme Focal \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/Focal.xcarchive \
+            LUMIQ_GEMINI_KEY="$LUMIQ_GEMINI_KEY" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+      - name: Package unsigned IPA for AltStore to sign
+        script: |
+          set -euo pipefail
+          rm -rf build/Payload && mkdir -p build/Payload
+          cp -R build/Focal.xcarchive/Products/Applications/Focal.app build/Payload/
+          test -n "$(/usr/libexec/PlistBuddy -c 'Print :LumiqGeminiKey' build/Payload/Focal.app/Info.plist)"
+          (cd build && zip -qry Lumiq-iPhone-AI.ipa Payload)
+    artifacts:
+      - build/Lumiq-iPhone-AI.ipa

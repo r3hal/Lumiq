@@ -658,8 +658,8 @@ struct CameraView: View {
         }.buttonStyle(CameraPressStyle()).disabled(!canShoot).opacity(canShoot || saving ? 1 : 0.4).accessibilityLabel("Take photo")
     }
 
-    /// ✦ = AI Shot (one tap, like Framed). While finding: ✕ cancels.
-    /// Once a shot is marked: ↻ finds a new one. Long press for more.
+    /// ✦ = AI Shot (one tap, like Framed). Until the shot is Ready: ✕ cancels.
+    /// At Ready (or after an error): ↻ finds a new one. Long press for more.
     private var guidanceButton: some View {
         Button(action:aiShotTapped) {
             VStack(spacing:4) {
@@ -667,7 +667,7 @@ struct CameraView: View {
                     switch aiShot.phase {
                     case .idle:
                         LumiqMark(starColor:Palette.yellow,bracketColor:Palette.yellow).frame(width:28,height:28)
-                    case .finding:
+                    case .finding, .aiming, .zooming:
                         Image(systemName:"xmark").font(.system(size:18,weight:.semibold)).foregroundStyle(.white)
                     default:
                         Image(systemName:"arrow.clockwise").font(.system(size:18,weight:.semibold)).foregroundStyle(Palette.yellow)
@@ -676,7 +676,7 @@ struct CameraView: View {
                 .frame(width:50,height:50)
                 .background(Palette.panel,in:Circle())
                 .overlay(Circle().stroke(Palette.yellow.opacity(aiShot.phase.isActive ? 1 : 0.45),lineWidth:1))
-                Text(aiShot.phase == .idle ? "AI SHOT" : (aiShot.phase == .finding ? "CANCEL" : "RESCAN"))
+                Text(aiShot.phase == .idle ? "AI SHOT" : ([.finding,.aiming,.zooming].contains(aiShot.phase) ? "CANCEL" : "RESCAN"))
                     .font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(Palette.muted)
             }
         }.buttonStyle(CameraPressStyle()).accessibilityLabel("AI Shot")
@@ -695,7 +695,7 @@ struct CameraView: View {
     }
 
     private func aiShotTapped() {
-        if aiShot.phase == .finding { aiShot.stop(); return }
+        if [.finding,.aiming,.zooming].contains(aiShot.phase) { aiShot.stop(); return }
         guard AIShotConfiguration.isConfigured else { showAIShotSettings = true; return }
         aiShot.start(camera:camera,previewAspect:viewfinderAspect,mirrored:camera.isFrontCamera)
     }

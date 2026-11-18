@@ -55,8 +55,8 @@ class TemplateTracker {
         h = max(6.0, r.height * frame.height)
         x = r.midX * frame.width - w / 2
         y = r.midY * frame.height - h / 2
-        gridW = min(24, max(8, w.roundToInt()))
-        gridH = min(24, max(8, h.roundToInt()))
+        gridW = min(28, max(8, w.roundToInt()))
+        gridH = min(28, max(8, h.roundToInt()))
     }
 
     private fun sample(frame: LumaFrame, ox: Double, oy: Double): FloatArray {
