@@ -4,6 +4,10 @@
 //                  zoom, minZoom, maxZoom }
 // -> { subject, tip, technique, frame: {x,y,width,height}, zoom, provider }
 //
+// Learning (optional, needs the D1 binding "DB"; see README):
+//   POST /v1/feedback  anonymous result of one AI Shot (no image)
+//   GET  /v1/guidance  short rules learned from everyone's results
+//
 // `frame` is the region of the CURRENT view that should become the final photo
 // (normalized, top-left origin). The app tracks it, guides the user to center
 // it, zooms so it fills the viewfinder and then shows "Ready".
@@ -12,6 +16,8 @@
 //   1. Google Gemini        (secret GEMINI_API_KEY)  best quality
 //   2. Groq                 (secret GROQ_API_KEY)    very fast
 //   3. Cloudflare Workers AI (no key, the [ai] binding) always-available fallback
+
+import { buildGuidance, validateFeedback } from "./learning.js";
 
 const TECHNIQUES = ["rule of thirds", "centered", "leading lines", "symmetry", "negative space", "framing", "fill the frame", "layers", "detail"];
 
@@ -33,8 +39,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, providers: providers(env).map((p) => p.name) });
+      return json({ ok: true, providers: providers(env).map((p) => p.name), learning: Boolean(env.DB) });
     }
+    if (url.pathname === "/v1/feedback" && request.method === "POST") return feedback(request, env);
+    if (url.pathname === "/v1/guidance" && request.method === "GET") return guidance(env);
     if (request.method !== "POST" || url.pathname !== "/v1/shot") return json({ error: "not_found" }, 404);
     if (env.APP_TOKEN && request.headers.get("Authorization") !== `Bearer ${env.APP_TOKEN}`) {
       return json({ error: "unauthorized" }, 401);
@@ -211,5 +219,31 @@ function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
+// ---------------------------------------------------------------- learning
+
+async function feedback(request, env) {
+  if (!env.DB) return json({ error: "learning_disabled" }, 503);
+  if (Number(request.headers.get("Content-Length") || 0) > 4_000) return json({ error: "too_large" }, 413);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "bad_json" }, 400); }
+  const row = validateFeedback(body);
+  if (!row) return json({ error: "bad_request" }, 400);
+  const columns = Object.keys(row);
+  await env.DB.prepare(`INSERT INTO shots (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`)
+    .bind(...columns.map((c) => row[c])).run();
+  return json({ ok: true });
+}
+
+async function guidance(env) {
+  if (!env.DB) return json({ samples: 0, guidance: [] });
+  // The newest 5000 results, so rules follow how people shoot now.
+  const { results } = await env.DB.prepare(
+    "SELECT technique, subject, outcome, ai_zoom, user_zoom FROM shots ORDER BY id DESC LIMIT 5000",
+  ).all();
+  return new Response(JSON.stringify(buildGuidance(results || [])), {
+    headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=600" },
   });
 }

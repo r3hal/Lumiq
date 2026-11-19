@@ -40,6 +40,23 @@ Everything here runs on free tiers. The server tries these providers in order:
 
 Without a terminal, you can also use the dashboard: Workers & Pages › Create › Worker. Paste `src/index.js`, then add an **AI** binding named `AI` under Settings › Bindings, and add the secrets under Settings › Variables.
 
+## AI Shot learning (optional)
+
+The Android app can send the result of each AI Shot to this server: the AI's suggestion (subject words, technique, zoom, crop size, model), the photo shape, whether a photo was taken or another shot requested, and the user's zoom. It sends **no photos, location or device details**, and **nothing is saved on the phone**. People are asked once and can switch it off in Settings.
+
+The server stores results in a free Cloudflare D1 database. `GET /v1/guidance` turns the newest 5000 results into up to five short rules, for example "People usually zoom in further than suggested: choose tighter crops." The app adds those rules to the AI's instructions. Rules appear only after 20 judged shots, and each needs at least 8 matching results.
+
+One-time setup:
+
+```sh
+npx wrangler d1 create lumiq-learning                                # prints a database_id
+npx wrangler d1 execute lumiq-learning --remote --file schema.sql   # creates the table
+# paste the id into the [[d1_databases]] block in wrangler.toml and uncomment it
+npx wrangler deploy                                                  # prints https://lumiq-ai.<you>.workers.dev
+```
+
+Then, in the GitHub repository, add the Actions **variable** `LUMIQ_LEARNING_URL` = `https://lumiq-ai.<you>.workers.dev`. The next Android build shows "Help AI Shot learn". Check the server with `curl https://lumiq-ai.<you>.workers.dev/v1/guidance`.
+
 ## No server at all
 
 In Settings › AI Shot you can paste a Gemini key directly. The phone then calls Gemini itself and stores the key in the Keychain. The server is still better: the key stays off the phone, and it falls back to Groq and Workers AI when Gemini's free quota runs out.

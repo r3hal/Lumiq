@@ -42,7 +42,7 @@ data class Vec(val dx: Double, val dy: Double)
  * a tracked target box → center it → automatic zoom → "Ready".
  * One decision per tap: nothing re-plans or flickers while you aim.
  */
-class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics) {
+class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics, private val learning: AIShotLearning? = null) {
     sealed class Phase {
         object Idle : Phase()
         object Finding : Phase()
@@ -84,6 +84,12 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     private var lowConfidenceSince: Double? = null
     private var centeredSince: Double? = null
     private var lastGuidanceChange = 0.0
+    // For AI Shot learning: the zoom when the shot was requested, when it was marked and first Ready.
+    private var startZoom = 1.0
+    private var aspect = 0.75
+    private var lockedAt = 0.0
+    private var readyAt: Double? = null
+    private var reported = true
     // Steady target: heavy smoothing while the phone is held still, quick to follow a real pan.
     private val smoothX = OneEuroFilter(minCutoff = 0.6, beta = 4.0)
     private val smoothY = OneEuroFilter(minCutoff = 0.6, beta = 4.0)
@@ -102,6 +108,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     private fun now() = SystemClock.uptimeMillis() / 1000.0
 
     fun start(camera: AIShotCamera, previewAspect: Double) {
+        finish(ShotOutcome.NewShot) // Asking again while a shot is marked: the previous pick was not wanted.
         cancelWork()
         this.camera = camera
         if (!config.isConfigured) { fail(AIShotError.NotConfigured.userMessage); return }
@@ -116,7 +123,8 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         job = scope.launch {
             try {
                 val snapshot = camera.snapshot() ?: run { fail(AIShotError.NoFrame.userMessage); return@launch }
-                val request = AIShotRequest(snapshot.jpeg, previewAspect, zoom, minimum, max(zoom, maximum))
+                val request = AIShotRequest(snapshot.jpeg, previewAspect, zoom, minimum, max(zoom, maximum), learning?.guidance.orEmpty())
+                startZoom = zoom; aspect = previewAspect
                 val result = withContext(Dispatchers.IO) { service.suggest(request) }
                 ensureActive()
                 lock(result, snapshot.luma, zoom)
@@ -130,8 +138,13 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         }
     }
 
-    /** Leaves AI Shot completely (classic guidance may resume). */
-    fun stop() {
+    /** A photo was taken: the marked shot (if any) was a good pick. */
+    fun photoTaken() = finish(ShotOutcome.Taken)
+
+    /** Leaves AI Shot completely (classic guidance may resume). [outcome] reports a marked shot, e.g. Cancelled. */
+    fun stop(outcome: ShotOutcome? = null) {
+        if (outcome != null) finish(outcome)
+        reported = true
         cancelWork()
         camera?.setAIShotTracker(null)
         phase = Phase.Idle; suggestion = null; frame = null; instruction = ""; direction = null
@@ -144,6 +157,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
 
     private fun lock(s: AIShotSuggestion, reference: LumaFrame, zoom: Double) {
         suggestion = s
+        lockedAt = now(); readyAt = null; reported = false
         trackedZoom = zoom; zoomRequested = false; centeredSince = null; lowConfidenceSince = null
         frame = s.frame
         resetSmoothing(s.frame)
@@ -219,6 +233,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
             if (centeredSince == null) centeredSince = now
             if (now - (centeredSince ?: now) >= readyHold) {
                 phase = Phase.Ready; instruction = s.tip; direction = null
+                if (readyAt == null) readyAt = now
                 haptics.medium()
             }
         } else {
@@ -245,7 +260,22 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         smoothY.reset(rect.midY, time)
     }
 
+    /** Reports how the marked shot ended, once. */
+    private fun finish(outcome: ShotOutcome) {
+        val s = suggestion ?: return
+        if (reported) return
+        reported = true
+        learning?.report(
+            ShotResult(
+                model = s.provider, technique = s.technique, subject = s.subject, aiZoom = s.zoom, startZoom = startZoom,
+                crop = s.frame.width, aspect = aspect, outcome = outcome, reachedReady = readyAt != null,
+                secondsToReady = readyAt?.let { it - lockedAt }, userZoom = camera?.zoom,
+            ),
+        )
+    }
+
     private fun fail(message: String) {
+        if (phase.isLocked) finish(ShotOutcome.Lost)
         tracker.stop(); token = -1
         camera?.setAIShotTracker(null) // Rescan re-attaches it.
         phase = Phase.Failed(message); instruction = message; direction = null; frame = null

@@ -72,6 +72,14 @@ fun SettingsScreen(app: AppState, onClose: () -> Unit, onGoldenHour: () -> Unit)
                 RowSeparator()
                 SettingToggle("Review after capture", s.reviewAfterCapture, glyph = Glyph.Eye) { s.updateReview(it) }
             }
+            if (app.learning.isAvailable) {
+                SettingsSection("AI Shot") {
+                    SettingToggle(
+                        "Help AI Shot learn", app.learning.consent == true,
+                        "Shares anonymous AI Shot results, never photos", Glyph.Aperture,
+                    ) { app.learning.updateConsent(it) }
+                }
+            }
             SettingsSection("Library") {
                 SettingToggle("Also save to Gallery", s.autoSaveToGallery, "Copies new photos to Pictures/Lumiq", Glyph.Photo) { on ->
                     val needsPermission = Build.VERSION.SDK_INT < 29 &&
@@ -154,7 +162,11 @@ private val FIELD_GUIDE = listOf(
 
 private const val PRIVACY =
     "Camera frames, subject detection and tracking are processed on your phone. Lumiq has no analytics and no account. " +
-        "AI Shot sends one compressed frame only when you tap ✦, to Google Gemini; it is not stored by Lumiq. " +
+        "AI Shot sends one compressed frame only when you tap AI Shot, to Google Gemini; it is not stored by Lumiq. " +
+        "If you turn on Help AI Shot learn, Lumiq sends the result of each AI Shot to the Lumiq learning server: the AI's suggestion " +
+        "(subject words, technique, zoom, crop size, model), the photo shape, whether you took the photo or asked for another shot, and your zoom. " +
+        "No photos, location or device details are sent, and nothing is saved on your phone; a random id links the results of one app session. " +
+        "The server combines everyone's results into short rules that improve AI Shot's picks. " +
         "Photos are stored in Lumiq's private app storage, and copied to your Gallery only if you turn that on. " +
         "Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos. " +
         "To look for updates, Lumiq asks GitHub for its newest release when it starts and when you tap Check for Updates; nothing about you or your photos is sent. " +
