@@ -42,7 +42,7 @@ sealed class UpdateError(val userMessage: String) : Exception(userMessage) {
     object Offline : UpdateError("No internet connection. Connect and try again.")
     object Timeout : UpdateError("GitHub took too long to respond. Try again.")
     object RateLimited : UpdateError("GitHub's update-check limit was reached. Try again in an hour.")
-    object NoReleases : UpdateError("No Android releases were found on GitHub.")
+    object NoReleases : UpdateError("No Android releases were found. If the release repository is private, the app cannot see it.")
     object InvalidResponse : UpdateError("GitHub's answer could not be read. Try again later.")
     object Interrupted : UpdateError("The download was interrupted. Try again.")
     object NoSpace : UpdateError("Not enough free storage to download the update.")
