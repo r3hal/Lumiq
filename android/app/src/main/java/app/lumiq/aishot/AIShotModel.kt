@@ -162,8 +162,18 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         frame = s.frame
         resetSmoothing(s.frame)
         zoomedIn = false; targetPinned = false
-        phase = Phase.Aiming
         instruction = s.tip
+        if (isWholeView(s, zoom)) {
+            // The AI chose the whole view: the framing is already right and there is nothing to aim at.
+            // Tracking a patch of a plain or repetitive scene (ground, cobblestones) only loses it.
+            tracker.stop(); token = -1
+            targetPinned = true
+            phase = Phase.Ready; direction = null
+            readyAt = lockedAt
+            haptics.medium()
+            return
+        }
+        phase = Phase.Aiming
         haptics.success()
         token = tracker.track(trackedPart(s.frame), reference)
     }
@@ -299,6 +309,10 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
 
         fun shot(part: NRect, like: NRect): NRect =
             NRect(part.midX - like.width / 2, part.midY - like.height / 2, like.width, like.height)
+
+        /** The pick is (almost) the whole current view at (about) the current zoom. */
+        fun isWholeView(s: AIShotSuggestion, zoom: Double): Boolean =
+            s.frame.width >= 0.92 && s.frame.height >= 0.92 && s.zoom <= zoom * 1.1
 
         /** Zoom scales the view about its center. */
         fun rescale(rect: NRect, ratio: Double): NRect =
