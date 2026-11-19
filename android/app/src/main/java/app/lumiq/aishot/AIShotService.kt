@@ -8,6 +8,12 @@ import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.Base64
 import java.util.Locale
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.Future
+import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Callable
 import kotlin.math.max
 import kotlin.math.min
 
@@ -174,21 +180,24 @@ object AIShotLogic {
 }
 
 /**
- * Models tried in order with their read timeouts (ms). Measured with AI Shot's own request on a free key
- * (Nov 2026): gemini-flash-lite-latest answers in about 1 s; gemini-flash-latest often hangs past 40 s or
- * answers 429 (quota); the Gemma model is often 503 (busy). So the fast model goes first, the others are
- * backups, and the last entry retries the fast model after a short pause.
+ * Requests tried in order, each with its read timeout (ms). Measured with AI Shot's own request on the
+ * free key (Nov 2026): gemini-flash-lite-latest answers in about 1–4 s but is often "busy" (HTTP 503),
+ * and a busy answer comes back within a second, so it is simply asked again; gemini-flash-latest often
+ * hangs or is over quota; the Gemma model is often busy. See [ModelRace] for how they are run.
  */
 val GEMINI_MODELS = listOf(
     "gemini-flash-lite-latest" to 6_000,
+    "gemini-flash-lite-latest" to 6_000,
+    "gemma-4-26b-a4b-it" to 8_000,
+    "gemini-flash-lite-latest" to 6_000,
     "gemini-flash-latest" to 8_000,
-    "gemma-4-26b-a4b-it" to 10_000,
-    "gemini-flash-lite-latest" to 8_000,
+    "gemini-flash-lite-latest" to 6_000,
 )
 
 /**
- * A model that just failed with quota, busy or timeout is skipped for a while, so the next tap of ✦ does
- * not wait on it again. Shared by the whole app process.
+ * A model that is out of quota or timed out is skipped for a while, so the next AI Shot does not wait on
+ * it again. "Busy" (503) does not count: it comes back fast and the next try often works.
+ * Shared by the whole app process.
  */
 class ModelCooldown(private val seconds: Double = 120.0) {
     private val until = HashMap<String, Double>()
@@ -206,8 +215,69 @@ class ModelCooldown(private val seconds: Double = 120.0) {
     companion object {
         val shared = ModelCooldown()
 
-        /** Only errors that say "this model is unavailable right now" cool a model down. */
-        fun coolsDown(e: AIShotError) = e is AIShotError.Quota || e is AIShotError.Busy || e is AIShotError.Timeout
+        fun coolsDown(e: AIShotError) = e is AIShotError.Quota || e is AIShotError.Timeout
+    }
+}
+
+/**
+ * Runs the planned requests so the first good answer wins as soon as possible:
+ * - a request that fails (busy, bad answer) is followed by the next one after [retryPauseMs];
+ * - when a request has not answered after [hedgeMs], the next one starts alongside it
+ *   (at most [maxParallel] at once), and whichever answers first is used;
+ * - after [totalMs] it gives up with [AIShotError.Timeout].
+ * Errors that another request cannot fix (no key, refused key) stop at once.
+ */
+object ModelRace {
+    private val pool = Executors.newCachedThreadPool { r -> Thread(r, "ai-shot").apply { isDaemon = true } }
+
+    fun <T> run(
+        plan: List<Pair<String, Int>>,
+        hedgeMs: Long = 2_500,
+        retryPauseMs: Long = 250,
+        totalMs: Long = 14_000,
+        maxParallel: Int = 2,
+        attempt: (model: String, timeoutMs: Int) -> T,
+    ): T {
+        require(plan.isNotEmpty())
+        val results = ExecutorCompletionService<T>(pool)
+        val started = mutableListOf<Future<T>>()
+        val deadline = System.nanoTime() + totalMs * 1_000_000
+        var next = 0
+        var running = 0
+        var last: AIShotError = AIShotError.Busy
+        fun launch() {
+            val (model, timeout) = plan[next++]
+            running++
+            started += results.submit(Callable { attempt(model, timeout) })
+        }
+        fun left() = (deadline - System.nanoTime()) / 1_000_000
+        try {
+            launch()
+            while (left() > 0) {
+                if (running == 0) {
+                    if (next >= plan.size) break
+                    Thread.sleep(min(retryPauseMs, max(0, left())))
+                    launch(); continue
+                }
+                val wait = if (next < plan.size && running < maxParallel) min(hedgeMs, left()) else left()
+                val done = results.poll(max(1, wait), TimeUnit.MILLISECONDS)
+                if (done == null) {
+                    if (next < plan.size && running < maxParallel) launch()
+                    continue
+                }
+                running--
+                try {
+                    return done.get()
+                } catch (e: ExecutionException) {
+                    val error = e.cause as? AIShotError ?: AIShotError.InvalidResponse
+                    if (!AIShotLogic.tryNextModel(error)) throw error
+                    last = error
+                }
+            }
+            throw if (left() <= 0) AIShotError.Timeout else last
+        } finally {
+            started.forEach { it.cancel(true) }
+        }
     }
 }
 
@@ -225,37 +295,32 @@ class AIShotService(private val config: AIShotConfig) {
     private fun base64(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
 
     private fun viaGemini(key: String, r: AIShotRequest): AIShotSuggestion {
-        var last: AIShotError = AIShotError.InvalidResponse
         val cooldown = ModelCooldown.shared
-        val tried = HashSet<String>()
-        for ((model, timeout) in cooldown.plan(GEMINI_MODELS, now())) {
-            if (!tried.add(model)) Thread.sleep(1000) // Second try of the same model: give it a moment.
-            val parts = JSONArray()
-                .put(JSONObject().put("text", AIShotLogic.prompt(r)))
-                .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", base64(r.jpeg))))
-            val body = JSONObject()
-                .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
-                .put(
-                    "generationConfig",
-                    // No thinkingConfig: current models reject thinkingBudget = 0 with HTTP 400.
-                    JSONObject().put("temperature", 0.3).put("maxOutputTokens", 2048)
-                        .put("responseMimeType", "application/json"),
-                )
+        val parts = JSONArray()
+            .put(JSONObject().put("text", AIShotLogic.prompt(r)))
+            .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", base64(r.jpeg))))
+        val body = JSONObject()
+            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
+            .put(
+                "generationConfig",
+                // No thinkingConfig: current models reject thinkingBudget = 0 with HTTP 400. The answer is
+                // about 80 tokens, so a small limit also cuts off a model that starts rambling.
+                JSONObject().put("temperature", 0.3).put("maxOutputTokens", 512)
+                    .put("responseMimeType", "application/json"),
+            )
+            .toString()
+        return ModelRace.run(cooldown.plan(GEMINI_MODELS, now())) { model, timeout ->
             try {
                 val response = post(
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent",
-                    body.toString(), mapOf("x-goog-api-key" to key), readTimeoutMs = timeout,
+                    body, mapOf("x-goog-api-key" to key), readTimeoutMs = timeout,
                 )
-                val suggestion = AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, model)
-                cooldown.succeeded(model)
-                return suggestion
+                AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, model).also { cooldown.succeeded(model) }
             } catch (e: AIShotError) {
                 if (ModelCooldown.coolsDown(e)) cooldown.failed(model, now())
-                if (!AIShotLogic.tryNextModel(e)) throw e
-                last = e
+                throw e
             }
         }
-        throw last
     }
 
     private fun post(url: String, json: String, headers: Map<String, String>, readTimeoutMs: Int = 25_000): String {
@@ -266,7 +331,7 @@ class AIShotService(private val config: AIShotConfig) {
         }
         try {
             connection.requestMethod = "POST"
-            connection.connectTimeout = 10_000
+            connection.connectTimeout = 5_000
             connection.readTimeout = readTimeoutMs
             connection.doOutput = true
             connection.useCaches = false

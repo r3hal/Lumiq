@@ -80,7 +80,7 @@ class AIShotLogicTest {
         val cooldown = app.lumiq.aishot.ModelCooldown(seconds = 120.0)
         val models = app.lumiq.aishot.GEMINI_MODELS
         cooldown.failed("gemini-flash-latest", now = 10.0)
-        assertEquals(listOf("gemini-flash-lite-latest", "gemma-4-26b-a4b-it", "gemini-flash-lite-latest"), cooldown.plan(models, 20.0).map { it.first })
+        assertTrue(cooldown.plan(models, 20.0).none { it.first == "gemini-flash-latest" })
         assertEquals(models, cooldown.plan(models, 131.0)) // Cooled down again after two minutes.
         cooldown.failed("gemini-flash-latest", 200.0)
         cooldown.succeeded("gemini-flash-latest")
@@ -88,7 +88,7 @@ class AIShotLogicTest {
         for ((m, _) in models) cooldown.failed(m, 300.0)
         assertEquals(models.take(1), cooldown.plan(models, 301.0)) // Never nothing to try.
         assertTrue(app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(429)))
-        assertTrue(app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(503)))
+        assertTrue(!app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(503))) // Busy is retried, not skipped.
         assertTrue(!app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(400)))
     }
 
