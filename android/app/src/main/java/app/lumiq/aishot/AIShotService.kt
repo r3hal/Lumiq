@@ -152,6 +152,15 @@ object AIShotLogic {
         return if (flat.length > maximum) flat.take(maximum - 1) + "…" else flat
     }
 
+    /** The answer text of an OpenAI-style chat completion (Groq). */
+    fun openAIText(body: String): String {
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: throw AIShotError.InvalidResponse
+        return root.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content", "")
+            ?.takeIf { it.isNotBlank() } ?: throw AIShotError.InvalidResponse
+    }
+
+    fun dataUrl(base64Jpeg: String) = "data:image/jpeg;base64,$base64Jpeg"
+
     fun geminiText(body: String): String {
         val root = runCatching { JSONObject(body) }.getOrNull() ?: throw AIShotError.InvalidResponse
         val parts = root.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
@@ -187,12 +196,20 @@ object AIShotLogic {
  */
 val GEMINI_MODELS = listOf(
     "gemini-flash-lite-latest" to 6_000,
+    GROQ_MODEL to 5_000,
     "gemini-flash-lite-latest" to 6_000,
     "gemma-4-26b-a4b-it" to 8_000,
     "gemini-flash-lite-latest" to 6_000,
     "gemini-flash-latest" to 8_000,
     "gemini-flash-lite-latest" to 6_000,
 )
+
+/**
+ * Groq's vision model (Qwen 3.8 27B), about 1.5 s per answer. Its free tier allows only about three photos
+ * a minute for the whole app, so it is not asked first: it runs when Gemini has not answered within
+ * [ModelRace]'s hedge time or answered busy, and is skipped for a while once its limit is reached.
+ */
+const val GROQ_MODEL = "groq:qwen/qwen3.8-27b"
 
 /**
  * A model that is out of quota or timed out is skipped for a while, so the next AI Shot does not wait on
@@ -232,7 +249,7 @@ object ModelRace {
 
     fun <T> run(
         plan: List<Pair<String, Int>>,
-        hedgeMs: Long = 2_500,
+        hedgeMs: Long = 1_500,
         retryPauseMs: Long = 250,
         totalMs: Long = 14_000,
         maxParallel: Int = 2,
@@ -286,7 +303,7 @@ class AIShotService(private val config: AIShotConfig) {
 
     /** Blocking network call; run it on a background dispatcher. */
     fun suggest(request: AIShotRequest): AIShotSuggestion {
-        config.geminiKey()?.let { return viaGemini(it, request) }
+        config.geminiKey()?.let { return viaGemini(it, config.groqKey(), request) }
         throw AIShotError.NotConfigured
     }
 
@@ -294,8 +311,9 @@ class AIShotService(private val config: AIShotConfig) {
 
     private fun base64(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
 
-    private fun viaGemini(key: String, r: AIShotRequest): AIShotSuggestion {
+    private fun viaGemini(key: String, groqKey: String?, r: AIShotRequest): AIShotSuggestion {
         val cooldown = ModelCooldown.shared
+        val models = if (groqKey == null) GEMINI_MODELS.filter { it.first != GROQ_MODEL } else GEMINI_MODELS
         val parts = JSONArray()
             .put(JSONObject().put("text", AIShotLogic.prompt(r)))
             .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", base64(r.jpeg))))
@@ -309,7 +327,8 @@ class AIShotService(private val config: AIShotConfig) {
                     .put("responseMimeType", "application/json"),
             )
             .toString()
-        return ModelRace.run(cooldown.plan(GEMINI_MODELS, now())) { model, timeout ->
+        return ModelRace.run(cooldown.plan(models, now())) { model, timeout ->
+            if (model == GROQ_MODEL) return@run viaGroq(groqKey!!, r, timeout, cooldown)
             try {
                 val response = post(
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent",
@@ -320,6 +339,47 @@ class AIShotService(private val config: AIShotConfig) {
                 if (ModelCooldown.coolsDown(e)) cooldown.failed(model, now())
                 throw e
             }
+        }
+    }
+
+    /** One Groq request (OpenAI-style API). Its errors never stop Gemini: a refused key or the limit skips Groq for a while. */
+    private fun viaGroq(key: String, r: AIShotRequest, timeout: Int, cooldown: ModelCooldown): AIShotSuggestion {
+        val image = AIShotLogic.dataUrl(base64(smaller(r.jpeg, 512)))
+        val body = JSONObject()
+            .put("model", GROQ_MODEL.removePrefix("groq:"))
+            .put("temperature", 0.3).put("max_completion_tokens", 400).put("reasoning_effort", "none")
+            .put("response_format", JSONObject().put("type", "json_object"))
+            .put(
+                "messages",
+                JSONArray().put(
+                    JSONObject().put("role", "user").put(
+                        "content",
+                        JSONArray()
+                            .put(JSONObject().put("type", "text").put("text", AIShotLogic.prompt(r)))
+                            .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", image))),
+                    ),
+                ),
+            )
+        return try {
+            val response = post("https://api.groq.com/openai/v1/chat/completions", body.toString(), mapOf("Authorization" to "Bearer $key"), readTimeoutMs = timeout)
+            AIShotLogic.parseModelJson(AIShotLogic.openAIText(response), r, GROQ_MODEL).also { cooldown.succeeded(GROQ_MODEL) }
+        } catch (e: AIShotError) {
+            when (e) {
+                is AIShotError.Unauthorized, is AIShotError.Quota, is AIShotError.Timeout -> { cooldown.failed(GROQ_MODEL, now()); throw AIShotError.Busy }
+                else -> throw e
+            }
+        }
+    }
+
+    /** Re-encodes the frame at most [longSide] px for providers that need fewer pixels. */
+    private fun smaller(jpeg: ByteArray, longSide: Int): ByteArray {
+        val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return jpeg
+        val scale = longSide.toFloat() / max(bitmap.width, bitmap.height)
+        if (scale >= 1f) { bitmap.recycle(); return jpeg }
+        val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
+        bitmap.recycle()
+        return java.io.ByteArrayOutputStream().use { out ->
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out); scaled.recycle(); out.toByteArray()
         }
     }
 

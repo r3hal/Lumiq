@@ -95,4 +95,26 @@ class AIShotSpeedTest {
         assertFalse(AIShotModel.isWholeView(pick(NRect(0.3, 0.3, 0.4, 0.4), 2.5), zoom = 1.0))
         assertFalse(AIShotModel.isWholeView(pick(NRect(0.0, 0.0, 1.0, 1.0), 2.0), zoom = 1.0)) // Still needs zooming in.
     }
+
+    @Test fun groqAnswersAreParsedLikeGemini() {
+        val groq = """{"choices":[{"message":{"role":"assistant","content":"{\"subject\": \"wooden boat bow\", \"tip\": \"Fill the frame.\", \"technique\": \"fill the frame\", \"box_2d\": [450, 0, 950, 1000]}"}}]}"""
+        val text = app.lumiq.aishot.AIShotLogic.openAIText(groq)
+        val request = app.lumiq.aishot.AIShotRequest(ByteArray(0), 0.75, 1.0, 0.5, 6.0)
+        val s = app.lumiq.aishot.AIShotLogic.parseModelJson(text, request, app.lumiq.aishot.GROQ_MODEL)
+        assertEquals("wooden boat bow", s.subject)
+        assertEquals(app.lumiq.aishot.GROQ_MODEL, s.provider)
+        try {
+            app.lumiq.aishot.AIShotLogic.openAIText("""{"choices":[]}""")
+            fail("expected InvalidResponse")
+        } catch (e: AIShotError) {
+            assertTrue(e is AIShotError.InvalidResponse)
+        }
+    }
+
+    @Test fun groqIsTheEarlyBackupInThePlan() {
+        val models = app.lumiq.aishot.GEMINI_MODELS.map { it.first }
+        assertEquals("gemini-flash-lite-latest", models[0]) // Gemini first,
+        assertEquals(app.lumiq.aishot.GROQ_MODEL, models[1]) // Groq as the first backup.
+        assertEquals(1, models.count { it == app.lumiq.aishot.GROQ_MODEL })
+    }
 }

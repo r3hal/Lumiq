@@ -57,6 +57,8 @@ jobs:
           LUMIQ_LEARNING_URL: ${{ vars.LUMIQ_LEARNING_URL }}
           # AI Shot has no in-app setup: it only works with this key built in.
           LUMIQ_GEMINI_KEY: ${{ secrets.LUMIQ_GEMINI_KEY }}
+          # Optional: Groq, AI Shot's fast second AI when Gemini is slow or busy.
+          LUMIQ_GROQ_KEY: ${{ secrets.LUMIQ_GROQ_KEY }}
         run: |
           if [ -z "${LUMIQ_GEMINI_KEY:-}" ]; then
             echo "::error::Add the repository secret LUMIQ_GEMINI_KEY (Settings > Secrets and variables > Actions). AI Shot needs it."

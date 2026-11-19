@@ -15,6 +15,14 @@ val builtInGeminiKey: String = run {
     (local.getProperty("lumiq.geminiKey") ?: System.getenv("LUMIQ_GEMINI_KEY") ?: "").trim()
 }
 
+// Optional Groq key for AI Shot's fast second AI: android/local.properties (lumiq.groqKey=...) or LUMIQ_GROQ_KEY.
+val builtInGroqKey: String = run {
+    val local = Properties()
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { local.load(it) }
+    (local.getProperty("lumiq.groqKey") ?: System.getenv("LUMIQ_GROQ_KEY") ?: "").trim()
+}
+
 // In-app updates. GitHub Actions (.github/workflows/android-release.yml) passes a versionCode that grows
 // with every build, and the owner/repo whose public Releases the app checks. Local and Codemagic builds
 // keep the fixed fallback below. Set LUMIQ_UPDATE_REPO to an empty string to build without the updater.
@@ -44,6 +52,7 @@ android {
         versionName = "3.2.1-android"
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "LEARNING_URL", "\"$learningUrl\"")
+        buildConfigField("String", "BUILT_IN_GROQ_KEY", "\"${builtInGroqKey.replace("\"", "")}\"")
         buildConfigField("String", "BUILT_IN_GEMINI_KEY", "\"${builtInGeminiKey.replace("\"", "")}\"")
     }
 

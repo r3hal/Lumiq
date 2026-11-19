@@ -16,5 +16,8 @@ class AIShotConfig(context: Context) {
 
     fun geminiKey(): String? = BuildConfig.BUILT_IN_GEMINI_KEY.trim().ifEmpty { null }
 
+    /** Optional Groq key (LUMIQ_GROQ_KEY): a fast second AI used when Gemini is slow or busy. */
+    fun groqKey(): String? = BuildConfig.BUILT_IN_GROQ_KEY.trim().ifEmpty { null }
+
     val isConfigured: Boolean get() = geminiKey() != null
 }
