@@ -20,8 +20,10 @@ object Palette {
     val raised = Color(0xFF1F1F2B)
     /** Hairline edge around cards and floating surfaces. */
     val stroke = Color.White.copy(alpha = 0.07f)
-    /** Frosted controls drawn over the camera image or the background. */
+    /** Frosted controls drawn over the app background. */
     val glass = Color.White.copy(alpha = 0.10f)
+    /** Controls floating on the camera image: dark enough to read over a bright sky. */
+    val onImage = Color(0x8C0B0B10)
     val text = Color(0xFFF6F5FA)
     val muted = Color(0xFF9C9AAB)
     /** Brand accent for selection, switches and primary buttons (Soft Iris). */

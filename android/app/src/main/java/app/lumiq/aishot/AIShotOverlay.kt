@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.lumiq.ui.Glyph
@@ -52,7 +53,7 @@ import kotlin.math.hypot
  * `roll` is the device tilt in degrees.
  */
 @Composable
-fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier) {
+fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier, topInset: Dp = 0.dp) {
     val phase = model.phase
     val pulse = rememberInfiniteTransition(label = "finding")
     val breathe by pulse.animateFloat(0.94f, 1.06f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "breathe")
@@ -91,7 +92,7 @@ fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier
             if (phase.isActive) drawLevelReticle(center, roll, ready, if (pinned) Palette.mint else Color.White)
         }
         if (phase.isLocked) {
-            Box(Modifier.align(Alignment.TopCenter).padding(top = 12.dp)) { ShotPill(model) }
+            Box(Modifier.align(Alignment.TopCenter).padding(top = topInset + 12.dp)) { ShotPill(model) }
         }
     }
 }

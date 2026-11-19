@@ -56,9 +56,9 @@ fun SheetHeader(title: String, onClose: () -> Unit, closeGlyph: Glyph = Glyph.Cl
 
 /** Frosted round icon button. */
 @Composable
-fun RoundGlyphButton(glyph: Glyph, label: String, onClick: () -> Unit, tint: Color = Palette.text, size: Int = 38) {
+fun RoundGlyphButton(glyph: Glyph, label: String, onClick: () -> Unit, tint: Color = Palette.text, size: Int = 38, background: Color = Palette.glass) {
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(Palette.glass).border(1.dp, Palette.stroke, CircleShape)
+        Modifier.size(size.dp).clip(CircleShape).background(background).border(1.dp, Palette.stroke, CircleShape)
             .clickable(onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { GlyphIcon(glyph, tint, (size * 0.42f).dp) }
