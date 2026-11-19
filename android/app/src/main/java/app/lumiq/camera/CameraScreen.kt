@@ -102,6 +102,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.heightIn
 import app.lumiq.AppState
 import app.lumiq.aishot.AIShotInstruction
 import app.lumiq.aishot.AIShotModel
@@ -290,13 +291,10 @@ fun CameraScreen(
                     }
                 }
             }
-            // Controls: one guidance line, then library · shutter · AI Shot.
-            Column(
-                Modifier.fillMaxWidth().weight(1f).padding(bottom = navBar),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp, Alignment.CenterVertically),
-            ) {
-                FooterLine(app, Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 24.dp))
-                Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Controls: the guidance line right under the image, then library · shutter · AI Shot.
+            Column(Modifier.fillMaxWidth().weight(1f).padding(bottom = navBar), horizontalAlignment = Alignment.CenterHorizontally) {
+                FooterLine(app, Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 22.dp).padding(horizontal = 24.dp))
+                Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { LibraryThumbnail(app, enabled = !busy, onClick = onOpenLibrary) }
                     ShutterButton(enabled = canShoot, busy = busy, onClick = ::shoot)
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
@@ -461,12 +459,12 @@ private fun FooterLine(app: AppState, modifier: Modifier) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(7.dp).clip(CircleShape).background(if (reading?.ready == true) Palette.yellow else Palette.mint))
                     Text(
-                        reading?.instruction ?: "Looking for a subject…", color = Color.White, fontSize = 13.sp,
+                        reading?.instruction ?: "Looking for a subject…", color = Color.White, fontSize = 12.sp,
                         fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 2,
                     )
                 }
             }
-            app.camera.isRunning -> Text("Point at something and tap AI Shot", color = Palette.muted, fontSize = 13.sp, textAlign = TextAlign.Center)
+            app.camera.isRunning -> Text("Point at something and tap AI Shot", color = Palette.muted, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 1)
         }
     }
 }
