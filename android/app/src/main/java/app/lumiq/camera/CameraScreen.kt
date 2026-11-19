@@ -219,8 +219,8 @@ fun CameraScreen(
             // Top bar: photo shape on the left; flash, exposure and more on the right. It takes any spare
             // height, so the image always sits directly on the controls at the bottom of the screen.
             Row(
-                Modifier.fillMaxWidth().weight(1f).heightIn(min = topBar).padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier.fillMaxWidth().weight(1f).heightIn(min = topBar).padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Box {
                     BarChip(active = showAspect, label = "Photo shape", onClick = { showAspect = true; showExposure = false }) {
