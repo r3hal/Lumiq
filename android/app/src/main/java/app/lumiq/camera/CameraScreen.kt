@@ -210,15 +210,16 @@ fun CameraScreen(
         val topBar = 56.dp
         // The image is shown at the photo's exact shape (capture is cropped to the viewfinder), as wide as
         // possible while leaving room for the hint, lenses and shutter underneath.
-        val controlsMin = 214.dp
-        val available = (maxHeight - statusBar - topBar - navBar - controlsMin).coerceAtLeast(200.dp)
+        val controls = 210.dp
+        val available = (maxHeight - statusBar - topBar - navBar - controls).coerceAtLeast(200.dp)
         val width = min(maxWidth.value, (available.value * aspect).toFloat()).dp
         val height = (width.value / aspect).toFloat().dp
 
         Column(Modifier.fillMaxSize().padding(top = statusBar, bottom = navBar)) {
-            // Top bar: photo shape on the left; flash, exposure and more on the right.
+            // Top bar: photo shape on the left; flash, exposure and more on the right. It takes any spare
+            // height, so the image always sits directly on the controls at the bottom of the screen.
             Row(
-                Modifier.fillMaxWidth().height(topBar).padding(horizontal = 12.dp),
+                Modifier.fillMaxWidth().weight(1f).heightIn(min = topBar).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Box {
@@ -277,7 +278,7 @@ fun CameraScreen(
                 }
             }
             // Under the image: hint, lenses, then library · shutter · AI Shot.
-            Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.fillMaxWidth().height(controls), horizontalAlignment = Alignment.CenterHorizontally) {
                 FooterLine(app, Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 22.dp).padding(horizontal = 24.dp))
                 Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(44.dp), contentAlignment = Alignment.Center) {
                     if (camera.isRunning) LensButtons(camera)
