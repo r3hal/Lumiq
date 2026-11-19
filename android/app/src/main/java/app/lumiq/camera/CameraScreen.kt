@@ -203,97 +203,85 @@ fun CameraScreen(
     val blink = remember { Animatable(0f) }
     LaunchedEffect(shots) { if (shots > 0) { blink.snapTo(0.75f); blink.animateTo(0f, tween(320)) } }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Palette.ink)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val bars = WindowInsets.systemBars.asPaddingValues()
         val statusBar = bars.calculateTopPadding()
         val navBar = bars.calculateBottomPadding()
+        val topBar = 56.dp
         // The image is shown at the photo's exact shape (capture is cropped to the viewfinder), as wide as
-        // possible while leaving room for the controls underneath.
-        val controlsMin = 190.dp
-        val available = (maxHeight - navBar - controlsMin).coerceAtLeast(200.dp)
+        // possible while leaving room for the hint, lenses and shutter underneath.
+        val controlsMin = 214.dp
+        val available = (maxHeight - statusBar - topBar - navBar - controlsMin).coerceAtLeast(200.dp)
         val width = min(maxWidth.value, (available.value * aspect).toFloat()).dp
         val height = (width.value / aspect).toFloat().dp
-        val fullWidth = width >= maxWidth - 1.dp
-        val shape = if (fullWidth) RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp) else RoundedCornerShape(30.dp)
 
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.TopCenter) {
-                Box(Modifier.size(width, height).clip(shape).background(Color.Black)) {
-                    val topInset = statusBar + 60.dp
+        Column(Modifier.fillMaxSize().padding(top = statusBar, bottom = navBar)) {
+            // Top bar: photo shape on the left; flash, exposure and more on the right.
+            Row(
+                Modifier.fillMaxWidth().height(topBar).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box {
+                    BarChip(active = showAspect, label = "Photo shape", onClick = { showAspect = true; showExposure = false }) {
+                        AspectGlyph(settings.aspect, Palette.text)
+                        Text(settings.aspect.label, color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        GlyphIcon(Glyph.Chevron, Palette.muted, 10.dp, rotation = if (showAspect) 180f else 0f)
+                    }
+                    LumiqMenu(showAspect, onDismiss = { showAspect = false }) {
+                        MenuHeader("Photo shape")
+                        PhotoAspect.entries.forEach { a ->
+                            val selected = a == settings.aspect
+                            MenuRow(a.label, selected = selected, leading = { AspectGlyph(a, if (selected) Palette.accent else Palette.muted) }) {
+                                showAspect = false; aiShot.stop(); settings.updateAspect(a)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                if (camera.hasFlash && !camera.isFront) {
+                    val glyph = when (settings.flash) { FlashMode.Off -> Glyph.BoltOff; FlashMode.On -> Glyph.Bolt; FlashMode.Auto -> Glyph.BoltAuto }
+                    ToolbarButton(glyph, "Flash ${settings.flash.label}", if (settings.flash == FlashMode.Off) Palette.text else Palette.yellow) {
+                        settings.updateFlash(FlashMode.entries[(settings.flash.ordinal + 1) % FlashMode.entries.size])
+                    }
+                }
+                BarChip(active = showExposure, label = "Exposure", onClick = { showExposure = !showExposure; showAspect = false }) {
+                    GlyphIcon(Glyph.Aperture, if (showExposure) Palette.accent else Palette.text, 22.dp)
+                    GlyphIcon(Glyph.Chevron, Palette.muted, 10.dp, rotation = if (showExposure) 180f else 0f)
+                }
+                Box {
+                    ToolbarButton(Glyph.Ellipsis, "More", Palette.text) { showOptions = true }
+                    LumiqMenu(showOptions, onDismiss = { showOptions = false }) {
+                        if (camera.hasFrontAndBack) {
+                            MenuRow(if (camera.isFront) "Back camera" else "Front camera", Glyph.Flip) { showOptions = false; aiShot.stop(); camera.flip() }
+                            MenuDivider()
+                        }
+                        MenuRow("Grid", Glyph.Grid, checked = settings.grid) { settings.updateGrid(!settings.grid) }
+                        MenuRow("Level", Glyph.Level, checked = settings.level) { settings.updateLevel(!settings.level) }
+                        MenuRow("Classic live guide", Glyph.Aperture, checked = settings.guide) { settings.updateGuide(!settings.guide) }
+                        MenuDivider()
+                        MenuRow("Golden hour", Glyph.Sun) { showOptions = false; onOpenGoldenHour() }
+                        MenuRow("Settings", Glyph.Sliders) { showOptions = false; onOpenSettings() }
+                    }
+                }
+            }
+            // The image.
+            Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(width, height).background(Color.Black)) {
                     if (granted && camera.access != CameraController.Access.Unavailable) {
-                        Viewfinder(app, showExposure = showExposure, saved = saved, topInset = topInset, bottomInset = 60.dp)
+                        Viewfinder(app, showExposure = showExposure, saved = saved, topInset = 0.dp, bottomInset = 0.dp)
                     } else {
                         PermissionView(denied = asked && !granted, unavailable = camera.access == CameraController.Access.Unavailable,
                             onRetry = { if (!granted) permission.launch(Manifest.permission.CAMERA) else camera.start(owner, aspect) })
                     }
                     if (blink.value > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = blink.value)))
-                    // Soft shade behind the floating controls so they read over any scene.
-                    Box(Modifier.fillMaxWidth().height(statusBar + 96.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent))))
-                    Box(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(96.dp)
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)))),
-                    )
-                    // Floating row on the image: photo shape · lenses · exposure.
-                    Row(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box {
-                            GlassChip(active = showAspect, onClick = { showAspect = true; showExposure = false }) {
-                                AspectGlyph(settings.aspect, Palette.text)
-                                Text(settings.aspect.label, color = Palette.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                            LumiqMenu(showAspect, onDismiss = { showAspect = false }) {
-                                MenuHeader("Photo shape")
-                                PhotoAspect.entries.forEach { a ->
-                                    val selected = a == settings.aspect
-                                    MenuRow(a.label, selected = selected, leading = { AspectGlyph(a, if (selected) Palette.accent else Palette.muted) }) {
-                                        showAspect = false; aiShot.stop(); settings.updateAspect(a)
-                                    }
-                                }
-                            }
-                        }
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { if (camera.isRunning) LensButtons(camera) }
-                        GlassChip(active = showExposure, onClick = { showExposure = !showExposure; showAspect = false }) {
-                            GlyphIcon(Glyph.Aperture, if (showExposure) Palette.accent else Palette.text, 16.dp)
-                            Text(camera.exposureLabel, color = if (showExposure) Palette.accent else Palette.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-                // Toolbar
-                Row(
-                    Modifier.fillMaxWidth().padding(top = statusBar).height(60.dp).padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    LumiqLogo(height = 20.dp)
-                    Spacer(Modifier.weight(1f))
-                    if (camera.hasFlash && !camera.isFront) {
-                        val glyph = when (settings.flash) { FlashMode.Off -> Glyph.BoltOff; FlashMode.On -> Glyph.Bolt; FlashMode.Auto -> Glyph.BoltAuto }
-                        ToolbarButton(glyph, "Flash ${settings.flash.label}", if (settings.flash == FlashMode.Off) Palette.text else Palette.yellow) {
-                            settings.updateFlash(FlashMode.entries[(settings.flash.ordinal + 1) % FlashMode.entries.size])
-                        }
-                    }
-                    ToolbarButton(Glyph.Sliders, "Settings", Palette.text, onOpenSettings)
-                    Box {
-                        ToolbarButton(Glyph.Ellipsis, "Camera options", Palette.text) { showOptions = true }
-                        LumiqMenu(showOptions, onDismiss = { showOptions = false }) {
-                            if (camera.hasFrontAndBack) {
-                                MenuRow(if (camera.isFront) "Back camera" else "Front camera", Glyph.Flip) { showOptions = false; aiShot.stop(); camera.flip() }
-                                MenuDivider()
-                            }
-                            MenuRow("Grid", Glyph.Grid, checked = settings.grid) { settings.updateGrid(!settings.grid) }
-                            MenuRow("Level", Glyph.Level, checked = settings.level) { settings.updateLevel(!settings.level) }
-                            MenuRow("Classic live guide", Glyph.Aperture, checked = settings.guide) { settings.updateGuide(!settings.guide) }
-                            MenuDivider()
-                            MenuRow("Golden hour", Glyph.Sun) { showOptions = false; onOpenGoldenHour() }
-                            MenuRow("Settings", Glyph.Sliders) { showOptions = false; onOpenSettings() }
-                        }
-                    }
                 }
             }
-            // Controls: the guidance line right under the image, then library · shutter · AI Shot.
-            Column(Modifier.fillMaxWidth().weight(1f).padding(bottom = navBar), horizontalAlignment = Alignment.CenterHorizontally) {
+            // Under the image: hint, lenses, then library · shutter · AI Shot.
+            Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 FooterLine(app, Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 22.dp).padding(horizontal = 24.dp))
+                Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(44.dp), contentAlignment = Alignment.Center) {
+                    if (camera.isRunning) LensButtons(camera)
+                }
                 Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { LibraryThumbnail(app, enabled = !busy, onClick = onOpenLibrary) }
                     ShutterButton(enabled = canShoot, busy = busy, onClick = ::shoot)
@@ -509,20 +497,17 @@ private fun ExposureStrip(camera: CameraController) {
 private fun LensButtons(camera: CameraController) {
     val stops = camera.zoomStops
     val closest = stops.minByOrNull { abs(it - camera.zoomRatio) } ?: 1.0
-    Row(
-        Modifier.clip(RoundedCornerShape(50)).background(Palette.onImage).border(1.dp, Palette.stroke, RoundedCornerShape(50)).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         stops.forEach { stop ->
             val selected = stop == closest
             Box(
-                Modifier.height(30.dp).widthIn(min = 40.dp).clip(RoundedCornerShape(50)).background(if (selected) Color.White else Color.Transparent)
+                Modifier.size(42.dp).clip(CircleShape).background(if (selected) Palette.accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.09f))
                     .clickable { camera.setZoom(stop) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     zoomLabel(if (selected) camera.zoomRatio else stop),
-                    color = if (selected) Color.Black else Palette.text.copy(alpha = 0.8f),
+                    color = if (selected) Palette.accent else Palette.text.copy(alpha = 0.75f),
                     fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 )
             }
@@ -535,23 +520,24 @@ private fun zoomLabel(value: Double): String =
 
 @Composable
 private fun ToolbarButton(glyph: Glyph, label: String, tint: Color, onClick: () -> Unit) {
-    RoundGlyphButton(glyph, label, onClick, tint = tint, size = 40, background = Palette.onImage)
+    Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
+        GlyphIcon(glyph, tint, 22.dp)
+    }
 }
 
-/** Frosted capsule for the aspect and exposure controls. */
+/** Top-bar control (photo shape, exposure); tinted while its panel is open. */
 @Composable
-private fun GlassChip(active: Boolean, onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
+private fun BarChip(active: Boolean, label: String, onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
     Row(
-        Modifier.height(36.dp).clip(RoundedCornerShape(50)).background(if (active) Color(0xCC231E45) else Palette.onImage)
-            .border(1.dp, if (active) Palette.accent.copy(alpha = 0.5f) else Palette.stroke, RoundedCornerShape(50))
-            .clickable(onClick = onClick).padding(horizontal = 14.dp),
+        Modifier.height(40.dp).clip(RoundedCornerShape(50)).background(if (active) Palette.accent.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable(onClickLabel = label, onClick = onClick).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), content = content,
     )
 }
 
 @Composable
 private fun AspectGlyph(aspect: PhotoAspect, tint: Color) {
-    Canvas(Modifier.size(17.dp)) {
+    Canvas(Modifier.size(20.dp)) {
         val r = aspect.ratio.toFloat()
         val w = if (r >= 1) size.width * 0.9f else size.height * 0.9f * r
         val h = if (r >= 1) size.width * 0.9f / r else size.height * 0.9f
