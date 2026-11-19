@@ -282,7 +282,7 @@ fun CameraScreen(
                 Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(44.dp), contentAlignment = Alignment.Center) {
                     if (camera.isRunning) LensButtons(camera)
                 }
-                Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp).padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { LibraryThumbnail(app, enabled = !busy, onClick = onOpenLibrary) }
                     ShutterButton(enabled = canShoot, busy = busy, onClick = ::shoot)
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
