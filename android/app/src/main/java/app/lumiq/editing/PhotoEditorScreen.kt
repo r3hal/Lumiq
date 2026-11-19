@@ -5,7 +5,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +41,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlin.math.abs
 import app.lumiq.AppState
 import app.lumiq.library.PhotoStore
 import app.lumiq.ui.Glyph
@@ -171,23 +185,72 @@ private fun SliderPanel(items: List<Adj>) {
     }
 }
 
+/**
+ * Looks carousel: the look in the middle is the chosen one, so scrolling previews each look on the photo
+ * as it passes the center. Tapping a look scrolls it to the middle.
+ */
 @Composable
 private fun LookStrip(source: Bitmap?, selected: Look, onSelect: (Look) -> Unit) {
     val thumb = remember(source) { source?.let { Bitmap.createScaledBitmap(it, 120, (120f * it.height / it.width).toInt().coerceAtLeast(1), true) } }
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Look.entries.forEach { look ->
-            var rendered by remember(thumb, look) { mutableStateOf<Bitmap?>(null) }
-            LaunchedEffect(thumb, look) { rendered = thumb?.let { withContext(Dispatchers.Default) { ImageEditor.render(it, look.recipe) } } }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onSelect(look) }) {
-                Box(
-                    Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)).background(Palette.panel)
-                        .border(if (look == selected) 2.dp else 0.dp, if (look == selected) Palette.accent else Color.Transparent, RoundedCornerShape(10.dp)),
-                ) {
-                    rendered?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-                }
-                Spacer(Modifier.height(5.dp))
-                Text(look.title, color = if (look == selected) Color.White else Palette.muted, fontSize = 11.sp)
+    val looks = Look.entries
+    val state = rememberLazyListState(initialFirstVisibleItemIndex = looks.indexOf(selected).coerceAtLeast(0))
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val current by rememberUpdatedState(selected)
+    val choose by rememberUpdatedState(onSelect)
+
+    LaunchedEffect(state) {
+        snapshotFlow { centeredIndex(state) }.filterNotNull().distinctUntilChanged().collect { index ->
+            val look = looks.getOrNull(index) ?: return@collect
+            if (look != current) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                choose(look)
             }
         }
     }
+    // Reset (or any outside change) brings the chosen look back to the middle.
+    LaunchedEffect(selected) {
+        val index = looks.indexOf(selected)
+        if (!state.isScrollInProgress && centeredIndex(state) != index) state.animateScrollToItem(index)
+    }
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val itemWidth = 64.dp
+        val side = ((maxWidth - itemWidth) / 2).coerceAtLeast(0.dp)
+        LazyRow(
+            state = state,
+            flingBehavior = rememberSnapFlingBehavior(state, SnapPosition.Center),
+            contentPadding = PaddingValues(horizontal = side),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            itemsIndexed(looks) { index, look ->
+                var rendered by remember(thumb, look) { mutableStateOf<Bitmap?>(null) }
+                LaunchedEffect(thumb, look) { rendered = thumb?.let { withContext(Dispatchers.Default) { ImageEditor.render(it, look.recipe) } } }
+                val isSelected = look == selected
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(itemWidth).clip(RoundedCornerShape(12.dp)).clickable { scope.launch { state.animateScrollToItem(index) } },
+                ) {
+                    Box(
+                        Modifier.size(itemWidth).clip(RoundedCornerShape(12.dp)).background(Palette.panel)
+                            .border(if (isSelected) 2.dp else 0.dp, if (isSelected) Palette.accent else Color.Transparent, RoundedCornerShape(12.dp)),
+                    ) {
+                        rendered?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        look.title, color = if (isSelected) Palette.text else Palette.muted, fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Index of the item whose center is closest to the middle of the strip. */
+private fun centeredIndex(state: LazyListState): Int? {
+    val info = state.layoutInfo
+    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    return info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - center) }?.index
 }
