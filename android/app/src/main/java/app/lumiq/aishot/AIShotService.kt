@@ -34,11 +34,11 @@ data class AIShotSuggestion(
 )
 
 sealed class AIShotError(val userMessage: String) : Exception(userMessage) {
-    object NotConfigured : AIShotError("Add a free AI server or Gemini key in Settings › AI Shot.")
+    object NotConfigured : AIShotError("AI Shot is not available in this build (no AI key was built in).")
     object NoFrame : AIShotError("No camera frame yet. Try again.")
     object Offline : AIShotError("No internet connection.")
     object Timeout : AIShotError("The AI took too long. Tap ↻ to retry.")
-    object Unauthorized : AIShotError("The AI key or app token was refused. Check Settings › AI Shot.")
+    object Unauthorized : AIShotError("The built-in AI key was refused. Install the latest Lumiq update.")
     object Quota : AIShotError("Free AI limit reached for now. Try again in a minute.")
     object Busy : AIShotError("The AI is busy right now. Tap ↻ to retry.")
     object InvalidResponse : AIShotError("The AI answer could not be used. Tap ↻ to retry.")
@@ -182,26 +182,16 @@ val GEMINI_MODELS = listOf(
     "gemma-4-26b-a4b-it" to 12_000,
 )
 
-/** Calls the Lumiq AI server if set, otherwise Gemini directly with the configured key. */
+/** Calls Gemini directly with the key built into this APK. */
 class AIShotService(private val config: AIShotConfig) {
 
     /** Blocking network call; run it on a background dispatcher. */
     fun suggest(request: AIShotRequest): AIShotSuggestion {
-        config.serverUrl()?.let { return viaServer(it, request) }
         config.geminiKey()?.let { return viaGemini(it, request) }
         throw AIShotError.NotConfigured
     }
 
     private fun base64(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
-
-    private fun viaServer(url: String, r: AIShotRequest): AIShotSuggestion {
-        val body = JSONObject()
-            .put("image", base64(r.jpeg)).put("aspect", r.aspect).put("zoom", r.zoom)
-            .put("minZoom", r.minimumZoom).put("maxZoom", r.maximumZoom)
-        val headers = HashMap<String, String>()
-        config.appToken()?.let { headers["Authorization"] = "Bearer $it" }
-        return AIShotLogic.parseServer(post(url, body.toString(), headers), r)
-    }
 
     private fun viaGemini(key: String, r: AIShotRequest): AIShotSuggestion {
         var last: AIShotError = AIShotError.InvalidResponse
@@ -259,31 +249,6 @@ class AIShotService(private val config: AIShotConfig) {
             throw AIShotError.Offline
         } finally {
             connection.disconnect()
-        }
-    }
-
-    /** GET /health on the configured server. Blocking; returns a short human-readable result. */
-    fun testServer(): String {
-        val shot = config.serverUrl() ?: return "Enter an https:// server URL first."
-        val health = shot.removeSuffix("/v1/shot") + "/health"
-        return try {
-            val c = URL(health).openConnection() as HttpURLConnection
-            c.connectTimeout = 8000
-            c.readTimeout = 10000
-            try {
-                val status = c.responseCode
-                if (status != 200) return "Server answered $status"
-                val body = c.inputStream.bufferedReader().use { it.readText() }
-                val list = runCatching {
-                    val a = JSONObject(body).optJSONArray("providers")
-                    if (a == null) "" else (0 until a.length()).joinToString(", ") { a.optString(it) }
-                }.getOrDefault("")
-                if (list.isEmpty()) "Server OK" else "Server OK · $list"
-            } finally {
-                c.disconnect()
-            }
-        } catch (_: Exception) {
-            "Could not reach the server."
         }
     }
 }

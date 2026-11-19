@@ -4,7 +4,6 @@ import app.lumiq.aishot.AIShotError
 import app.lumiq.aishot.AIShotLogic
 import app.lumiq.aishot.AIShotModel
 import app.lumiq.aishot.AIShotRequest
-import app.lumiq.aishot.AIShotConfig
 import app.lumiq.aishot.LumaFrame
 import app.lumiq.aishot.NRect
 import app.lumiq.aishot.TemplateTracker
@@ -83,13 +82,6 @@ class AIShotLogicTest {
     @Test fun geminiThoughtsAreSkipped() {
         val text = AIShotLogic.geminiText("""{"candidates":[{"content":{"parts":[{"text":"thinking","thought":true},{"text":"{\"a\":1}"}]}}]}""")
         assertEquals("""{"a":1}""", text)
-    }
-
-    @Test fun serverUrlNormalization() {
-        assertEquals("https://lumiq-ai.me.workers.dev/v1/shot", AIShotConfig.normalizeServer(" https://lumiq-ai.me.workers.dev "))
-        assertEquals("https://x.dev/custom", AIShotConfig.normalizeServer("https://x.dev/custom"))
-        assertNull(AIShotConfig.normalizeServer("http://insecure.example"))
-        assertNull(AIShotConfig.normalizeServer(""))
     }
 
     @Test fun rescaleAboutCenter() {

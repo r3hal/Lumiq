@@ -26,7 +26,7 @@ One-time setup:
      - add the **secret** `LUMIQ_RELEASES_TOKEN`: a fine-grained personal access token with *Contents: Read and write* on that repository only.
 2. Under Settings › Actions › General, allow Actions to run. If releases go to this repository, also set Workflow permissions to "Read and write".
 3. Install one APK built by this workflow. The repository the app checks is fixed into each build, so set up step 1 before that first build. Codemagic and Android Studio builds keep versionCode 2 and check `r3hal/lumiq` (override with the `LUMIQ_UPDATE_REPO` environment variable), so they find updates only when releases are published there.
-4. Optional: the built-in Gemini key is **not** included in GitHub builds, because anyone can download a public APK and extract it. To include it anyway, add the secret `LUMIQ_GEMINI_KEY` and the variable `LUMIQ_EMBED_GEMINI_KEY` = `true`.
+4. **Gemini key (required):** add the repository secret `LUMIQ_GEMINI_KEY` with your key. AI Shot has no in-app setup and uses only the key built into the APK, so the workflow stops if the secret is missing. Anyone who has the APK can extract the key, so keep releases private or restrict the key in Google AI Studio.
 
 The first time you tap Update Now, Android asks you to allow Lumiq to install unknown apps. This is a one-time prompt.
 
@@ -37,7 +37,7 @@ The APK can include one Gemini key, so everyone who installs it can use AI Shot 
 - **Codemagic:** in the Lumiq app settings, open Environment variables. Add `LUMIQ_GEMINI_KEY` with your key, mark it **Secret** and put it in the group **`lumiq_ai`**. Create the group before running `android-apk`. The same group feeds the iPhone workflow `ios-sideload-ai`.
 - **Local builds:** add `lumiq.geminiKey=YOUR_KEY` to `android/local.properties`. That file is gitignored.
 
-A server URL or a key typed in Settings › AI Shot overrides the built-in key. Anyone holding the APK can extract a built-in key from it. For a wider release, use the [Lumiq AI server](../ai-server/README.md) so the key stays on the server.
+AI Shot has no in-app setup: it uses only the built-in key. Anyone holding the APK can extract it.
 
 Google's Gemini models are often overloaded (HTTP 503). The app therefore tries `gemini-flash-latest` first, then the Gemma 4 vision model on the same key, then `gemini-flash-lite-latest`, and finally retries once after a short pause.
 

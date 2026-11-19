@@ -31,7 +31,6 @@ import app.lumiq.explore.GoldenHourScreen
 import app.lumiq.library.LibraryScreen
 import app.lumiq.library.PhotoStore
 import app.lumiq.library.PhotoViewerScreen
-import app.lumiq.settings.AIShotSettingsScreen
 import app.lumiq.settings.AppSettings
 import app.lumiq.settings.SettingsScreen
 import app.lumiq.ui.Haptics
@@ -65,7 +64,6 @@ sealed class Screen {
     data class Viewer(val file: File) : Screen()
     data class Editor(val file: File, val captureReview: Boolean) : Screen()
     object Settings : Screen()
-    object AIShotSetup : Screen()
     object GoldenHour : Screen()
 }
 
@@ -110,15 +108,13 @@ private fun LumiqApp(app: AppState) {
                 app,
                 onOpenLibrary = { push(Screen.Library) },
                 onOpenSettings = { push(Screen.Settings) },
-                onOpenAIShotSettings = { push(Screen.AIShotSetup) },
                 onOpenGoldenHour = { push(Screen.GoldenHour) },
                 onReview = { push(Screen.Editor(it, captureReview = true)) },
             )
             Screen.Library -> LibraryScreen(app, onClose = ::pop, onOpen = { push(Screen.Viewer(it)) })
             is Screen.Viewer -> PhotoViewerScreen(app, top.file, onClose = ::pop, onEdit = { push(Screen.Editor(it, captureReview = false)) })
             is Screen.Editor -> PhotoEditorScreen(app, top.file, top.captureReview, onClose = ::pop)
-            Screen.Settings -> SettingsScreen(app, onClose = ::pop, onAIShot = { push(Screen.AIShotSetup) }, onGoldenHour = { push(Screen.GoldenHour) })
-            Screen.AIShotSetup -> AIShotSettingsScreen(app, onClose = ::pop)
+            Screen.Settings -> SettingsScreen(app, onClose = ::pop, onGoldenHour = { push(Screen.GoldenHour) })
             Screen.GoldenHour -> GoldenHourScreen(onClose = ::pop)
         }
         AnimatedVisibility(showSplash, exit = fadeOut(tween(350))) {

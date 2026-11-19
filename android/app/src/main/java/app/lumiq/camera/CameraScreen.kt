@@ -106,7 +106,6 @@ fun CameraScreen(
     app: AppState,
     onOpenLibrary: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenAIShotSettings: () -> Unit,
     onOpenGoldenHour: () -> Unit,
     onReview: (File) -> Unit,
 ) {
@@ -169,7 +168,6 @@ fun CameraScreen(
         if (phase == AIShotModel.Phase.Finding || phase == AIShotModel.Phase.Aiming || phase == AIShotModel.Phase.Zooming) {
             aiShot.stop(); return
         }
-        if (!app.aiConfig.isConfigured) { onOpenAIShotSettings(); return }
         aiShot.start(camera, aspect)
     }
 
@@ -199,7 +197,6 @@ fun CameraScreen(
                         MenuItem((if (settings.level) "✓ " else "") + "Level", Glyph.Level) { settings.updateLevel(!settings.level) }
                         MenuItem((if (settings.guide) "✓ " else "") + "Classic live guide", Glyph.Aperture) { settings.updateGuide(!settings.guide) }
                         MenuItem("Golden hour", Glyph.Sun) { showOptions = false; onOpenGoldenHour() }
-                        MenuItem("AI Shot setup", Glyph.Key) { showOptions = false; onOpenAIShotSettings() }
                         MenuItem("Settings", Glyph.Sliders) { showOptions = false; onOpenSettings() }
                     }
                 }
@@ -264,7 +261,6 @@ fun CameraScreen(
                     AIShotButton(aiShot.phase, enabled = camera.isRunning && !busy, onClick = ::aiShotTapped, onLongClick = { showAIMenu = true })
                     DropdownMenu(showAIMenu, onDismissRequest = { showAIMenu = false }) {
                         if (aiShot.phase.isActive) MenuItem("Exit AI Shot", Glyph.Close) { showAIMenu = false; aiShot.stop() }
-                        MenuItem("AI Shot Setup", Glyph.Key) { showAIMenu = false; onOpenAIShotSettings() }
                         MenuItem((if (settings.guide) "✓ " else "") + "Classic live guide", Glyph.Aperture) { settings.updateGuide(!settings.guide) }
                     }
                 }
