@@ -1,0 +1,10 @@
+<resources>
+    <!-- Android 10+: keep Lumiq's own dark design. Some phones (e.g. Xiaomi "dark mode for apps")
+         otherwise recolor app screens, menus and dialogs. -->
+    <style name="Theme.Lumiq" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/lumiq_ink</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

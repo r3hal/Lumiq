@@ -96,15 +96,15 @@ fun PhotoEditorScreen(app: AppState, file: File, captureReview: Boolean, onClose
             Spacer(Modifier.weight(1f))
             if (edited) {
                 TextButton({ recipe = EditRecipe(); look = Look.Original }) { Text("Reset", color = Palette.muted) }
-                TextButton({ save(asCopy = true) }, enabled = !saving) { Text("Save copy", color = Palette.yellow) }
-                TextButton({ save(asCopy = false) }, enabled = !saving) { Text("Save", color = Palette.yellow, fontWeight = FontWeight.SemiBold) }
+                TextButton({ save(asCopy = true) }, enabled = !saving) { Text("Save copy", color = Palette.muted) }
+                TextButton({ save(asCopy = false) }, enabled = !saving) { Text("Save", color = Palette.accent, fontWeight = FontWeight.SemiBold) }
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             val p = preview
             if (p != null) Image(p.asImageBitmap(), contentDescription = "Photo preview", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            else CircularProgressIndicator(color = Palette.yellow)
-            if (saving) CircularProgressIndicator(color = Palette.yellow)
+            else CircularProgressIndicator(color = Palette.accent)
+            if (saving) CircularProgressIndicator(color = Palette.accent)
         }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             when (tool) {
@@ -143,7 +143,7 @@ fun PhotoEditorScreen(app: AppState, file: File, captureReview: Boolean, onClose
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Tool.entries.forEach { t ->
                     Text(
-                        t.title.uppercase(Locale.ROOT), color = if (t == tool) Palette.yellow else Palette.muted, fontSize = 12.sp,
+                        t.title, color = if (t == tool) Palette.accent else Palette.muted, fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { tool = t }.padding(horizontal = 10.dp, vertical = 8.dp),
                     )
@@ -164,7 +164,7 @@ private fun SliderPanel(items: List<Adj>) {
                 Slider(
                     value = a.value.toFloat(), onValueChange = { a.set(it.toDouble()) },
                     valueRange = a.min.toFloat()..a.max.toFloat(), modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = Palette.yellow, activeTrackColor = Palette.yellow),
+                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Palette.accent, inactiveTrackColor = Color.White.copy(alpha = 0.15f)),
                 )
             }
         }
@@ -181,7 +181,7 @@ private fun LookStrip(source: Bitmap?, selected: Look, onSelect: (Look) -> Unit)
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onSelect(look) }) {
                 Box(
                     Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)).background(Palette.panel)
-                        .border(if (look == selected) 2.dp else 0.dp, if (look == selected) Palette.yellow else Color.Transparent, RoundedCornerShape(10.dp)),
+                        .border(if (look == selected) 2.dp else 0.dp, if (look == selected) Palette.accent else Color.Transparent, RoundedCornerShape(10.dp)),
                 ) {
                     rendered?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                 }

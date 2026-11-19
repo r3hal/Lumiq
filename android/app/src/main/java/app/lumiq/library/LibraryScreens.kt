@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,10 +23,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import app.lumiq.AppState
 import app.lumiq.ui.Glyph
 import app.lumiq.ui.GlyphIcon
+import app.lumiq.ui.DialogText
+import app.lumiq.ui.LumiqDialog
 import app.lumiq.ui.Palette
 import app.lumiq.ui.SheetHeader
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +108,7 @@ fun PhotoViewerScreen(app: AppState, start: File, onClose: () -> Unit, onEdit: (
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val b = bitmap
                 if (b != null) Image(b.asImageBitmap(), contentDescription = "Photo", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                else CircularProgressIndicator(color = Palette.yellow)
+                else CircularProgressIndicator(color = Palette.accent)
             }
         }
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -127,20 +128,18 @@ fun PhotoViewerScreen(app: AppState, start: File, onClose: () -> Unit, onEdit: (
         }
     }
     confirmDelete?.let { file ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete photo?") },
-            text = { Text("This removes it from the Lumiq library. Copies already saved to your Gallery stay there.") },
-            confirmButton = { TextButton({ app.store.delete(file); confirmDelete = null }) { Text("Delete", color = Color(0xFFFF6B6B)) } },
-            dismissButton = { TextButton({ confirmDelete = null }) { Text("Cancel") } },
-        )
+        LumiqDialog(
+            "Delete photo?", onDismiss = { confirmDelete = null },
+            primary = "Delete" to { app.store.delete(file); confirmDelete = null }, secondary = "Cancel" to { confirmDelete = null }, destructive = true,
+        ) { DialogText("This removes it from the Lumiq library. Copies already saved to your Gallery stay there.") }
     }
 }
 
 @Composable
 private fun ViewerButton(glyph: Glyph, label: String, onClick: () -> Unit) {
     Box(
-        Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.55f)).clickable(onClickLabel = label, onClick = onClick).padding(12.dp),
+        Modifier.clip(RoundedCornerShape(50)).background(Color(0xB3111118)).border(1.dp, Palette.stroke, RoundedCornerShape(50))
+            .clickable(onClickLabel = label, onClick = onClick).padding(13.dp),
         contentAlignment = Alignment.Center,
     ) { GlyphIcon(glyph, Color.White, 22.dp) }
 }

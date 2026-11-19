@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  * Line glyphs drawn in a 24-unit box, standing in for the SF Symbols used on
  * iPhone (bolt, photo, sliders, aperture, arrows…). No icon font is needed.
  */
-enum class Glyph { Bolt, BoltOff, BoltAuto, Photo, Sliders, Ellipsis, Aperture, Close, Rescan, Arrow, Check, Warning, Flip, Grid, Level, Sun, Share, Trash, Edit, Back, Chevron, Rotate, Key }
+enum class Glyph { Bolt, BoltOff, BoltAuto, Photo, Sliders, Ellipsis, Aperture, Close, Rescan, Arrow, Check, Warning, Flip, Grid, Level, Sun, Share, Trash, Edit, Back, Chevron, Rotate, Key, Speaker, Eye, Info, Shield, Chat, Download, Disk, Tick }
 
 @Composable
 fun GlyphIcon(glyph: Glyph, tint: Color, size: Dp = 22.dp, modifier: Modifier = Modifier, rotation: Float = 0f) {
@@ -102,6 +102,32 @@ fun DrawScope.drawGlyph(glyph: Glyph, tint: Color) {
         Glyph.Key -> {
             drawCircle(tint, 4.5f * u, p(8f, 12f), style = stroke)
             line(12.5f to 12f, 21f to 12f, 21f to 15.5f); line(17.5f to 12f, 17.5f to 15f)
+        }
+        Glyph.Speaker -> {
+            line(4f to 9.5f, 8f to 9.5f, 13f to 5f, 13f to 19f, 8f to 14.5f, 4f to 14.5f, close = true)
+            drawArc(tint, -45f, 90f, false, p(12f, 8f), Size(8f * u, 8f * u), style = stroke)
+        }
+        Glyph.Eye -> {
+            line(2.5f to 12f, 7f to 6.5f, 12f to 5f, 17f to 6.5f, 21.5f to 12f, 17f to 17.5f, 12f to 19f, 7f to 17.5f, close = true)
+            drawCircle(tint, 3f * u, p(12f, 12f), style = stroke)
+        }
+        Glyph.Info -> {
+            drawCircle(tint, 9f * u, p(12f, 12f), style = stroke)
+            line(12f to 11f, 12f to 16.5f); drawCircle(tint, 1.2f * u, p(12f, 7.8f))
+        }
+        Glyph.Shield -> {
+            line(12f to 3f, 19.5f to 6f, 19f to 12.5f, 12f to 21f, 5f to 12.5f, 4.5f to 6f, close = true)
+            line(9f to 12f, 11.2f to 14.2f, 15.5f to 9.8f)
+        }
+        Glyph.Chat -> {
+            drawRoundRect(tint, p(3f, 4f), Size(18f * u, 13f * u), CornerRadius(4f * u), style = stroke)
+            line(8f to 17f, 7f to 21f, 12.5f to 17f)
+        }
+        Glyph.Tick -> line(5f to 12.5f, 10f to 17.5f, 19f to 7f)
+        Glyph.Download -> { line(12f to 3.5f, 12f to 15f); line(7.5f to 10.5f, 12f to 15f, 16.5f to 10.5f); line(5f to 20f, 19f to 20f) }
+        Glyph.Disk -> {
+            drawRoundRect(tint, p(3.5f, 5f), Size(17f * u, 14f * u), CornerRadius(3f * u), style = stroke)
+            line(3.5f to 13f, 20.5f to 13f); drawCircle(tint, 1.2f * u, p(16.5f, 16f))
         }
     }
 }
