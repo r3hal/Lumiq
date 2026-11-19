@@ -68,13 +68,15 @@ fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier
             }
             val ready = phase == AIShotModel.Phase.Ready
             val f = model.frame
-            if (phase.isLocked && f != null) {
+            // Zoomed in and on target: the view is the shot, so the + rests in the middle of the reticle.
+            val pinned = phase.isLocked && model.targetPinned
+            if (phase.isLocked && f != null && !pinned) {
                 val left = (f.x * size.width).toFloat()
                 val top = (f.y * size.height).toFloat()
                 val w = (f.width * size.width).toFloat()
                 val h = (f.height * size.height).toFloat()
                 val target = Offset(left + w / 2, top + h / 2)
-                if (f.width < 0.85) {
+                if (f.width < 0.85 && !model.zoomedIn) {
                     drawRoundRect(Color.Black.copy(alpha = 0.3f), Offset(left, top + 1.5f), Size(w, h), CornerRadius(10.dp.toPx()), style = Stroke(5.dp.toPx()))
                     drawRoundRect(Palette.yellow, Offset(left, top), Size(w, h), CornerRadius(10.dp.toPx()), style = Stroke(3.dp.toPx()))
                 }
@@ -84,9 +86,9 @@ fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 5.dp.toPx())),
                     )
                 }
-                drawPlus(target, 8.dp.toPx(), if (ready) Palette.yellow else Palette.mint, 2.dp.toPx())
+                drawPlus(target, 8.dp.toPx(), Palette.yellow, 2.dp.toPx())
             }
-            if (phase.isActive) drawLevelReticle(center, roll, ready)
+            if (phase.isActive) drawLevelReticle(center, roll, ready, if (pinned) Palette.mint else Color.White)
         }
         if (phase.isLocked) {
             Box(Modifier.align(Alignment.TopCenter).padding(top = 12.dp)) { ShotPill(model) }
@@ -95,7 +97,7 @@ fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier
 }
 
 /** Framed-style reticle: fixed side ticks, a horizon line that follows the tilt. */
-private fun DrawScope.drawLevelReticle(center: Offset, roll: Float, ready: Boolean) {
+private fun DrawScope.drawLevelReticle(center: Offset, roll: Float, ready: Boolean, plusColor: Color) {
     val level = abs(roll) < 1.5f
     val tick = Color.White.copy(alpha = 0.75f)
     val gap = 56.dp.toPx()
@@ -108,7 +110,8 @@ private fun DrawScope.drawLevelReticle(center: Offset, roll: Float, ready: Boole
         val half = (if (ready) gap + arm else gap - 8.dp.toPx())
         drawLine(color, Offset(center.x - half, center.y), Offset(center.x + half, center.y), 1.2.dp.toPx(), StrokeCap.Round)
     }
-    drawPlus(center, 6.dp.toPx(), Color.White, 1.2.dp.toPx())
+    if (plusColor == Color.White) drawPlus(center, 6.dp.toPx(), plusColor, 1.2.dp.toPx())
+    else drawPlus(center, 8.dp.toPx(), plusColor, 2.dp.toPx())
 }
 
 @Composable

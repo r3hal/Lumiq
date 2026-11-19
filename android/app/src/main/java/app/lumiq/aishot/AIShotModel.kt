@@ -62,6 +62,14 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     var instruction by mutableStateOf(""); private set
     /** Unit direction the camera should move while aiming. */
     var direction by mutableStateOf<Vec?>(null); private set
+    /** True once AI Shot has zoomed in on the shot: the box is gone and the view itself is the shot. */
+    var zoomedIn by mutableStateOf(false); private set
+    /**
+     * After zooming, while the shot stays near the center, the target + is drawn fixed in the middle
+     * of the reticle instead of following the tracker. Zoom magnifies tracker noise, so a following +
+     * shakes. When you drift clearly off, it follows the shot again so you can see where to aim.
+     */
+    var targetPinned by mutableStateOf(false); private set
 
     private val scope: CoroutineScope = MainScope()
     private val service = AIShotService(config)
@@ -85,6 +93,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     private val readyExit = 0.085
     private val zoomWhenWithin = 0.12
     private val readyHold = 0.35
+    private val pinExit = 0.15
 
     init {
         tracker.onObservation = { observation, generation -> observe(observation, generation) }
@@ -126,6 +135,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         cancelWork()
         camera?.setAIShotTracker(null)
         phase = Phase.Idle; suggestion = null; frame = null; instruction = ""; direction = null
+        zoomedIn = false; targetPinned = false
     }
 
     fun dispose() { stop(); scope.cancel() }
@@ -137,6 +147,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         trackedZoom = zoom; zoomRequested = false; centeredSince = null; lowConfidenceSince = null
         frame = s.frame
         resetSmoothing(s.frame)
+        zoomedIn = false; targetPinned = false
         phase = Phase.Aiming
         instruction = s.tip
         haptics.success()
@@ -193,9 +204,12 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         if (needsZoom && !zoomRequested && offset < zoomWithin) {
             zoomRequested = true; zoomStartedAt = now
             phase = Phase.Zooming; direction = null
+            zoomedIn = true; targetPinned = true
             camera.setZoom(min(s.zoom, camera.maximumZoom))
             return
         }
+
+        if (zoomedIn) targetPinned = if (targetPinned) offset < pinExit else offset < readyExit
 
         val zoomDone = !needsZoom || zoomRequested
         if (phase == Phase.Zooming && now - zoomStartedAt > 1.2) phase = Phase.Aiming // Zoom could not change further.
@@ -235,6 +249,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         tracker.stop(); token = -1
         camera?.setAIShotTracker(null) // Rescan re-attaches it.
         phase = Phase.Failed(message); instruction = message; direction = null; frame = null
+        zoomedIn = false; targetPinned = false
         haptics.warning()
     }
 
