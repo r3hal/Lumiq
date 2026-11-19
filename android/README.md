@@ -11,6 +11,25 @@ This is a native Android version of Lumiq, written in Kotlin with Jetpack Compos
 
 Every APK is signed with the same sideload key (`app/lumiq-sideload.keystore`), so a newer build installs over the old one and keeps your photos and settings. This key is only for personal sideloading. Do not use it for a Play Store release.
 
+## In-app updates (GitHub Releases)
+
+Every push to `main` that changes `android/` runs [`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml). It runs the unit tests and builds the release APK with the same sideload key. It then publishes `Lumiq-android.apk` and `Lumiq-android.apk.sha256` as a GitHub release tagged `android-b<versionCode>`. The versionCode is `100 + the workflow run number`, so every build is higher than the last. The build stops if the APK's package isn't `app.lumiq` or if its certificate isn't the one in `app/lumiq-sideload.keystore`.
+
+When Lumiq starts, it quietly checks for a newer release. If it finds one, it shows **Update Now** / **Later**. Settings › Lumiq › **Check for Updates** runs the same check on demand. **Update Now** downloads the APK inside the app and shows progress. Before opening Android's installer, it verifies the file size, the SHA-256 (from GitHub's asset digest and the `.sha256` file), the package name, the versionCode and the signing certificate. Nothing installs without your confirmation in Android's prompt. Photos and settings are kept. Network, rate-limit, storage and checksum problems are reported with a Try Again button. A failed start-up check stays silent.
+
+One-time setup:
+
+1. **Releases must be public.** The app downloads without signing in to GitHub, so it can't read releases in a private repository. Choose one option:
+   - make this repository public, or
+   - create a public repository for releases only (for example `r3hal/lumiq-releases`, with at least one commit). Then, in this repo's Settings › Secrets and variables › Actions:
+     - add the **variable** `LUMIQ_RELEASES_REPO` = `r3hal/lumiq-releases`;
+     - add the **secret** `LUMIQ_RELEASES_TOKEN`: a fine-grained personal access token with *Contents: Read and write* on that repository only.
+2. Under Settings › Actions › General, allow Actions to run. If releases go to this repository, also set Workflow permissions to "Read and write".
+3. Install one APK built by this workflow. The repository the app checks is fixed into each build, so set up step 1 before that first build. Codemagic and Android Studio builds keep versionCode 2 and check `r3hal/lumiq` (override with the `LUMIQ_UPDATE_REPO` environment variable), so they find updates only when releases are published there.
+4. Optional: the built-in Gemini key is **not** included in GitHub builds, because anyone can download a public APK and extract it. To include it anyway, add the secret `LUMIQ_GEMINI_KEY` and the variable `LUMIQ_EMBED_GEMINI_KEY` = `true`.
+
+The first time you tap Update Now, Android asks you to allow Lumiq to install unknown apps. This is a one-time prompt.
+
 ## Built-in Gemini key (AI Shot works with no setup)
 
 The APK can include one Gemini key, so everyone who installs it can use AI Shot right away. The key never goes in git:

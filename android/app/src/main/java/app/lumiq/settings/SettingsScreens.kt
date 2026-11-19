@@ -51,6 +51,7 @@ import app.lumiq.ui.RowSeparator
 import app.lumiq.ui.SettingToggle
 import app.lumiq.ui.SettingsSection
 import app.lumiq.ui.SheetHeader
+import app.lumiq.update.UpdateState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,6 +110,10 @@ fun SettingsScreen(app: AppState, onClose: () -> Unit, onAIShot: () -> Unit, onG
                 }
                 RowSeparator()
                 NavigationRow("Privacy Policy") { showPrivacy = true }
+                if (app.updater.isEnabled) {
+                    RowSeparator()
+                    NavigationRow("Check for Updates", value = if (app.updater.state is UpdateState.Checking) "Checking…" else null) { app.updater.checkNow() }
+                }
             }
             val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
             FootNote("Lumiq $version · Android personal build")
@@ -218,4 +223,5 @@ private const val PRIVACY =
         "AI Shot sends one compressed frame only when you tap ✦, to the AI server or Gemini key you set up yourself; it is not stored by Lumiq. " +
         "Photos are stored in Lumiq's private app storage, and copied to your Gallery only if you turn that on. " +
         "Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos. " +
+        "To look for updates, Lumiq asks GitHub for its newest release when it starts and when you tap Check for Updates; nothing about you or your photos is sent. " +
         "Sharing and feedback happen only when you start them. Lumiq (formerly Focal) is an independent personal app."

@@ -38,6 +38,8 @@ import app.lumiq.ui.Haptics
 import app.lumiq.ui.LumiqSplash
 import app.lumiq.ui.LumiqTheme
 import app.lumiq.ui.Palette
+import app.lumiq.update.AppUpdater
+import app.lumiq.update.UpdateDialog
 import java.io.File
 
 /** App-wide objects (the iPhone app passes these as environment objects). */
@@ -48,8 +50,10 @@ class AppState(context: Context) {
     val haptics = Haptics(context)
     val camera = CameraController(context)
     val aiShot = AIShotModel(aiConfig, haptics)
+    val updater = AppUpdater(context)
 
     fun release() {
+        updater.release()
         aiShot.dispose()
         camera.release()
     }
@@ -77,6 +81,8 @@ class MainActivity : ComponentActivity() {
         )
         val app = AppState(applicationContext)
         state = app
+        // Optional update check on a fresh start (not when Android recreates the activity).
+        if (savedInstanceState == null) app.updater.checkAutomatically()
         setContent { LumiqTheme { LumiqApp(app) } }
     }
 
@@ -118,5 +124,6 @@ private fun LumiqApp(app: AppState) {
         AnimatedVisibility(showSplash, exit = fadeOut(tween(350))) {
             LumiqSplash(onFinished = { showSplash = false })
         }
+        if (!showSplash) UpdateDialog(app.updater)
     }
 }

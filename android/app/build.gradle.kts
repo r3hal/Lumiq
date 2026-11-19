@@ -15,6 +15,16 @@ val builtInGeminiKey: String = run {
     (local.getProperty("lumiq.geminiKey") ?: System.getenv("LUMIQ_GEMINI_KEY") ?: "").trim()
 }
 
+// In-app updates. GitHub Actions (.github/workflows/android-release.yml) passes a versionCode that grows
+// with every build, and the owner/repo whose public Releases the app checks. Local and Codemagic builds
+// keep the fixed fallback below. Set LUMIQ_UPDATE_REPO to an empty string to build without the updater.
+val ciVersionCode: Int? = System.getenv("LUMIQ_VERSION_CODE")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+    it.toIntOrNull()?.takeIf { code -> code in 1..2_100_000_000 } ?: error("LUMIQ_VERSION_CODE must be a positive integer, got '$it'")
+}
+val updateRepo: String = (System.getenv("LUMIQ_UPDATE_REPO") ?: "r3hal/lumiq").trim().also {
+    require(it.isEmpty() || Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(it)) { "LUMIQ_UPDATE_REPO must look like owner/repo" }
+}
+
 android {
     namespace = "app.lumiq"
     compileSdk = 36
@@ -23,8 +33,9 @@ android {
         applicationId = "app.lumiq"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
+        versionCode = ciVersionCode ?: 2
         versionName = "3.2.1-android"
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "BUILT_IN_GEMINI_KEY", "\"${builtInGeminiKey.replace("\"", "")}\"")
     }
 

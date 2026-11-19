@@ -1,0 +1,107 @@
+name: Android release
+# Builds the Android app after every push to main that touches it, and publishes the signed APK to
+# GitHub Releases, where the app's in-app updater (android/app/src/main/java/app/lumiq/update) finds it.
+# The Codemagic iPhone workflows in codemagic.yaml are separate and unaffected.
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", ".github/workflows/android-release.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+env:
+  # The app downloads releases without signing in, so they must live in a PUBLIC repository.
+  # Leave the LUMIQ_RELEASES_REPO variable unset to publish here (requires this repo to be public),
+  # or set it to e.g. r3hal/lumiq-releases and add a LUMIQ_RELEASES_TOKEN secret that can write to it.
+  RELEASES_REPO: ${{ vars.LUMIQ_RELEASES_REPO || github.repository }}
+  # SHA-256 of the certificate in android/app/lumiq-sideload.keystore. Installed copies only accept
+  # updates signed with this certificate, so the build fails if the signing key ever changes.
+  EXPECTED_CERT_SHA256: d625d8a59c409a799c258d2a0eaa57ded0f8bd610eac1474db678f05d4aad837
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+
+      - name: Choose versionCode
+        id: version
+        run: |
+          # Grows with every workflow run. The offset keeps it above versionCode 2, the fixed value
+          # used by local and Codemagic builds, so the first GitHub build installs over those too.
+          code=$((100 + GITHUB_RUN_NUMBER))
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "versionCode $code"
+
+      - name: Unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testReleaseUnitTest
+
+      - name: Build signed release APK
+        env:
+          LUMIQ_VERSION_CODE: ${{ steps.version.outputs.code }}
+          LUMIQ_UPDATE_REPO: ${{ env.RELEASES_REPO }}
+          # Off by default: anyone who downloads a public APK can extract a built-in key.
+          LUMIQ_GEMINI_KEY: ${{ vars.LUMIQ_EMBED_GEMINI_KEY == 'true' && secrets.LUMIQ_GEMINI_KEY || '' }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify package, versionCode and signing certificate
+        id: apk
+        env:
+          CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          dump=$("$tools/aapt2" dump badging "$apk")
+          badging=$(sed -n 1p <<<"$dump")
+          echo "$badging"
+          grep -q "name='app.lumiq' versionCode='$CODE' " <<<"$badging"
+          certs=$("$tools/apksigner" verify --print-certs "$apk")
+          echo "$certs"
+          test "$(grep -c 'certificate SHA-256 digest' <<<"$certs")" = 1
+          grep -q "certificate SHA-256 digest: $EXPECTED_CERT_SHA256" <<<"$certs"
+          name=$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$badging")
+          mkdir -p ../build
+          cp "$apk" ../build/Lumiq-android.apk
+          (cd ../build && sha256sum Lumiq-android.apk > Lumiq-android.apk.sha256 && cat Lumiq-android.apk.sha256)
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        working-directory: build
+        env:
+          GH_TOKEN: ${{ secrets.LUMIQ_RELEASES_TOKEN || github.token }}
+          CODE: ${{ steps.version.outputs.code }}
+          NAME: ${{ steps.apk.outputs.name }}
+        run: |
+          set -euo pipefail
+          tag="android-b$CODE"
+          target=()
+          if [ "$RELEASES_REPO" = "$GITHUB_REPOSITORY" ]; then target=(--target "$GITHUB_SHA"); fi
+          notes="Lumiq for Android, built from commit ${GITHUB_SHA:0:12}. Install over your current Lumiq to keep photos and settings."
+          if gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            # A re-run of the same workflow run: replace the files, keep the versionCode.
+            gh release upload "$tag" Lumiq-android.apk Lumiq-android.apk.sha256 --repo "$RELEASES_REPO" --clobber
+          else
+            gh release create "$tag" Lumiq-android.apk Lumiq-android.apk.sha256 --repo "$RELEASES_REPO" \
+              "${target[@]}" --title "Lumiq $NAME (build $CODE)" --notes "$notes" --latest
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Lumiq-android-${{ steps.version.outputs.code }}
+          path: |
+            build/Lumiq-android.apk
+            build/Lumiq-android.apk.sha256
