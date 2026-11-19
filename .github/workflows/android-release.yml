@@ -53,9 +53,14 @@ jobs:
         env:
           LUMIQ_VERSION_CODE: ${{ steps.version.outputs.code }}
           LUMIQ_UPDATE_REPO: ${{ env.RELEASES_REPO }}
-          # Off by default: anyone who downloads a public APK can extract a built-in key.
-          LUMIQ_GEMINI_KEY: ${{ vars.LUMIQ_EMBED_GEMINI_KEY == 'true' && secrets.LUMIQ_GEMINI_KEY || '' }}
-        run: ./gradlew --no-daemon assembleRelease
+          # AI Shot has no in-app setup: it only works with this key built in.
+          LUMIQ_GEMINI_KEY: ${{ secrets.LUMIQ_GEMINI_KEY }}
+        run: |
+          if [ -z "${LUMIQ_GEMINI_KEY:-}" ]; then
+            echo "::error::Add the repository secret LUMIQ_GEMINI_KEY (Settings > Secrets and variables > Actions). AI Shot needs it."
+            exit 1
+          fi
+          ./gradlew --no-daemon assembleRelease
 
       - name: Verify package, versionCode and signing certificate
         id: apk
