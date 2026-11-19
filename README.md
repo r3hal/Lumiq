@@ -89,16 +89,6 @@ Photos and the JSON library index live in Application Support. Exports are made 
 - `Focal/App`, `Focal/Design`: settings, navigation, field guide, styling.
 - `FocalTests`: composition, geometry, image derivatives, library compatibility and settings tests.
 
-## Credits
-
-Product reference: [Framed](https://shootframed.com/). Focal is an independent implementation and is not affiliated with Framed.
-
-Bundled sample photograph: [lake and mountain scene](https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1), from Unsplash, used under the [Unsplash license](https://unsplash.com/license). Replace the sample if you prefer your own photography before distribution.
-
-Subject names use Apple Vision’s on-device image classifier. Specific descriptions such as “mechanical RGB keyboard” are not guaranteed. RAW remains full-frame; exporting a cropped JPEG and its RAW creates separate Photos assets. No paid upgrade or purchase restoration is included in this personal build.
-
-Caption font: EB Garamond, bundled under the SIL Open Font License in `Focal/Resources/Fonts/OFL.txt`.
-
 ## Automatic framing and preview quality (1.3)
 
 A scan selects a measured target composition, retains the tracked subject and guides aiming. Once aligned and safe, the camera starts its real zoom ramp without a capture-stability hold. Tracking/crop/motor failures retain a valid shot and retry with bounded backoff; persistent loss or exhausted retries returns to discovery. Manual zoom pauses the automatic motor through the interaction and a three-second grace, retains visible subject tracking, and replans safely without ending guidance. Capture stability is reserved for final READY verification. The shutter remains manual, and verified shots can retain the original timestamped wide preview alongside the framed photo. Sony framing remains manual on the lens.
