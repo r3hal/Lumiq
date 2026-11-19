@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import app.lumiq.aishot.AIShotConfig
+import app.lumiq.aishot.AIShotLearning
 import app.lumiq.aishot.AIShotModel
 import app.lumiq.camera.CameraController
 import app.lumiq.camera.CameraScreen
@@ -53,12 +54,14 @@ class AppState(context: Context) {
     val aiConfig = AIShotConfig(context)
     val haptics = Haptics(context)
     val camera = CameraController(context)
-    val aiShot = AIShotModel(aiConfig, haptics)
+    val learning = AIShotLearning(context).also { it.refreshGuidance() }
+    val aiShot = AIShotModel(aiConfig, haptics, learning)
     val updater = AppUpdater(context)
 
     fun release() {
         updater.release()
         aiShot.dispose()
+        learning.dispose()
         camera.release()
     }
 }

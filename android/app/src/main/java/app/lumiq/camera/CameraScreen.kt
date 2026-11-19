@@ -106,6 +106,7 @@ import androidx.compose.foundation.layout.heightIn
 import app.lumiq.AppState
 import app.lumiq.aishot.AIShotInstruction
 import app.lumiq.aishot.AIShotModel
+import app.lumiq.aishot.ShotOutcome
 import app.lumiq.aishot.AIShotOverlay
 import app.lumiq.aishot.drawPlus
 import app.lumiq.settings.FlashMode
@@ -175,6 +176,7 @@ fun CameraScreen(
         if (!canShoot) return
         saving = true
         shots += 1
+        aiShot.photoTaken() // Learning: a photo taken while a shot is marked means the pick was good.
         app.haptics.medium()
         camera.takePhoto(settings.flash, settings.shutterSound) { file ->
             if (file == null) { saving = false; return@takePhoto }
@@ -190,13 +192,34 @@ fun CameraScreen(
         }
     }
 
-    // ✕ cancels until the shot is Ready (like Framed); ↻ then finds a new one.
+    var askLearning by remember { mutableStateOf(false) }
+
+    // ✕ cancels until the shot is Ready; ↻ then finds a new one.
     fun aiShotTapped() {
         val phase = aiShot.phase
         if (phase == AIShotModel.Phase.Finding || phase == AIShotModel.Phase.Aiming || phase == AIShotModel.Phase.Zooming) {
-            aiShot.stop(); return
+            aiShot.stop(ShotOutcome.Cancelled); return
         }
+        if (app.learning.needsConsent) { askLearning = true; return }
         aiShot.start(camera, aspect)
+    }
+
+    if (askLearning) {
+        fun answer(share: Boolean) {
+            app.learning.updateConsent(share)
+            askLearning = false
+            aiShot.start(camera, aspect)
+        }
+        LumiqDialog(
+            "Help AI Shot learn?", onDismiss = { askLearning = false },
+            primary = "Share results" to { answer(true) }, secondary = "Not now" to { answer(false) },
+        ) {
+            DialogText(
+                "Lumiq can send the result of each AI Shot (what the AI suggested and whether you took the photo) " +
+                    "so AI Shot learns which picks people like. No photos, no location and nothing that identifies you. " +
+                    "Nothing is saved on your phone. You can change this in Settings.",
+            )
+        }
     }
 
     // A short dark blink on the image when a photo is taken.
@@ -290,7 +313,7 @@ fun CameraScreen(
                         Box {
                             AIShotButton(aiShot.phase, enabled = camera.isRunning && !busy, onClick = ::aiShotTapped, onLongClick = { showAIMenu = true })
                             LumiqMenu(showAIMenu, onDismiss = { showAIMenu = false }) {
-                                if (aiShot.phase.isActive) MenuRow("Exit AI Shot", Glyph.Close) { showAIMenu = false; aiShot.stop() }
+                                if (aiShot.phase.isActive) MenuRow("Exit AI Shot", Glyph.Close) { showAIMenu = false; aiShot.stop(ShotOutcome.Cancelled) }
                                 MenuRow("Classic live guide", Glyph.Aperture, checked = settings.guide) { settings.updateGuide(!settings.guide) }
                             }
                         }

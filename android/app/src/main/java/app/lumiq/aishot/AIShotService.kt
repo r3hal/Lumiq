@@ -51,6 +51,8 @@ class AIShotRequest(
     val zoom: Double,
     val minimumZoom: Double,
     val maximumZoom: Double,
+    /** Rules learned from Lumiq users' results (see AIShotLearning); may be empty. */
+    val guidance: List<String> = emptyList(),
 )
 
 /** Pure parsing and validation, shared with unit tests. Mirrors ai-server/src/index.js. */
@@ -64,7 +66,8 @@ object AIShotLogic {
             "${fmt(r.maximumZoom / r.zoom, 1)}x more.\n" +
             "Return JSON only: {\"subject\": \"2-5 lowercase words\", \"tip\": \"one imperative photographer instruction, max 9 words\", " +
             "\"technique\": \"rule of thirds|centered|leading lines|symmetry|negative space|framing|fill the frame|layers|detail\", " +
-            "\"box_2d\": [ymin, xmin, ymax, xmax] ideal photo crop, integers 0-1000, \"confidence\": 0-1}"
+            "\"box_2d\": [ymin, xmin, ymax, xmax] ideal photo crop, integers 0-1000, \"confidence\": 0-1}" +
+            (if (r.guidance.isEmpty()) "" else "\nWhat Lumiq users have chosen recently (apply when relevant):\n" + r.guidance.joinToString("\n") { "- $it" })
 
     private fun fmt(v: Double, digits: Int) = String.format(Locale.US, "%.${digits}f", v)
 
@@ -243,7 +246,7 @@ class AIShotService(private val config: AIShotConfig) {
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent",
                     body.toString(), mapOf("x-goog-api-key" to key), readTimeoutMs = timeout,
                 )
-                val suggestion = AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, if (model.startsWith("gemma")) "gemma" else "gemini")
+                val suggestion = AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, model)
                 cooldown.succeeded(model)
                 return suggestion
             } catch (e: AIShotError) {

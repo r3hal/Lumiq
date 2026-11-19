@@ -16,3 +16,12 @@ binding = "AI"
 #   npx wrangler secret put APP_TOKEN        # any long random string, also typed into the app
 #   npx wrangler secret put GEMINI_API_KEY   # free key from https://aistudio.google.com/apikey
 #   npx wrangler secret put GROQ_API_KEY     # optional, free key from https://console.groq.com/keys
+
+# AI Shot learning (optional). Create the free database once:
+#   npx wrangler d1 create lumiq-learning        # prints a database_id
+#   npx wrangler d1 execute lumiq-learning --remote --file schema.sql
+# then uncomment and paste the id:
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "lumiq-learning"
+# database_id = "PASTE-ID-HERE"

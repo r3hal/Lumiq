@@ -25,6 +25,11 @@ val updateRepo: String = (System.getenv("LUMIQ_UPDATE_REPO") ?: "r3hal/lumiq").t
     require(it.isEmpty() || Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(it)) { "LUMIQ_UPDATE_REPO must look like owner/repo" }
 }
 
+// AI Shot learning server (ai-server on Cloudflare); empty builds without the "Help AI Shot learn" feature.
+val learningUrl: String = (System.getenv("LUMIQ_LEARNING_URL") ?: "").trim().trimEnd('/').also {
+    require(it.isEmpty() || Regex("^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/-]*)?$").matches(it)) { "LUMIQ_LEARNING_URL must be an https:// URL" }
+}
+
 android {
     namespace = "app.lumiq"
     compileSdk = 36
@@ -36,6 +41,7 @@ android {
         versionCode = ciVersionCode ?: 2
         versionName = "3.2.1-android"
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
+        buildConfigField("String", "LEARNING_URL", "\"$learningUrl\"")
         buildConfigField("String", "BUILT_IN_GEMINI_KEY", "\"${builtInGeminiKey.replace("\"", "")}\"")
     }
 
