@@ -107,6 +107,13 @@ class TemplateTracker {
         return cross / (n * std * tStd)
     }
 
+    /** Vertex of the parabola through (-1, left), (0, center), (1, right), limited to ±0.5 px. */
+    private fun parabolicOffset(left: Float, center: Float, right: Float): Double {
+        val curvature = left - 2 * center + right
+        if (curvature >= -1e-6f) return 0.0 // Not a peak (flat or a valley): keep the whole-pixel position.
+        return (0.5 * (left - right) / curvature).coerceIn(-0.5, 0.5)
+    }
+
     fun update(frame: LumaFrame): Observation? {
         if (template.isEmpty()) return null
         var tMean = 0f
@@ -135,6 +142,13 @@ class TemplateTracker {
             val score = ncc(frame, coarseX + fx, coarseY + fy, template, tMean, tStd)
             if (score > bestScore) { bestScore = score; bestX = coarseX + fx; bestY = coarseY + fy }
         }
+        // Sub-pixel refinement: fit a parabola through the scores one pixel either side of the peak.
+        // Without it the position jumps in whole pixels of the 200 px tracking image (about 0.5 % of the
+        // view each), which made the target + shake even when the phone was held still.
+        val peakX = bestX
+        val peakY = bestY
+        bestX = peakX + parabolicOffset(ncc(frame, peakX - 1, peakY, template, tMean, tStd), bestScore, ncc(frame, peakX + 1, peakY, template, tMean, tStd))
+        bestY = peakY + parabolicOffset(ncc(frame, peakX, peakY - 1, template, tMean, tStd), bestScore, ncc(frame, peakX, peakY + 1, template, tMean, tStd))
         // Keep the box reachable: allow it to leave the view by at most half its size.
         x = min(frame.width - w / 2, max(-w / 2, bestX))
         y = min(frame.height - h / 2, max(-h / 2, bestY))

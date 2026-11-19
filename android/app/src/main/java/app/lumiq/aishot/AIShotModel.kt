@@ -76,6 +76,9 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     private var lowConfidenceSince: Double? = null
     private var centeredSince: Double? = null
     private var lastGuidanceChange = 0.0
+    // Steady target: heavy smoothing while the phone is held still, quick to follow a real pan.
+    private val smoothX = OneEuroFilter(minCutoff = 0.6, beta = 4.0)
+    private val smoothY = OneEuroFilter(minCutoff = 0.6, beta = 4.0)
 
     // Tunables (same as iPhone)
     private val readyEnter = 0.045
@@ -133,6 +136,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         suggestion = s
         trackedZoom = zoom; zoomRequested = false; centeredSince = null; lowConfidenceSince = null
         frame = s.frame
+        resetSmoothing(s.frame)
         phase = Phase.Aiming
         instruction = s.tip
         haptics.success()
@@ -155,6 +159,7 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
             val scaled = rescale(current, zoomRatio)
             trackedZoom = camera.zoom
             frame = scaled
+            resetSmoothing(scaled, now)
             token = tracker.track(trackedPart(scaled))
             if (phase == Phase.Zooming) phase = Phase.Aiming
             return
@@ -167,12 +172,11 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         }
         lowConfidenceSince = null
 
-        // Smooth the tracked box a little so the overlay does not jitter.
+        // Smooth the tracked box so the target + and box stay still while the phone is held still.
         val measured = shot(observation.rect, current)
-        val alpha = 0.55
         val smoothed = NRect(
-            current.x + (measured.x - current.x) * alpha,
-            current.y + (measured.y - current.y) * alpha,
+            smoothX.filter(measured.midX, now) - current.width / 2,
+            smoothY.filter(measured.midY, now) - current.height / 2,
             current.width, current.height,
         )
         frame = smoothed
@@ -220,6 +224,11 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         if (now - lastGuidanceChange <= 0.25 && direction != null) return
         direction = Vec(dx / length, dy / length)
         lastGuidanceChange = now
+    }
+
+    private fun resetSmoothing(rect: NRect, time: Double = Double.NaN) {
+        smoothX.reset(rect.midX, time)
+        smoothY.reset(rect.midY, time)
     }
 
     private fun fail(message: String) {
