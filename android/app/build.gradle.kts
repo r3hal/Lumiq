@@ -25,8 +25,10 @@ val updateRepo: String = (System.getenv("LUMIQ_UPDATE_REPO") ?: "r3hal/lumiq").t
     require(it.isEmpty() || Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(it)) { "LUMIQ_UPDATE_REPO must look like owner/repo" }
 }
 
-// AI Shot learning server (ai-server on Cloudflare); empty builds without the "Help AI Shot learn" feature.
-val learningUrl: String = (System.getenv("LUMIQ_LEARNING_URL") ?: "").trim().trimEnd('/').also {
+// AI Shot learning server (ai-server on Cloudflare). LUMIQ_LEARNING_URL overrides it; "off" builds without
+// the "Help AI Shot learn" feature.
+val learningUrl: String = (System.getenv("LUMIQ_LEARNING_URL")?.trim()?.takeIf { it.isNotEmpty() } ?: "https://lumiq-ai.tsmanatomic.workers.dev")
+    .let { if (it.equals("off", ignoreCase = true)) "" else it }.trimEnd('/').also {
     require(it.isEmpty() || Regex("^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/-]*)?$").matches(it)) { "LUMIQ_LEARNING_URL must be an https:// URL" }
 }
 

@@ -55,7 +55,7 @@ npx wrangler d1 execute lumiq-learning --remote --file schema.sql   # creates th
 npx wrangler deploy                                                  # prints https://lumiq-ai.<you>.workers.dev
 ```
 
-Then, in the GitHub repository, add the Actions **variable** `LUMIQ_LEARNING_URL` = `https://lumiq-ai.<you>.workers.dev`. The next Android build shows "Help AI Shot learn". Check the server with `curl https://lumiq-ai.<you>.workers.dev/v1/guidance`.
+Lumiq's server runs at `https://lumiq-ai.tsmanatomic.workers.dev`, which is the default in `android/app/build.gradle.kts`. To point the app at a different server, set the GitHub Actions **variable** `LUMIQ_LEARNING_URL`, or set it to `off` to build without the feature. Check the server with `curl https://lumiq-ai.<you>.workers.dev/v1/guidance`.
 
 ## No server at all
 

@@ -53,7 +53,7 @@ jobs:
         env:
           LUMIQ_VERSION_CODE: ${{ steps.version.outputs.code }}
           LUMIQ_UPDATE_REPO: ${{ env.RELEASES_REPO }}
-          # AI Shot learning server URL (repository variable); empty builds without the feature.
+          # AI Shot learning server; unset uses the default in app/build.gradle.kts, "off" disables it.
           LUMIQ_LEARNING_URL: ${{ vars.LUMIQ_LEARNING_URL }}
           # AI Shot has no in-app setup: it only works with this key built in.
           LUMIQ_GEMINI_KEY: ${{ secrets.LUMIQ_GEMINI_KEY }}
