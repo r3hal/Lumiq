@@ -9,6 +9,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -103,6 +108,28 @@ private fun LumiqApp(app: AppState) {
     BackHandler(enabled = stack.size > 1) { pop() }
 
     Box(Modifier.fillMaxSize().background(Palette.ink)) {
+        // Pages slide in from the right when opened and back out when closed.
+        AnimatedContent(
+            targetState = top to stack.size,
+            contentKey = { it.first },
+            transitionSpec = {
+                val forward = targetState.second >= initialState.second
+                val enter = slideInHorizontally(tween(260)) { if (forward) it / 5 else -it / 5 } + fadeIn(tween(220))
+                val exit = slideOutHorizontally(tween(260)) { if (forward) -it / 8 else it / 5 } + fadeOut(tween(180))
+                enter togetherWith exit
+            },
+            label = "screens",
+        ) { (screen, _) -> Page(app, screen, ::push, ::pop) }
+        AnimatedVisibility(showSplash, exit = fadeOut(tween(350))) {
+            LumiqSplash(onFinished = { showSplash = false })
+        }
+        if (!showSplash) UpdateDialog(app.updater)
+    }
+}
+
+@Composable
+private fun Page(app: AppState, top: Screen, push: (Screen) -> Unit, pop: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Palette.ink)) {
         when (top) {
             Screen.Camera -> CameraScreen(
                 app,
@@ -111,15 +138,11 @@ private fun LumiqApp(app: AppState) {
                 onOpenGoldenHour = { push(Screen.GoldenHour) },
                 onReview = { push(Screen.Editor(it, captureReview = true)) },
             )
-            Screen.Library -> LibraryScreen(app, onClose = ::pop, onOpen = { push(Screen.Viewer(it)) })
-            is Screen.Viewer -> PhotoViewerScreen(app, top.file, onClose = ::pop, onEdit = { push(Screen.Editor(it, captureReview = false)) })
-            is Screen.Editor -> PhotoEditorScreen(app, top.file, top.captureReview, onClose = ::pop)
-            Screen.Settings -> SettingsScreen(app, onClose = ::pop, onGoldenHour = { push(Screen.GoldenHour) })
-            Screen.GoldenHour -> GoldenHourScreen(onClose = ::pop)
+            Screen.Library -> LibraryScreen(app, onClose = pop, onOpen = { push(Screen.Viewer(it)) })
+            is Screen.Viewer -> PhotoViewerScreen(app, top.file, onClose = pop, onEdit = { push(Screen.Editor(it, captureReview = false)) })
+            is Screen.Editor -> PhotoEditorScreen(app, top.file, top.captureReview, onClose = pop)
+            Screen.Settings -> SettingsScreen(app, onClose = pop, onGoldenHour = { push(Screen.GoldenHour) })
+            Screen.GoldenHour -> GoldenHourScreen(onClose = pop)
         }
-        AnimatedVisibility(showSplash, exit = fadeOut(tween(350))) {
-            LumiqSplash(onFinished = { showSplash = false })
-        }
-        if (!showSplash) UpdateDialog(app.updater)
     }
 }
