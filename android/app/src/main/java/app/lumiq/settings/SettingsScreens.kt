@@ -14,14 +14,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,21 +27,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import app.lumiq.AppState
-import app.lumiq.ui.FootNote
+import app.lumiq.ui.DialogText
+import app.lumiq.ui.Glyph
+import app.lumiq.ui.GlyphTile
+import app.lumiq.ui.LumiqDialog
+import app.lumiq.ui.LumiqLogo
 import app.lumiq.ui.NavigationRow
 import app.lumiq.ui.Palette
 import app.lumiq.ui.RowSeparator
 import app.lumiq.ui.SettingToggle
 import app.lumiq.ui.SettingsSection
 import app.lumiq.ui.SheetHeader
+import app.lumiq.ui.ValueRow
 import app.lumiq.update.UpdateState
-import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(app: AppState, onClose: () -> Unit, onGoldenHour: () -> Unit) {
@@ -56,79 +58,99 @@ fun SettingsScreen(app: AppState, onClose: () -> Unit, onGoldenHour: () -> Unit)
     Column(Modifier.fillMaxSize().background(Palette.ink)) {
         SheetHeader("Settings", onClose)
         Column(
-            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 15.dp).navigationBarsPadding().padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(26.dp),
+            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             SettingsSection("Camera") {
-                SettingToggle("Classic live guide", s.guide, "On-device subject guide (rule of thirds)") { s.updateGuide(it) }
+                SettingToggle("Classic live guide", s.guide, "On-device rule-of-thirds guide", Glyph.Aperture) { s.updateGuide(it) }
                 RowSeparator()
-                SettingToggle("Optional grid", s.grid) { s.updateGrid(it) }
+                SettingToggle("Grid", s.grid, glyph = Glyph.Grid) { s.updateGrid(it) }
                 RowSeparator()
-                SettingToggle("Optional level", s.level) { s.updateLevel(it) }
+                SettingToggle("Level", s.level, glyph = Glyph.Level) { s.updateLevel(it) }
                 RowSeparator()
-                SettingToggle("Shutter sound", s.shutterSound) { s.updateShutterSound(it) }
+                SettingToggle("Shutter sound", s.shutterSound, glyph = Glyph.Speaker) { s.updateShutterSound(it) }
                 RowSeparator()
-                SettingToggle("Review after capture", s.reviewAfterCapture) { s.updateReview(it) }
+                SettingToggle("Review after capture", s.reviewAfterCapture, glyph = Glyph.Eye) { s.updateReview(it) }
             }
-            FootNote(
-                "The shutter is always yours. Tap ✦ AI Shot and Lumiq picks the best shot in view, marks it with a yellow box and guides you " +
-                    "to center it, zooms in and says Ready. Long-press ✦ for more. Optional grid/level guides are off by default. Pinch to zoom, tap to focus.",
-            )
             SettingsSection("Library") {
-                SettingToggle("Also save to Gallery", s.autoSaveToGallery, "Copies new photos to Pictures/Lumiq") { on ->
+                SettingToggle("Also save to Gallery", s.autoSaveToGallery, "Copies new photos to Pictures/Lumiq", Glyph.Photo) { on ->
                     val needsPermission = Build.VERSION.SDK_INT < 29 &&
                         ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
                     if (on && needsPermission) storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) else s.updateAutoSave(on)
                 }
                 RowSeparator()
-                Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 15.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Storage", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                    Text(Formatter.formatShortFileSize(context, app.store.storageBytes), color = Palette.muted, fontSize = 14.sp)
-                }
+                ValueRow("Storage", Formatter.formatShortFileSize(context, app.store.storageBytes), Glyph.Disk)
             }
             SettingsSection("Explore") {
-                NavigationRow("Golden hour", onClick = onGoldenHour)
+                NavigationRow("Golden hour", glyph = Glyph.Sun, onClick = onGoldenHour)
             }
             SettingsSection("Lumiq") {
-                NavigationRow("How to use Lumiq") { showGuide = true }
+                NavigationRow("How to use Lumiq", glyph = Glyph.Info) { showGuide = true }
                 RowSeparator()
-                NavigationRow("Send Feedback") {
+                NavigationRow("Send feedback", glyph = Glyph.Chat) {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/r3hal/Lumiq/issues/new")))
                 }
                 RowSeparator()
-                NavigationRow("Privacy Policy") { showPrivacy = true }
+                NavigationRow("Privacy", glyph = Glyph.Shield) { showPrivacy = true }
                 if (app.updater.isEnabled) {
                     RowSeparator()
-                    NavigationRow("Check for Updates", value = if (app.updater.state is UpdateState.Checking) "Checking…" else null) { app.updater.checkNow() }
+                    NavigationRow("Check for updates", value = if (app.updater.state is UpdateState.Checking) "Checking…" else null, glyph = Glyph.Download) {
+                        app.updater.checkNow()
+                    }
                 }
             }
             val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
-            FootNote("Lumiq $version · Android personal build")
+            Column(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LumiqLogo(height = 18.dp, textColor = Palette.muted, starColor = Palette.accent)
+                Text("Version $version", color = Palette.muted.copy(alpha = 0.7f), fontSize = 12.sp)
+            }
         }
     }
-    if (showGuide) InfoDialog("How to use Lumiq", FIELD_GUIDE) { showGuide = false }
-    if (showPrivacy) InfoDialog("Privacy Policy", PRIVACY) { showPrivacy = false }
+    if (showGuide) GuideDialog { showGuide = false }
+    if (showPrivacy) {
+        LumiqDialog("Privacy", onDismiss = { showPrivacy = false }, primary = "Done" to { showPrivacy = false }) { DialogText(PRIVACY) }
+    }
 }
 
 @Composable
-private fun InfoDialog(title: String, text: String, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onDismiss) { Text("Done") } },
-        title = { Text(title) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) { Text(text, lineHeight = 21.sp) } },
-    )
+private fun GuideDialog(onDismiss: () -> Unit) {
+    LumiqDialog("How to use Lumiq", onDismiss = onDismiss, primary = "Got it" to onDismiss) { GuideContent() }
 }
 
-private const val FIELD_GUIDE =
-    "✦ AI Shot\nTap ✦ and hold the phone still for a moment. The AI picks the best photo in view and marks it with a yellow box. " +
-        "Follow the arrow to center the box; Lumiq zooms in automatically and shows Ready. Then press the shutter. " +
-        "Tap ↻ to find a different shot, or long-press ✦ to exit.\n\n" +
-        "Classic live guide\nAn on-device guide that finds the main subject and helps you place it on a rule-of-thirds point. Turn it on in the ⋯ menu or Settings.\n\n" +
-        "Camera\nPinch to zoom, tap to focus, use the lens buttons for 0.5×/1×/2×/5× when your phone has those cameras. " +
-        "The aperture button shows exposure compensation. The aspect button changes the photo shape.\n\n" +
-        "Library and editing\nYour photos stay in Lumiq's library. Open one to share, edit with film looks and light/color controls, or delete. " +
-        "Turn on 'Also save to Gallery' to copy new photos to Pictures/Lumiq."
+/** The field guide as titled sections. */
+@Composable
+fun GuideContent() {
+    Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        for ((glyph, title, body) in FIELD_GUIDE) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GlyphTile(glyph)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(body, color = Palette.muted, fontSize = 14.sp, lineHeight = 20.sp)
+                }
+            }
+        }
+    }
+}
+
+private val FIELD_GUIDE = listOf(
+    Triple(
+        Glyph.Aperture, "AI Shot",
+        "Tap AI Shot and hold the phone still for a moment. The AI picks the best photo in view and marks it with a yellow box. " +
+            "Follow the arrow to center it; Lumiq zooms in and shows Ready. Then press the shutter. Tap ↻ for a different shot, or long-press AI Shot to exit.",
+    ),
+    Triple(Glyph.Grid, "Classic live guide", "An on-device guide that finds the main subject and helps you place it on a rule-of-thirds point. Turn it on in the ⋯ menu or Settings."),
+    Triple(
+        Glyph.Photo, "Camera",
+        "Pinch to zoom, tap to focus, and use the lens buttons for 0.5×/1×/2×/5× when your phone has those cameras. " +
+            "The aperture button sets exposure; the aspect button changes the photo shape.",
+    ),
+    Triple(
+        Glyph.Edit, "Library and editing",
+        "Your photos stay in Lumiq's library. Open one to share, edit with film looks and light/color controls, or delete. " +
+            "Turn on Also save to Gallery to copy new photos to Pictures/Lumiq.",
+    ),
+)
 
 private const val PRIVACY =
     "Camera frames, subject detection and tracking are processed on your phone. Lumiq has no analytics and no account. " +

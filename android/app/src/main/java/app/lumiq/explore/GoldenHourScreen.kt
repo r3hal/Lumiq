@@ -11,6 +11,9 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import app.lumiq.ui.PrimaryButton
+import app.lumiq.ui.GlyphTile
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -87,34 +90,37 @@ fun GoldenHourScreen(onClose: () -> Unit) {
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).navigationBarsPadding().padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextButton({
+            PrimaryButton("Use my location", {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate()
                 else permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-            }) { Text("Use my location", color = Palette.yellow) }
+            }, Modifier.fillMaxWidth())
             status?.let { Text(it, color = Palette.muted, fontSize = 13.sp) }
             CoordinateField("Latitude (−90 to 90)", latitude) { latitude = it }
             CoordinateField("Longitude (−180 to 180)", longitude) { longitude = it }
 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                TextButton({ day = day.minusDays(1) }) { Text("‹", color = Palette.yellow, fontSize = 22.sp) }
+                TextButton({ day = day.minusDays(1) }) { Text("‹", color = Palette.accent, fontSize = 22.sp) }
                 Text(
                     day.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)), color = Color.White, fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
                 )
-                TextButton({ day = day.plusDays(1) }) { Text("›", color = Palette.yellow, fontSize = 22.sp) }
+                TextButton({ day = day.plusDays(1) }) { Text("›", color = Palette.accent, fontSize = 22.sp) }
             }
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.panel).padding(15.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Palette.panel).border(1.dp, Palette.stroke, RoundedCornerShape(18.dp)).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("ESTIMATED GOLDEN LIGHT", color = Palette.muted, fontSize = 11.sp, letterSpacing = 2.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlyphTile(Glyph.Sun, Palette.yellow)
+                    Text("Estimated golden light", color = Palette.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
                 if (lat != null && lon != null) {
                     val windows = remember(lat, lon, day) { SolarCalculator.goldenWindows(day, lat, lon, zone) }
                     if (windows.isEmpty()) Text("No golden-light window on this day at these coordinates.", color = Color.White)
                     windows.forEach { (start, end) ->
                         Text(
                             "${start.atZone(zone).toLocalTime().format(timeFormat)} – ${end.atZone(zone).toLocalTime().format(timeFormat)}",
-                            color = Color.White, fontSize = 18.sp,
+                            color = Palette.text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp,
                         )
                     }
                     if (day == LocalDate.now()) {
@@ -139,7 +145,11 @@ private fun CoordinateField(label: String, value: String, onChange: (String) -> 
     OutlinedTextField(
         value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Palette.yellow, focusedLabelColor = Palette.yellow, cursorColor = Palette.yellow),
+        shape = RoundedCornerShape(16.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Palette.accent, focusedLabelColor = Palette.accent, cursorColor = Palette.accent,
+            unfocusedBorderColor = Palette.stroke, unfocusedContainerColor = Palette.panel, focusedContainerColor = Palette.panel,
+        ),
         modifier = Modifier.fillMaxWidth(),
     )
 }
