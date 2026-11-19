@@ -71,7 +71,25 @@ class AIShotLogicTest {
         assertTrue(AIShotLogic.tryNextModel(AIShotLogic.errorFor(429)))
         assertTrue(AIShotLogic.tryNextModel(AIShotLogic.errorFor(400)))
         assertTrue(!AIShotLogic.tryNextModel(AIShotLogic.errorFor(403)))
-        assertEquals("gemini-flash-latest", app.lumiq.aishot.GEMINI_MODELS.first().first)
+        // The fast model goes first and is retried last.
+        assertEquals("gemini-flash-lite-latest", app.lumiq.aishot.GEMINI_MODELS.first().first)
+        assertEquals("gemini-flash-lite-latest", app.lumiq.aishot.GEMINI_MODELS.last().first)
+    }
+
+    @Test fun failedModelsAreSkippedForAWhile() {
+        val cooldown = app.lumiq.aishot.ModelCooldown(seconds = 120.0)
+        val models = app.lumiq.aishot.GEMINI_MODELS
+        cooldown.failed("gemini-flash-latest", now = 10.0)
+        assertEquals(listOf("gemini-flash-lite-latest", "gemma-4-26b-a4b-it", "gemini-flash-lite-latest"), cooldown.plan(models, 20.0).map { it.first })
+        assertEquals(models, cooldown.plan(models, 131.0)) // Cooled down again after two minutes.
+        cooldown.failed("gemini-flash-latest", 200.0)
+        cooldown.succeeded("gemini-flash-latest")
+        assertEquals(models, cooldown.plan(models, 201.0))
+        for ((m, _) in models) cooldown.failed(m, 300.0)
+        assertEquals(models.take(1), cooldown.plan(models, 301.0)) // Never nothing to try.
+        assertTrue(app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(429)))
+        assertTrue(app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(503)))
+        assertTrue(!app.lumiq.aishot.ModelCooldown.coolsDown(AIShotLogic.errorFor(400)))
     }
 
     @Test fun modelAnswerWrappedInArrayIsAccepted() {

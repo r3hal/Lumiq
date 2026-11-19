@@ -171,16 +171,42 @@ object AIShotLogic {
 }
 
 /**
- * Models tried in order with their read timeouts (ms). Google's models are often overloaded (HTTP 503) or
- * slow, so a busy model falls through to the next; the open Gemma 4 vision model on the same key is a
- * fast backup. After a short pause, the last entry retries once.
+ * Models tried in order with their read timeouts (ms). Measured with AI Shot's own request on a free key
+ * (Nov 2026): gemini-flash-lite-latest answers in about 1 s; gemini-flash-latest often hangs past 40 s or
+ * answers 429 (quota); the Gemma model is often 503 (busy). So the fast model goes first, the others are
+ * backups, and the last entry retries the fast model after a short pause.
  */
 val GEMINI_MODELS = listOf(
+    "gemini-flash-lite-latest" to 6_000,
     "gemini-flash-latest" to 8_000,
-    "gemma-4-26b-a4b-it" to 12_000,
-    "gemini-flash-lite-latest" to 10_000,
-    "gemma-4-26b-a4b-it" to 12_000,
+    "gemma-4-26b-a4b-it" to 10_000,
+    "gemini-flash-lite-latest" to 8_000,
 )
+
+/**
+ * A model that just failed with quota, busy or timeout is skipped for a while, so the next tap of ✦ does
+ * not wait on it again. Shared by the whole app process.
+ */
+class ModelCooldown(private val seconds: Double = 120.0) {
+    private val until = HashMap<String, Double>()
+
+    @Synchronized fun isCooling(model: String, now: Double): Boolean = (until[model] ?: 0.0) > now
+
+    @Synchronized fun failed(model: String, now: Double) { until[model] = now + seconds }
+
+    @Synchronized fun succeeded(model: String) { until.remove(model) }
+
+    /** [models] without the ones cooling down; when every model is cooling, the first is tried anyway. */
+    fun plan(models: List<Pair<String, Int>>, now: Double): List<Pair<String, Int>> =
+        models.filter { !isCooling(it.first, now) }.ifEmpty { models.take(1) }
+
+    companion object {
+        val shared = ModelCooldown()
+
+        /** Only errors that say "this model is unavailable right now" cool a model down. */
+        fun coolsDown(e: AIShotError) = e is AIShotError.Quota || e is AIShotError.Busy || e is AIShotError.Timeout
+    }
+}
 
 /** Calls Gemini directly with the key built into this APK. */
 class AIShotService(private val config: AIShotConfig) {
@@ -191,13 +217,16 @@ class AIShotService(private val config: AIShotConfig) {
         throw AIShotError.NotConfigured
     }
 
+    private fun now() = System.nanoTime() / 1e9
+
     private fun base64(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
 
     private fun viaGemini(key: String, r: AIShotRequest): AIShotSuggestion {
         var last: AIShotError = AIShotError.InvalidResponse
-        for ((index, entry) in GEMINI_MODELS.withIndex()) {
-            val (model, timeout) = entry
-            if (index == GEMINI_MODELS.size - 1) Thread.sleep(1500)
+        val cooldown = ModelCooldown.shared
+        val tried = HashSet<String>()
+        for ((model, timeout) in cooldown.plan(GEMINI_MODELS, now())) {
+            if (!tried.add(model)) Thread.sleep(1000) // Second try of the same model: give it a moment.
             val parts = JSONArray()
                 .put(JSONObject().put("text", AIShotLogic.prompt(r)))
                 .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", base64(r.jpeg))))
@@ -214,8 +243,11 @@ class AIShotService(private val config: AIShotConfig) {
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent",
                     body.toString(), mapOf("x-goog-api-key" to key), readTimeoutMs = timeout,
                 )
-                return AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, if (model.startsWith("gemma")) "gemma" else "gemini")
+                val suggestion = AIShotLogic.parseModelJson(AIShotLogic.geminiText(response), r, if (model.startsWith("gemma")) "gemma" else "gemini")
+                cooldown.succeeded(model)
+                return suggestion
             } catch (e: AIShotError) {
+                if (ModelCooldown.coolsDown(e)) cooldown.failed(model, now())
                 if (!AIShotLogic.tryNextModel(e)) throw e
                 last = e
             }

@@ -39,7 +39,7 @@ The APK can include one Gemini key, so everyone who installs it can use AI Shot 
 
 AI Shot has no in-app setup: it uses only the built-in key. Anyone holding the APK can extract it.
 
-Google's Gemini models are often overloaded (HTTP 503). The app therefore tries `gemini-flash-latest` first, then the Gemma 4 vision model on the same key, then `gemini-flash-lite-latest`, and finally retries once after a short pause.
+AI Shot tries `gemini-flash-lite-latest` first, because it usually answers in about 1 second. If that model is busy or over quota, the app tries `gemini-flash-latest`, then the Gemma 4 vision model, then flash-lite once more. A model that just failed with busy, quota or timeout is skipped for 2 minutes, so the next tap doesn't wait on it again.
 
 ## Build locally
 
