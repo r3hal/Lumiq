@@ -104,6 +104,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.heightIn
 import app.lumiq.sony.SonyRemoteCamera
+import androidx.compose.ui.draw.clipToBounds
 import app.lumiq.AppState
 import app.lumiq.aishot.AIShotInstruction
 import app.lumiq.aishot.AIShotModel
@@ -339,7 +340,8 @@ fun CameraScreen(
             }
             // The image.
             Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(width, height).background(Color.Black)) {
+                // Clip: the live preview scales itself to fill and must never draw over the top bar or the controls.
+                Box(Modifier.size(width, height).clipToBounds().background(Color.Black)) {
                     if (useSony) {
                         SonyViewfinder(app, saved = saved, saving = busy, onOpenSony = onOpenSony)
                     } else if (granted && camera.access != CameraController.Access.Unavailable) {
@@ -394,7 +396,7 @@ private fun Viewfinder(app: AppState, showExposure: Boolean, saved: Boolean, sav
     LaunchedEffect(focusPoint) { if (focusPoint != null) { delay(900); focusPoint = null } }
 
     Box(Modifier.fillMaxSize()) {
-        AndroidView(factory = { camera.previewView }, modifier = Modifier.fillMaxSize())
+        AndroidView(factory = { camera.previewView }, modifier = Modifier.fillMaxSize().clipToBounds())
         // Gestures: tap to focus, pinch to zoom.
         Box(
             Modifier.fillMaxSize()
