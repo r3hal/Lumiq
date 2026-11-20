@@ -118,6 +118,7 @@ import app.lumiq.ui.GlyphIcon
 import app.lumiq.ui.LumiqLogo
 import app.lumiq.ui.LumiqMark
 import app.lumiq.ui.Palette
+import app.lumiq.ui.Pill
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -294,7 +295,7 @@ fun CameraScreen(
             Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(width, height).background(Color.Black)) {
                     if (granted && camera.access != CameraController.Access.Unavailable) {
-                        Viewfinder(app, showExposure = showExposure, saved = saved, topInset = 0.dp, bottomInset = 0.dp)
+                        Viewfinder(app, showExposure = showExposure, saved = saved, saving = busy, topInset = 0.dp, bottomInset = 0.dp)
                     } else {
                         PermissionView(denied = asked && !granted, unavailable = camera.access == CameraController.Access.Unavailable,
                             onRetry = { if (!granted) permission.launch(Manifest.permission.CAMERA) else camera.start(owner, aspect) })
@@ -332,7 +333,7 @@ fun CameraScreen(
 }
 
 @Composable
-private fun Viewfinder(app: AppState, showExposure: Boolean, saved: Boolean, topInset: Dp, bottomInset: Dp) {
+private fun Viewfinder(app: AppState, showExposure: Boolean, saved: Boolean, saving: Boolean, topInset: Dp, bottomInset: Dp) {
     val camera = app.camera
     val aiShot = app.aiShot
     val settings = app.settings
@@ -370,6 +371,15 @@ private fun Viewfinder(app: AppState, showExposure: Boolean, saved: Boolean, top
         ) {
             AnimatedVisibility(saved, enter = fadeIn(), exit = fadeOut()) { SavedBadge() }
             if (showExposure) ExposureStrip(camera)
+        }
+        // While a photo is being taken and saved, the live view stays up with a progress pill.
+        AnimatedVisibility(saving, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
+            Pill {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(Modifier.size(14.dp), color = Palette.text, strokeWidth = 2.dp)
+                    Text("Saving photo…", color = Palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
         }
         if (!camera.isRunning) {
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(28.dp), color = Palette.yellow, strokeWidth = 2.dp)
@@ -455,7 +465,7 @@ private fun ClassicGuideOverlay(reading: GuideReading?, topInset: Dp) {
         val label = reading?.label
         if (reading?.subject != null && label != null) {
             Box(Modifier.align(Alignment.TopCenter).padding(top = topInset + 12.dp)) {
-                app.lumiq.ui.Pill {
+                Pill {
                     Text(label + if (reading.technique.isNotEmpty()) " · ${reading.technique}" else "", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
