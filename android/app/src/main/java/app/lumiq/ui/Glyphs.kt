@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  * Line glyphs drawn in a 24-unit box, standing in for the SF Symbols used on
  * iPhone (bolt, photo, sliders, aperture, arrows…). No icon font is needed.
  */
-enum class Glyph { Bolt, BoltOff, BoltAuto, Photo, Sliders, Ellipsis, Aperture, Close, Rescan, Arrow, Check, Warning, Flip, Grid, Level, Sun, Share, Trash, Edit, Back, Chevron, Rotate, Key, Speaker, Eye, Info, Shield, Chat, Download, Disk, Tick }
+enum class Glyph { Bolt, BoltOff, BoltAuto, Photo, Sliders, Ellipsis, Aperture, Close, Rescan, Arrow, Check, Warning, Flip, Grid, Level, Sun, Share, Trash, Edit, Back, Chevron, Rotate, Key, Speaker, Eye, Info, Shield, Chat, Download, Disk, Tick, Undo, Redo }
 
 @Composable
 fun GlyphIcon(glyph: Glyph, tint: Color, size: Dp = 22.dp, modifier: Modifier = Modifier, rotation: Float = 0f) {
@@ -124,6 +124,8 @@ fun DrawScope.drawGlyph(glyph: Glyph, tint: Color) {
             line(8f to 17f, 7f to 21f, 12.5f to 17f)
         }
         Glyph.Tick -> line(5f to 12.5f, 10f to 17.5f, 19f to 7f)
+        Glyph.Undo -> { line(19f to 18f, 19f to 13f, 15f to 9f, 5.5f to 9f); line(9.5f to 5f, 5.5f to 9f, 9.5f to 13f) }
+        Glyph.Redo -> { line(5f to 18f, 5f to 13f, 9f to 9f, 18.5f to 9f); line(14.5f to 5f, 18.5f to 9f, 14.5f to 13f) }
         Glyph.Download -> { line(12f to 3.5f, 12f to 15f); line(7.5f to 10.5f, 12f to 15f, 16.5f to 10.5f); line(5f to 20f, 19f to 20f) }
         Glyph.Disk -> {
             drawRoundRect(tint, p(3.5f, 5f), Size(17f * u, 14f * u), CornerRadius(3f * u), style = stroke)
