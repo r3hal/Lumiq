@@ -50,10 +50,10 @@ import kotlin.math.hypot
  * Viewfinder overlay for AI Shot, matching Framed: a viewfinder-shaped yellow box around the
  * AI's shot, a dashed line from the center, a level reticle (— + —) whose middle line follows
  * the phone's tilt and turns yellow when level/Ready, and the subject pill (+ "Ready").
- * `roll` is the device tilt in degrees.
+ * `tilt` is how the phone is held and tilted (works upright and sideways).
  */
 @Composable
-fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier, topInset: Dp = 0.dp) {
+fun AIShotOverlay(model: AIShotModel, tilt: DeviceTilt, modifier: Modifier = Modifier, topInset: Dp = 0.dp) {
     val phase = model.phase
     val pulse = rememberInfiniteTransition(label = "finding")
     val breathe by pulse.animateFloat(0.94f, 1.06f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "breathe")
@@ -89,7 +89,7 @@ fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier
                 }
                 drawPlus(target, 8.dp.toPx(), Palette.yellow, 2.dp.toPx())
             }
-            if (phase.isActive) drawLevelReticle(center, roll, ready, if (pinned) Palette.mint else Color.White)
+            if (phase.isActive) drawLevelReticle(center, tilt, ready, if (pinned) Palette.mint else Color.White)
         }
         if (phase.isLocked) {
             Box(Modifier.align(Alignment.TopCenter).padding(top = topInset + 12.dp)) { ShotPill(model) }
@@ -98,18 +98,21 @@ fun AIShotOverlay(model: AIShotModel, roll: Float, modifier: Modifier = Modifier
 }
 
 /** Framed-style reticle: fixed side ticks, a horizon line that follows the tilt. */
-private fun DrawScope.drawLevelReticle(center: Offset, roll: Float, ready: Boolean, plusColor: Color) {
-    val level = abs(roll) < 1.5f
+private fun DrawScope.drawLevelReticle(center: Offset, tilt: DeviceTilt, ready: Boolean, plusColor: Color) {
+    val level = tilt.isLevel
     val tick = Color.White.copy(alpha = 0.75f)
     val gap = 56.dp.toPx()
     val arm = 20.dp.toPx()
     val w = 1.dp.toPx()
-    drawLine(tick, Offset(center.x - gap - arm, center.y), Offset(center.x - gap, center.y), w)
-    drawLine(tick, Offset(center.x + gap, center.y), Offset(center.x + gap + arm, center.y), w)
-    val color = if (ready || level) Palette.yellow else Color.White.copy(alpha = 0.9f)
-    rotate(if (level) 0f else roll.coerceIn(-45f, 45f), center) {
-        val half = (if (ready) gap + arm else gap - 8.dp.toPx())
-        drawLine(color, Offset(center.x - half, center.y), Offset(center.x + half, center.y), 1.2.dp.toPx(), StrokeCap.Round)
+    // The whole reticle turns with the way the phone is held (upright or sideways); the line shows the tilt.
+    rotate(tilt.base, center) {
+        drawLine(tick, Offset(center.x - gap - arm, center.y), Offset(center.x - gap, center.y), w)
+        drawLine(tick, Offset(center.x + gap, center.y), Offset(center.x + gap + arm, center.y), w)
+        val color = if (ready || level) Palette.yellow else Color.White.copy(alpha = 0.9f)
+        rotate(if (level) 0f else tilt.tilt.coerceIn(-45f, 45f), center) {
+            val half = (if (ready) gap + arm else gap - 8.dp.toPx())
+            drawLine(color, Offset(center.x - half, center.y), Offset(center.x + half, center.y), 1.2.dp.toPx(), StrokeCap.Round)
+        }
     }
     if (plusColor == Color.White) drawPlus(center, 6.dp.toPx(), plusColor, 1.2.dp.toPx())
     else drawPlus(center, 8.dp.toPx(), plusColor, 2.dp.toPx())
