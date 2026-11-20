@@ -75,6 +75,10 @@ class CameraController(private val context: Context) : AIShotCamera {
         // TextureView keeps rounded clipping and overlays exact inside Compose.
         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         scaleType = PreviewView.ScaleType.FILL_CENTER
+        // Never draw the scaled preview outside the viewfinder box.
+        outlineProvider = android.view.ViewOutlineProvider.BOUNDS
+        clipToOutline = true
+        clipChildren = true
     }
 
     private val scope = MainScope()
