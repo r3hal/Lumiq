@@ -106,6 +106,8 @@ import androidx.compose.foundation.layout.heightIn
 import app.lumiq.AppState
 import app.lumiq.aishot.AIShotInstruction
 import app.lumiq.aishot.AIShotModel
+import app.lumiq.aishot.DeviceTilt
+import app.lumiq.aishot.LevelMath
 import app.lumiq.aishot.ShotOutcome
 import app.lumiq.aishot.AIShotOverlay
 import app.lumiq.aishot.drawPlus
@@ -351,9 +353,9 @@ private fun Viewfinder(app: AppState, showExposure: Boolean, saved: Boolean, top
                 },
         )
         if (settings.grid || aiShot.phase.isActive) GridOverlay()
-        val roll = rememberDeviceRoll(settings.level || aiShot.phase.isActive)
-        if (settings.level && !aiShot.phase.isActive) LevelOverlay(roll)
-        if (aiShot.phase.isActive) AIShotOverlay(aiShot, roll, topInset = topInset) else if (settings.guide) ClassicGuideOverlay(camera.guide, topInset)
+        val tilt = rememberDeviceTilt(settings.level || aiShot.phase.isActive)
+        if (settings.level && !aiShot.phase.isActive) LevelOverlay(tilt)
+        if (aiShot.phase.isActive) AIShotOverlay(aiShot, tilt, topInset = topInset) else if (settings.guide) ClassicGuideOverlay(camera.guide, topInset)
         focusPoint?.let { p ->
             Canvas(Modifier.fillMaxSize()) {
                 val s = 64.dp.toPx()
@@ -388,23 +390,24 @@ private fun GridOverlay() {
 }
 
 @Composable
-private fun LevelOverlay(roll: Float) {
+private fun LevelOverlay(tilt: DeviceTilt) {
     Canvas(Modifier.fillMaxSize()) {
-        val level = abs(roll) < 1f
+        val level = tilt.isLevel
         val color = if (level) Palette.yellow else Color.White.copy(alpha = 0.8f)
         val c = Offset(size.width / 2, size.height / 2)
         val half = size.width * 0.18f
-        rotate(if (level) 0f else roll, c) {
+        rotate(tilt.base + if (level) 0f else tilt.tilt, c) {
             drawLine(color, Offset(c.x - half, c.y), Offset(c.x - 10.dp.toPx(), c.y), 1.5.dp.toPx())
             drawLine(color, Offset(c.x + 10.dp.toPx(), c.y), Offset(c.x + half, c.y), 1.5.dp.toPx())
         }
     }
 }
 
-/** Phone tilt (roll) in degrees while `active`; 0 when level or lying flat. */
+/** How the phone is held and tilted while `active` (upright, sideways or upside down); unchanged while lying flat. */
 @Composable
-private fun rememberDeviceRoll(active: Boolean): Float {
+private fun rememberDeviceTilt(active: Boolean): DeviceTilt {
     val context = LocalContext.current
+    var tilt by remember { mutableStateOf(DeviceTilt()) }
     var roll by remember { mutableFloatStateOf(0f) }
     DisposableEffect(active) {
         if (!active) return@DisposableEffect onDispose { }
@@ -417,14 +420,15 @@ private fun rememberDeviceRoll(active: Boolean): Float {
                 val z = event.values[2]
                 if (abs(z) > 8.5f) return // Flat on a table: no horizon.
                 val angle = Math.toDegrees(atan2(x.toDouble(), y.toDouble())).toFloat()
-                roll = roll + (angle - roll) * 0.25f
+                roll = LevelMath.smooth(roll, angle, 0.25f)
+                tilt = LevelMath.tilt(roll, tilt.base)
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
         if (sensor != null) manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
         onDispose { manager.unregisterListener(listener) }
     }
-    return roll
+    return tilt
 }
 
 /** Classic guide: subject box, the thirds target and a line between them. */
