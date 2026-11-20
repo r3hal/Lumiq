@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A Sony camera's remote control (Camera Remote API) works only over plain HTTP on the camera's own
+     DIRECT Wi-Fi, at an address that is not known in advance. All other Lumiq connections use fixed
+     https:// addresses; the Sony code only accepts private camera addresses (see sony/SonyProtocol.kt). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

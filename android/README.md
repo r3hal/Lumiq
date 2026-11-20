@@ -11,6 +11,10 @@ This is a native Android version of Lumiq, written in Kotlin with Jetpack Compos
 
 Every APK is signed with the same sideload key (`app/lumiq-sideload.keystore`), so a newer build installs over the old one and keeps your photos and settings. This key is only for personal sideloading. Do not use it for a Play Store release.
 
+## Sony camera (Wi-Fi remote)
+
+`sony/` ports the iPhone Sony adapter: the camera's ScalarWebAPI over its DIRECT Wi-Fi (Ctrl w/ Smartphone). Open ⋯ › Sony camera, join the camera's Wi-Fi in Android Settings, then Find camera / Connect. Live view, one-photo-per-press capture with JPEG transfer, ISO/aperture/shutter/white balance/exposure compensation (only values the camera reports, confirmed by read-back), autofocus, touch focus and AI Shot on the Sony picture. Camera traffic is bound to the Wi-Fi network (the camera has no internet) and only private camera addresses are accepted. Protocol and workflow logic are unit-tested; it has not yet been tested with a physical camera.
+
 ## In-app updates (GitHub Releases)
 
 Every push to `main` that changes `android/` runs [`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml). It runs the unit tests and builds the release APK with the same sideload key. It then publishes `Lumiq-android.apk` and `Lumiq-android.apk.sha256` as a GitHub release tagged `android-b<versionCode>`. The versionCode is `100 + the workflow run number`, so every build is higher than the last. The build stops if the APK's package isn't `app.lumiq` or if its certificate isn't the one in `app/lumiq-sideload.keystore`.
@@ -69,7 +73,6 @@ cd android
 
 These iPhone-only features are not part of the Android build:
 
-- Sony camera remote
 - RAW/ProRAW and the PRO manual controls
 - Photo Backup
 - Evaluation Lab
