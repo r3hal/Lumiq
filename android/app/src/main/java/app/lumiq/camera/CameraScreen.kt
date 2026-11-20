@@ -103,6 +103,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.heightIn
+import app.lumiq.sony.SonyRemoteCamera
 import app.lumiq.AppState
 import app.lumiq.aishot.AIShotInstruction
 import app.lumiq.aishot.AIShotModel
@@ -137,6 +138,7 @@ fun CameraScreen(
     onOpenLibrary: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenGoldenHour: () -> Unit,
+    onOpenSony: () -> Unit,
     onReview: (File) -> Unit,
 ) {
     val context = LocalContext.current
@@ -154,12 +156,16 @@ fun CameraScreen(
     }
     LaunchedEffect(Unit) { if (!granted) permission.launch(Manifest.permission.CAMERA) }
 
+    val sony = app.sony
+    val useSony = app.cameraSource == CameraSource.Sony
     val aspect = settings.aspect.ratio
-    DisposableEffect(granted) {
-        if (granted) camera.start(owner, aspect)
-        onDispose { aiShot.stop(); camera.stop() }
+    // With a Sony, its live view is the viewfinder at the Sony's own frame shape.
+    val viewAspect = if (useSony) sony.imageAspect else aspect
+    DisposableEffect(granted, useSony) {
+        if (useSony) sony.resume() else if (granted) camera.start(owner, aspect)
+        onDispose { aiShot.stop(); camera.stop(); sony.pause() }
     }
-    LaunchedEffect(aspect) { if (granted) camera.setAspect(aspect) }
+    LaunchedEffect(aspect) { if (granted && !useSony) camera.setAspect(aspect) }
     // Classic guide pauses while AI Shot is active (same as iPhone).
     LaunchedEffect(settings.guide, aiShot.phase.isActive) { camera.setGuideEnabled(settings.guide && !aiShot.phase.isActive) }
     LaunchedEffect(camera.guide?.ready) { if (camera.guide?.ready == true) app.haptics.soft() }
@@ -172,11 +178,38 @@ fun CameraScreen(
     var saved by remember { mutableStateOf(false) }
     var shots by remember { mutableIntStateOf(0) }
 
-    val busy = saving || camera.isCapturing
-    val canShoot = camera.isRunning && !busy
+    val busy = saving || camera.isCapturing || (useSony && sony.isCapturing)
+    val canShoot = (if (useSony) sony.canCapture else camera.isRunning) && !busy
+    val aiCamera = if (useSony) sony.aiShotCamera else camera
+    val aiAvailable = if (useSony) sony.hasFrame else camera.isRunning
+    var sonyError by remember { mutableStateOf<String?>(null) }
+
+    fun shootSony() {
+        saving = true
+        shots += 1
+        aiShot.photoTaken()
+        app.haptics.medium()
+        scope.launch {
+            try {
+                val bytes = sony.capture()
+                val photo = withContext(Dispatchers.IO) {
+                    val temp = File(context.cacheDir, "sony-${System.currentTimeMillis()}.jpg").apply { writeBytes(bytes) }
+                    app.store.importCapture(temp, settings.autoSaveToGallery)
+                }
+                saving = false
+                if (photo == null) { sonyError = "The photo could not be saved."; return@launch }
+                aiShot.stop()
+                if (settings.reviewAfterCapture) onReview(photo) else { saved = true; delay(1600); saved = false }
+            } catch (e: Exception) {
+                saving = false
+                if (e !is app.lumiq.sony.SonyCancelled) sonyError = e.message ?: "The Sony photo failed."
+            }
+        }
+    }
 
     fun shoot() {
         if (!canShoot) return
+        if (useSony) { shootSony(); return }
         saving = true
         shots += 1
         aiShot.photoTaken() // Learning: a photo taken while a shot is marked means the pick was good.
@@ -204,14 +237,14 @@ fun CameraScreen(
             aiShot.stop(ShotOutcome.Cancelled); return
         }
         if (app.learning.needsConsent) { askLearning = true; return }
-        aiShot.start(camera, aspect)
+        aiShot.start(aiCamera, viewAspect)
     }
 
     if (askLearning) {
         fun answer(share: Boolean) {
             app.learning.updateConsent(share)
             askLearning = false
-            aiShot.start(camera, aspect)
+            aiShot.start(aiCamera, viewAspect)
         }
         LumiqDialog(
             "Help AI Shot learn?", onDismiss = { askLearning = false },
@@ -238,8 +271,8 @@ fun CameraScreen(
         // possible while leaving room for the hint, lenses and shutter underneath.
         val controls = 210.dp
         val available = (maxHeight - statusBar - topBar - navBar - controls).coerceAtLeast(200.dp)
-        val width = min(maxWidth.value, (available.value * aspect).toFloat()).dp
-        val height = (width.value / aspect).toFloat().dp
+        val width = min(maxWidth.value, (available.value * viewAspect).toFloat()).dp
+        val height = (width.value / viewAspect).toFloat().dp
 
         Column(Modifier.fillMaxSize().padding(top = statusBar, bottom = navBar)) {
             // Top bar: photo shape on the left; flash, exposure and more on the right. It takes any spare
@@ -248,7 +281,13 @@ fun CameraScreen(
                 Modifier.fillMaxWidth().weight(1f).heightIn(min = topBar).padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Box {
+                if (useSony) {
+                    BarChip(active = false, label = "Sony camera", onClick = onOpenSony) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(if (sony.state == SonyRemoteCamera.State.Streaming) Palette.mint else Palette.orange))
+                        Text(if (sony.hasFrame) sony.model else "Sony", color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        GlyphIcon(Glyph.Chevron, Palette.muted, 10.dp, rotation = -90f)
+                    }
+                } else Box {
                     BarChip(active = showAspect, label = "Photo shape", onClick = { showAspect = true; showExposure = false }) {
                         AspectGlyph(settings.aspect, Palette.text)
                         Text(settings.aspect.label, color = Palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -265,20 +304,27 @@ fun CameraScreen(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                if (camera.hasFlash && !camera.isFront) {
+                if (!useSony && camera.hasFlash && !camera.isFront) {
                     val glyph = when (settings.flash) { FlashMode.Off -> Glyph.BoltOff; FlashMode.On -> Glyph.Bolt; FlashMode.Auto -> Glyph.BoltAuto }
                     ToolbarButton(glyph, "Flash ${settings.flash.label}", if (settings.flash == FlashMode.Off) Palette.text else Palette.yellow) {
                         settings.updateFlash(FlashMode.entries[(settings.flash.ordinal + 1) % FlashMode.entries.size])
                     }
                 }
-                BarChip(active = showExposure, label = "Exposure", onClick = { showExposure = !showExposure; showAspect = false }) {
+                BarChip(active = showExposure, label = "Exposure", onClick = { if (useSony) onOpenSony() else { showExposure = !showExposure; showAspect = false } }) {
                     GlyphIcon(Glyph.Aperture, if (showExposure) Palette.accent else Palette.text, 22.dp)
                     GlyphIcon(Glyph.Chevron, Palette.muted, 10.dp, rotation = if (showExposure) 180f else 0f)
                 }
                 Box {
                     ToolbarButton(Glyph.Ellipsis, "More", Palette.text) { showOptions = true }
                     LumiqMenu(showOptions, onDismiss = { showOptions = false }) {
-                        if (camera.hasFrontAndBack) {
+                        MenuHeader("Camera")
+                        MenuRow("Phone camera", Glyph.Photo, selected = !useSony) { showOptions = false; aiShot.stop(); app.cameraSource = CameraSource.Phone }
+                        MenuRow("Sony camera", Glyph.Aperture, selected = useSony) {
+                            showOptions = false; aiShot.stop(); app.cameraSource = CameraSource.Sony
+                            if (!sony.isConnected) onOpenSony()
+                        }
+                        MenuDivider()
+                        if (!useSony && camera.hasFrontAndBack) {
                             MenuRow(if (camera.isFront) "Back camera" else "Front camera", Glyph.Flip) { showOptions = false; aiShot.stop(); camera.flip() }
                             MenuDivider()
                         }
@@ -294,7 +340,9 @@ fun CameraScreen(
             // The image.
             Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(width, height).background(Color.Black)) {
-                    if (granted && camera.access != CameraController.Access.Unavailable) {
+                    if (useSony) {
+                        SonyViewfinder(app, saved = saved, saving = busy, onOpenSony = onOpenSony)
+                    } else if (granted && camera.access != CameraController.Access.Unavailable) {
                         Viewfinder(app, showExposure = showExposure, saved = saved, saving = busy, topInset = 0.dp, bottomInset = 0.dp)
                     } else {
                         PermissionView(denied = asked && !granted, unavailable = camera.access == CameraController.Access.Unavailable,
@@ -307,14 +355,16 @@ fun CameraScreen(
             Column(Modifier.fillMaxWidth().height(controls), horizontalAlignment = Alignment.CenterHorizontally) {
                 FooterLine(app, Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 22.dp).padding(horizontal = 24.dp))
                 Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(44.dp), contentAlignment = Alignment.Center) {
-                    if (camera.isRunning) LensButtons(camera)
+                    if (useSony) {
+                        if (sony.hasFrame) SonyExposureLine(sony)
+                    } else if (camera.isRunning) LensButtons(camera)
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 14.dp).padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { LibraryThumbnail(app, enabled = !busy, onClick = onOpenLibrary) }
                     ShutterButton(enabled = canShoot, busy = busy, onClick = ::shoot)
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                         Box {
-                            AIShotButton(aiShot.phase, enabled = camera.isRunning && !busy, onClick = ::aiShotTapped, onLongClick = { showAIMenu = true })
+                            AIShotButton(aiShot.phase, enabled = aiAvailable && !busy, onClick = ::aiShotTapped, onLongClick = { showAIMenu = true })
                             LumiqMenu(showAIMenu, onDismiss = { showAIMenu = false }) {
                                 if (aiShot.phase.isActive) MenuRow("Exit AI Shot", Glyph.Close) { showAIMenu = false; aiShot.stop(ShotOutcome.Cancelled) }
                                 MenuRow("Classic live guide", Glyph.Aperture, checked = settings.guide) { settings.updateGuide(!settings.guide) }
@@ -326,6 +376,9 @@ fun CameraScreen(
         }
     }
 
+    sonyError?.let { e ->
+        LumiqDialog("Sony camera", onDismiss = { sonyError = null }, primary = "OK" to { sonyError = null }) { DialogText(e) }
+    }
     val error = camera.errorMessage
     if (error != null) {
         LumiqDialog("Camera", onDismiss = { camera.errorMessage = null }, primary = "OK" to { camera.errorMessage = null }) { DialogText(error) }
@@ -490,7 +543,11 @@ private fun FooterLine(app: AppState, modifier: Modifier) {
                     )
                 }
             }
-            app.camera.isRunning -> Text("Point at something and tap AI Shot", color = Palette.muted, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 1)
+            app.cameraSource == CameraSource.Sony && !app.sony.hasFrame -> Text(
+                app.sony.message ?: if (app.sony.state == SonyRemoteCamera.State.Connecting || app.sony.state == SonyRemoteCamera.State.Reconnecting) "Connecting to the Sony…" else "Connect a Sony camera",
+                color = Palette.muted, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 2,
+            )
+            app.cameraSource == CameraSource.Sony || app.camera.isRunning -> Text("Point at something and tap AI Shot", color = Palette.muted, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 1)
         }
     }
 }
@@ -688,3 +745,69 @@ private fun PermissionView(denied: Boolean, unavailable: Boolean, onRetry: () ->
 
 private fun hasCameraPermission(context: Context) =
     ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+/** Phone camera, or a Sony connected over Wi-Fi. */
+enum class CameraSource { Phone, Sony }
+
+/** The Sony's live view, with the same AI Shot, grid and level overlays as the phone camera. */
+@Composable
+private fun SonyViewfinder(app: AppState, saved: Boolean, saving: Boolean, onOpenSony: () -> Unit) {
+    val sony = app.sony
+    val aiShot = app.aiShot
+    val settings = app.settings
+    val frame = sony.frame
+    var focusPoint by remember { mutableStateOf<Offset?>(null) }
+    LaunchedEffect(focusPoint) { if (focusPoint != null) { delay(900); focusPoint = null } }
+    Box(Modifier.fillMaxSize()) {
+        if (frame != null) {
+            Image(frame.asImageBitmap(), contentDescription = "Sony live view", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
+            Box(
+                Modifier.fillMaxSize().pointerInput(sony.supportsTouchFocus) {
+                    detectTapGestures { p ->
+                        if (sony.supportsTouchFocus) { sony.focus(p.x / size.width, p.y / size.height); focusPoint = p }
+                    }
+                },
+            )
+            if (settings.grid || aiShot.phase.isActive) GridOverlay()
+            val tilt = rememberDeviceTilt(settings.level || aiShot.phase.isActive)
+            if (settings.level && !aiShot.phase.isActive) LevelOverlay(tilt)
+            if (aiShot.phase.isActive) AIShotOverlay(aiShot, tilt)
+            focusPoint?.let { p ->
+                Canvas(Modifier.fillMaxSize()) {
+                    val s = 64.dp.toPx()
+                    drawRect(Palette.yellow, Offset(p.x - s / 2, p.y - s / 2), Size(s, s), style = Stroke(1.5.dp.toPx()))
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                val connecting = sony.state == SonyRemoteCamera.State.Connecting || sony.state == SonyRemoteCamera.State.Reconnecting
+                Text(if (connecting) "Connecting to the Sony…" else "Sony camera", color = Palette.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                if (connecting) CircularProgressIndicator(Modifier.size(22.dp), color = Palette.accent, strokeWidth = 2.dp)
+                sony.message?.let { Text(it, color = Palette.muted, fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 4, modifier = Modifier.padding(top = 8.dp)) }
+                Spacer(Modifier.height(16.dp))
+                PrimaryButton(if (sony.isConnected) "Sony controls" else "Connect Sony camera", onOpenSony)
+            }
+        }
+        AnimatedVisibility(saving, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
+            Pill {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(Modifier.size(14.dp), color = Palette.text, strokeWidth = 2.dp)
+                    Text("Sony is taking the photo…", color = Palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+        AnimatedVisibility(saved, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp), enter = fadeIn(), exit = fadeOut()) { SavedBadge() }
+    }
+}
+
+/** The Sony's exposure as the camera reports it (shown where the phone's lens buttons are). */
+@Composable
+private fun SonyExposureLine(sony: SonyRemoteCamera) {
+    val t = sony.remote.telemetry
+    val parts = listOfNotNull(t.mode, t.shutter, t.aperture?.let { "f/$it" }, t.iso?.let { "ISO $it" }, t.ev?.let { String.format(Locale.US, "%+.1f EV", it) })
+    Text(
+        if (parts.isEmpty()) "Exposure not reported" else parts.joinToString("  ·  "),
+        color = Palette.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+    )
+}

@@ -29,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import app.lumiq.aishot.AIShotConfig
 import app.lumiq.aishot.AIShotLearning
+import app.lumiq.camera.CameraSource
+import app.lumiq.sony.SonyRemoteCamera
+import app.lumiq.sony.SonyScreen
 import app.lumiq.aishot.AIShotModel
 import app.lumiq.camera.CameraController
 import app.lumiq.camera.CameraScreen
@@ -57,9 +60,13 @@ class AppState(context: Context) {
     val learning = AIShotLearning(context).also { it.refreshGuidance() }
     val aiShot = AIShotModel(aiConfig, haptics, learning)
     val updater = AppUpdater(context)
+    val sony = SonyRemoteCamera(context)
+    /** Phone camera or a Sony connected over Wi-Fi (not remembered between launches). */
+    var cameraSource by mutableStateOf(CameraSource.Phone)
 
     fun release() {
         updater.release()
+        sony.dispose()
         aiShot.dispose()
         learning.dispose()
         camera.release()
@@ -73,6 +80,7 @@ sealed class Screen {
     data class Editor(val file: File, val captureReview: Boolean) : Screen()
     object Settings : Screen()
     object GoldenHour : Screen()
+    object Sony : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -139,6 +147,7 @@ private fun Page(app: AppState, top: Screen, push: (Screen) -> Unit, pop: () -> 
                 onOpenLibrary = { push(Screen.Library) },
                 onOpenSettings = { push(Screen.Settings) },
                 onOpenGoldenHour = { push(Screen.GoldenHour) },
+                onOpenSony = { push(Screen.Sony) },
                 onReview = { push(Screen.Editor(it, captureReview = true)) },
             )
             Screen.Library -> LibraryScreen(app, onClose = pop, onOpen = { push(Screen.Viewer(it)) })
@@ -146,6 +155,7 @@ private fun Page(app: AppState, top: Screen, push: (Screen) -> Unit, pop: () -> 
             is Screen.Editor -> PhotoEditorScreen(app, top.file, top.captureReview, onClose = pop)
             Screen.Settings -> SettingsScreen(app, onClose = pop, onGoldenHour = { push(Screen.GoldenHour) })
             Screen.GoldenHour -> GoldenHourScreen(onClose = pop)
+            Screen.Sony -> SonyScreen(app, onClose = pop)
         }
     }
 }
