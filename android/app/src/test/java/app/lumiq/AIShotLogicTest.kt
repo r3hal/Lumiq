@@ -7,15 +7,12 @@ import app.lumiq.aishot.AIShotRequest
 import app.lumiq.aishot.LumaFrame
 import app.lumiq.aishot.NRect
 import app.lumiq.aishot.TemplateTracker
-import app.lumiq.explore.SolarCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -139,19 +136,5 @@ class TemplateTrackerTest {
         assertTrue("confidence ${observation.confidence}", observation.confidence > 0.8)
         assertEquals(start.midX + 9.0 / 160, observation.rect.midX, 1.5 / 160)
         assertEquals(start.midY - 6.0 / 213, observation.rect.midY, 1.5 / 213)
-    }
-}
-
-class SolarCalculatorTest {
-    @Test fun goldenHourExistsAtMidLatitudes() {
-        val windows = SolarCalculator.goldenWindows(LocalDate.of(2026, 6, 21), 51.5, -0.12, ZoneId.of("Europe/London"))
-        assertEquals(2, windows.size)
-        val evening = windows[1].first.atZone(ZoneId.of("Europe/London")).hour
-        assertTrue("evening starts at $evening", evening in 19..21)
-    }
-
-    @Test fun noonSunIsHighInSummer() {
-        val e = SolarCalculator.elevation(java.time.Instant.parse("2026-06-21T12:00:00Z"), 51.5, 0.0)!!
-        assertTrue(abs(e - 62.0) < 1.5)
     }
 }

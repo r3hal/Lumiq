@@ -36,7 +36,6 @@ import app.lumiq.aishot.AIShotModel
 import app.lumiq.camera.CameraController
 import app.lumiq.camera.CameraScreen
 import app.lumiq.editing.PhotoEditorScreen
-import app.lumiq.explore.GoldenHourScreen
 import app.lumiq.library.LibraryScreen
 import app.lumiq.library.PhotoStore
 import app.lumiq.library.PhotoViewerScreen
@@ -79,7 +78,6 @@ sealed class Screen {
     data class Viewer(val file: File) : Screen()
     data class Editor(val file: File, val captureReview: Boolean) : Screen()
     object Settings : Screen()
-    object GoldenHour : Screen()
     object Sony : Screen()
 }
 
@@ -146,15 +144,13 @@ private fun Page(app: AppState, top: Screen, push: (Screen) -> Unit, pop: () -> 
                 app,
                 onOpenLibrary = { push(Screen.Library) },
                 onOpenSettings = { push(Screen.Settings) },
-                onOpenGoldenHour = { push(Screen.GoldenHour) },
                 onOpenSony = { push(Screen.Sony) },
                 onReview = { push(Screen.Editor(it, captureReview = true)) },
             )
             Screen.Library -> LibraryScreen(app, onClose = pop, onOpen = { push(Screen.Viewer(it)) })
             is Screen.Viewer -> PhotoViewerScreen(app, top.file, onClose = pop, onEdit = { push(Screen.Editor(it, captureReview = false)) })
             is Screen.Editor -> PhotoEditorScreen(app, top.file, top.captureReview, onClose = pop)
-            Screen.Settings -> SettingsScreen(app, onClose = pop, onGoldenHour = { push(Screen.GoldenHour) })
-            Screen.GoldenHour -> GoldenHourScreen(onClose = pop)
+            Screen.Settings -> SettingsScreen(app, onClose = pop)
             Screen.Sony -> SonyScreen(app, onClose = pop)
         }
     }

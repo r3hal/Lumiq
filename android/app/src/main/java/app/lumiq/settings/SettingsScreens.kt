@@ -48,7 +48,7 @@ import app.lumiq.ui.ValueRow
 import app.lumiq.update.UpdateState
 
 @Composable
-fun SettingsScreen(app: AppState, onClose: () -> Unit, onGoldenHour: () -> Unit) {
+fun SettingsScreen(app: AppState, onClose: () -> Unit) {
     val context = LocalContext.current
     val s = app.settings
     var showGuide by remember { mutableStateOf(false) }
@@ -88,9 +88,6 @@ fun SettingsScreen(app: AppState, onClose: () -> Unit, onGoldenHour: () -> Unit)
                 }
                 RowSeparator()
                 ValueRow("Storage", Formatter.formatShortFileSize(context, app.store.storageBytes), Glyph.Disk)
-            }
-            SettingsSection("Explore") {
-                NavigationRow("Golden hour", glyph = Glyph.Sun, onClick = onGoldenHour)
             }
             SettingsSection("Lumiq") {
                 NavigationRow("How to use Lumiq", glyph = Glyph.Info) { showGuide = true }
@@ -168,6 +165,5 @@ private const val PRIVACY =
         "No photos, location or device details are sent, and nothing is saved on your phone; a random id links the results of one app session. " +
         "The server combines everyone's results into short rules that improve AI Shot's picks. " +
         "Photos are stored in Lumiq's private app storage, and copied to your Gallery only if you turn that on. " +
-        "Golden-hour location is requested only when you ask; it is not stored, uploaded or added to photos. " +
         "To look for updates, Lumiq asks GitHub for its newest release when it starts and when you tap Check for Updates; nothing about you or your photos is sent. " +
         "Sharing and feedback happen only when you start them. Lumiq (formerly Focal) is an independent personal app."
