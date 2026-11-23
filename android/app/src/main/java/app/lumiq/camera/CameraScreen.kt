@@ -138,7 +138,6 @@ fun CameraScreen(
     app: AppState,
     onOpenLibrary: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenGoldenHour: () -> Unit,
     onOpenSony: () -> Unit,
     onReview: (File) -> Unit,
 ) {
@@ -333,7 +332,6 @@ fun CameraScreen(
                         MenuRow("Level", Glyph.Level, checked = settings.level) { settings.updateLevel(!settings.level) }
                         MenuRow("Classic live guide", Glyph.Aperture, checked = settings.guide) { settings.updateGuide(!settings.guide) }
                         MenuDivider()
-                        MenuRow("Golden hour", Glyph.Sun) { showOptions = false; onOpenGoldenHour() }
                         MenuRow("Settings", Glyph.Sliders) { showOptions = false; onOpenSettings() }
                     }
                 }

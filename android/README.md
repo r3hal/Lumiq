@@ -52,7 +52,7 @@ You need JDK 17 and the Android SDK (platform 36). Android Studio includes both.
 ```sh
 cd android
 ./gradlew assembleRelease          # app/build/outputs/apk/release/app-release.apk
-./gradlew testReleaseUnitTest      # AI Shot parsing/validation, tracker, golden hour
+./gradlew testReleaseUnitTest      # AI Shot parsing/validation, tracker
 ```
 
 ## iPhone → Android mapping
@@ -68,7 +68,6 @@ cd android
 | UserDefaults | SharedPreferences (`settings/AppSettings.kt`) |
 | Photo library and editor | `library/`, `editing/`: private library, share, delete, film looks, light/color/effects, rotate |
 | "Also Save to Photos" | "Also save to Gallery" (Pictures/Lumiq via MediaStore) |
-| Golden hour (`SolarCalculator`) | `explore/`: direct port |
 | Launch screen, app icon, splash | Adaptive icon + Android 12 splash + animated `LumiqSplash`, same brand geometry |
 
 These iPhone-only features are not part of the Android build:

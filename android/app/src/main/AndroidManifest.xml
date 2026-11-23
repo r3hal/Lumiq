@@ -8,8 +8,6 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Optional in-app updates: opens Android's installer for a verified APK from GitHub Releases. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- Golden hour only, requested when you tap "Use my location". -->
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- "Also save to Gallery" on Android 9 and older. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
