@@ -59,6 +59,8 @@ class AIShotRequest(
     val maximumZoom: Double,
     /** Rules learned from Lumiq users' results (see AIShotLearning); may be empty. */
     val guidance: List<String> = emptyList(),
+    /** The photographer zooms the lens by hand (Sony): the app cannot zoom, but the crop may still be tighter. */
+    val zoomsByHand: Boolean = false,
 )
 
 /** Pure parsing and validation, shared with unit tests. Mirrors ai-server/src/index.js. */
@@ -69,7 +71,8 @@ object AIShotLogic {
             "clear subject with a clean composition: crop out clutter, empty floor, cut-off objects and distracting edges. A tighter, " +
             "intentional crop usually beats the full view. If the full view is already best, return the whole frame.\n" +
             "The viewfinder shape is ${fmt(r.aspect, 2)}:1 (width:height). Current zoom ${fmt(r.zoom, 1)}x; you may zoom in at most " +
-            "${fmt(r.maximumZoom / r.zoom, 1)}x more.\n" +
+            "${fmt(r.maximumZoom / r.zoom, 1)}x more" +
+            (if (r.zoomsByHand) " (this is a camera whose lens the photographer zooms by hand)" else "") + ".\n" +
             "Return JSON only: {\"subject\": \"2-5 lowercase words\", \"tip\": \"one imperative photographer instruction, max 9 words\", " +
             "\"technique\": \"rule of thirds|centered|leading lines|symmetry|negative space|framing|fill the frame|layers|detail\", " +
             "\"box_2d\": [ymin, xmin, ymax, xmax] ideal photo crop, integers 0-1000, \"confidence\": 0-1}" +

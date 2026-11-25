@@ -516,6 +516,7 @@ class SonyRemoteCamera(context: Context) {
         override val minimumZoom = 1.0
         override val maximumZoom = 1.0
         override fun setZoom(value: Double, animated: Boolean) = Unit
+        override val zoomsByHand = true
         override suspend fun snapshot(): CameraSnapshot? {
             val jpeg = latestJpeg ?: return null
             return withContext(Dispatchers.Default) {

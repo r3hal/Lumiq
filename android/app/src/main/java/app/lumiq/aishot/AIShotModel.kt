@@ -25,6 +25,11 @@ interface AIShotCamera {
     val minimumZoom: Double
     val maximumZoom: Double
     fun setZoom(value: Double, animated: Boolean = true)
+    /**
+     * True when the app cannot zoom this camera and the photographer zooms the lens by hand (a Sony over Wi-Fi).
+     * AI Shot may then still pick a tighter crop: it guides the aim, then asks for the lens zoom.
+     */
+    val zoomsByHand: Boolean get() = false
     /** The current visible viewfinder as a ≤768 px JPEG plus the tracking frame. */
     suspend fun snapshot(): CameraSnapshot?
     /** Attaches the tracker to the analysis stream (null detaches it). */
@@ -119,11 +124,11 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         haptics.soft()
         val zoom = camera.zoom
         val minimum = camera.minimumZoom
-        val maximum = min(camera.maximumZoom, 6.0)
+        val maximum = if (camera.zoomsByHand) zoom * HAND_ZOOM_LIMIT else min(camera.maximumZoom, 6.0)
         job = scope.launch {
             try {
                 val snapshot = camera.snapshot() ?: run { fail(AIShotError.NoFrame.userMessage); return@launch }
-                val request = AIShotRequest(snapshot.jpeg, previewAspect, zoom, minimum, max(zoom, maximum), learning?.guidance.orEmpty())
+                val request = AIShotRequest(snapshot.jpeg, previewAspect, zoom, minimum, max(zoom, maximum), learning?.guidance.orEmpty(), camera.zoomsByHand)
                 startZoom = zoom; aspect = previewAspect
                 val result = withContext(Dispatchers.IO) { service.suggest(request) }
                 ensureActive()
@@ -245,6 +250,14 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
                 phase = Phase.Ready; instruction = s.tip; direction = null
                 if (readyAt == null) readyAt = now
                 haptics.medium()
+                val handZoom = s.zoom / max(0.01, camera.zoom)
+                if (camera.zoomsByHand && handZoom > 1.1) {
+                    // Centered; the rest is the lens zoom, which changes the picture under the tracker.
+                    // Keep Ready and the AI's crop until the photo is taken instead of losing the target.
+                    instruction = handZoomInstruction(handZoom, s.tip)
+                    tracker.stop(); token = -1
+                    targetPinned = true
+                }
             }
         } else {
             centeredSince = null
@@ -263,6 +276,11 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
         if (now - lastGuidanceChange <= 0.25 && direction != null) return
         direction = Vec(dx / length, dy / length)
         lastGuidanceChange = now
+    }
+
+    private fun handZoomInstruction(ratio: Double, tip: String): String {
+        val zoom = String.format(java.util.Locale.US, "%.1f", ratio)
+        return if (tip.isBlank()) "Zoom the lens in about ${zoom}×, then shoot." else "Zoom the lens in about ${zoom}×. $tip"
     }
 
     private fun resetSmoothing(rect: NRect, time: Double = Double.NaN) {
@@ -300,6 +318,9 @@ class AIShotModel(private val config: AIShotConfig, private val haptics: Haptics
     }
 
     companion object {
+        /** How far a hand-zoomed lens (Sony) is assumed to zoom in from where it is. */
+        const val HAND_ZOOM_LIMIT = 4.0
+
         /** The tracker follows the middle of the shot; a box that fills the view after zooming cannot be tracked itself. */
         fun trackedPart(frame: NRect): NRect {
             val w = max(0.12, frame.width * 0.65)

@@ -32,6 +32,17 @@ class AIShotLogicTest {
         assertEquals(5.0, s.zoom, 1e-9)
     }
 
+    @Test fun handZoomedSonyStillGetsATighterCrop() {
+        // A Sony over Wi-Fi: the app cannot zoom (zoom 1, lens zoomed by hand), but the pick may be tighter.
+        val sony = AIShotRequest(ByteArray(0), 1.5, 1.0, 1.0, 1.0 * AIShotModel.HAND_ZOOM_LIMIT, zoomsByHand = true)
+        assertTrue(AIShotLogic.prompt(sony).contains("zooms by hand"))
+        assertTrue(!AIShotLogic.prompt(request).contains("zooms by hand"))
+        val s = AIShotLogic.parseModelJson("""{"tip":"Fill the frame.","box_2d":[300,300,700,700]}""", sony, "gemini")
+        assertTrue("crop ${s.frame.width}", s.frame.width < 0.6)
+        assertTrue("zoom ${s.zoom}", s.zoom > 1.5 && s.zoom <= AIShotModel.HAND_ZOOM_LIMIT)
+        assertTrue(!AIShotModel.isWholeView(s, 1.0))
+    }
+
     @Test fun nearlyFullViewBecomesFullFrame() {
         val s = AIShotLogic.parseModelJson("""{"box_2d":[0.02,0.03,0.97,0.96]}""", request, "x")
         assertEquals(NRect(0.0, 0.0, 1.0, 1.0), s.frame)
